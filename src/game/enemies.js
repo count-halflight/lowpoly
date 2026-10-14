@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { moveBody, clamp, angleDiff, segPointDist2 } from '../core/collide.js';
+import { moveBody, clamp, angleDiff, segPointDist2, bodyOverlapsAny } from '../core/collide.js';
 import { getTexture } from '../render/textures.js';
 import { psxify } from '../render/renderer.js';
 import { sharedMaterials } from '../render/materials.js';
@@ -937,6 +937,21 @@ export class Enemies {
       room.nav.flow(p.x, p.z);
     }
     for (const e of this.list) if (e.alive) e.update(dt);
+    // safety nets: free enemies wedged inside geometry, and mark stragglers if a fight drags on
+    this.checkT = (this.checkT || 0) - dt;
+    if (this.checkT <= 0 && room) {
+      this.checkT = 1.5;
+      const alive = this.list.filter((e) => e.alive && e.targetable);
+      for (const e of alive) {
+        if (!e.flying && !e.perch && bodyOverlapsAny(e.body, g.level.colliders)) {
+          const k = room.nav.nearestFree(e.pos.x, e.pos.z, 8);
+          if (k >= 0) { const c = room.nav.center(k, { x: 0, z: 0 }); e.pos.set(c.x, 0.05, c.z); e.body.vel.set(0, 0, 0); }
+        }
+      }
+      if (alive.length && alive.length <= 2 && g.time - (this.lastKill || 0) > 12 && room.state === 'combat') {
+        for (const e of alive) g.fx.spawnColumn(e.pos.x, e.pos.y, e.pos.z, 0xff3050, 1.2, 9);
+      }
+    }
     // remove dead (their meshes were handed to the corpse system)
     if (this.list.some((e) => !e.alive)) this.list = this.list.filter((e) => e.alive);
     // shockwaves
@@ -957,7 +972,7 @@ export class Enemies {
     this.timers = this.timers.filter((t) => t.t > 0);
   }
 
-  onKilled() { /* removal happens in update */ }
+  onKilled() { this.lastKill = this.game.time; }
 
   clear() {
     for (const e of this.list) e.remove();

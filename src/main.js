@@ -242,6 +242,7 @@ class Game {
     this.weapons.setTheme(room.theme);
     const regionStart = idx > 1 && (idx - 1) % 5 === 0;
     this.hud.setRoom('ROOM ' + pad2(idx), room.spec.name + (regionStart || idx === 1 ? '  ·  ' + room.theme.name : ''));
+    this.enemies.lastKill = this.time;
     const kind = this.director.beginRoom(room);
     if (kind === 'calm') {
       this.hud.banner('ROOM ' + pad2(idx), room.spec.name + '  ·  SAFE ROOM', '#60ff90');

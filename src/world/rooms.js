@@ -347,7 +347,7 @@ const GEN = {
     s.bossType = bt;
     if (bt === 'grindhammer') {
       // breakable pillars to bait charges into
-      for (const [x, z] of [[-9, -8], [9, -8], [-9, 7], [9, 7], [0, -1]]) pillar(s, x, z, 2.4, H, 'concrete');
+      for (const [x, z] of [[-10, -9], [10, -9], [-10, 6], [10, 6], [-4.5, -1], [4.5, -1]]) pillar(s, x, z, 2.4, H, 'concrete');
       s.props.forEach((p) => { p.breakable = true; });
     } else if (bt === 'vesper') {
       for (const [x, z] of [[-10, -10], [10, -10], [-10, 9], [10, 9]]) platform(s, rng, x - 2.5, z - 2.5, x + 2.5, z + 2.5, 2.4, x < 0 ? 'east' : 'west');

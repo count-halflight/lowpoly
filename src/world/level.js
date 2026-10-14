@@ -611,6 +611,7 @@ export class Level {
     const rng = new RNG(hashSeed(this.seed, 'arch', index));
     const avail = COMBAT_ARCHES.filter((a) => {
       if (index <= 2 && (a === 'gallery' || a === 'movers' || a === 'mezzanine')) return false;
+      if (index === 1 && a === 'reactor') return false; // keep the first fight free of hazards
       return true;
     });
     return rng.weighted(avail, (a) => {

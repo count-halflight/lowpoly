@@ -374,6 +374,7 @@ class Vesper extends Boss {
     this.armL = box(0.2, 0.9, 0.2, dark, -0.6, 0.2, 0.2);
     this.armR = box(0.2, 0.9, 0.2, dark, 0.6, 0.2, 0.2);
     this.rig.add(this.armL, this.armR);
+    this.rig.scale.setScalar(1.4);
     this.group.add(this.rig);
     this.pos.y = 3;
     this.hoverY = 3;
@@ -383,9 +384,9 @@ class Vesper extends Boss {
   hitboxes() {
     const p = this.pos;
     this.hbs = [
-      { x: p.x, y: p.y + 0.4, z: p.z, r: 0.85, mul: 1 },
-      { x: p.x, y: p.y + 1.4, z: p.z, r: 0.42, mul: 2.2, weak: true },
-      { x: p.x, y: p.y - 0.4, z: p.z, r: 0.5, mul: 0.9 },
+      { x: p.x, y: p.y + 0.56, z: p.z, r: 1.15, mul: 1 },
+      { x: p.x, y: p.y + 1.96, z: p.z, r: 0.55, mul: 2.2, weak: true },
+      { x: p.x, y: p.y - 0.56, z: p.z, r: 0.7, mul: 0.9 },
     ];
     return this.hbs;
   }
@@ -720,7 +721,7 @@ class Scythewright extends Boss {
   constructor(game, room, tier) {
     super(game, room, 'scythewright', tier);
     this.setHp(2300);
-    const body = M(0x6a3a6a, 'panel'), dark = M(0x1a0c1a, 'gun'), glow = G(0xff3df0), blade = M(0xd8d0e0, 'gun');
+    const body = M(0x9a5a9a, 'panel'), dark = M(0x2a1430, 'gun'), glow = G(0xff3df0), blade = M(0xe8e0f0, 'gun');
     this.rig = new THREE.Group();
     this.legs = [];
     for (const s of [-1, 1]) {
@@ -746,8 +747,9 @@ class Scythewright extends Boss {
       this.torso.add(arm); this.arms.push(arm);
     }
     this.rig.add(this.torso);
+    this.rig.scale.setScalar(1.3);
     this.group.add(this.rig);
-    this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 0.9, h: 3.3, grounded: true, step: 0.4 };
+    this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 1.1, h: 4.3, grounded: true, step: 0.4 };
     this.combo = 0;
     this.finish();
   }
@@ -755,10 +757,10 @@ class Scythewright extends Boss {
     const p = this.pos, s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     const hot = this.state === 'overheat' || this.state === 'stuck';
     this.hbs = [
-      { x: p.x, y: p.y + 2.3, z: p.z, r: 0.85, mul: 1 },
-      { x: p.x + s * 0.3, y: p.y + 2.3, z: p.z + c * 0.3, r: 0.4, mul: hot ? 3 : 1.4, weak: hot },
-      { x: p.x, y: p.y + 3.3, z: p.z, r: 0.45, mul: 1.6, weak: true },
-      { x: p.x, y: p.y + 0.9, z: p.z, r: 0.6, mul: 0.8 },
+      { x: p.x, y: p.y + 3.0, z: p.z, r: 1.1, mul: 1 },
+      { x: p.x + s * 0.4, y: p.y + 3.0, z: p.z + c * 0.4, r: 0.52, mul: hot ? 3 : 1.4, weak: hot },
+      { x: p.x, y: p.y + 4.3, z: p.z, r: 0.58, mul: 1.6, weak: true },
+      { x: p.x, y: p.y + 1.15, z: p.z, r: 0.8, mul: 0.8 },
     ];
     return this.hbs;
   }
@@ -847,8 +849,8 @@ class Scythewright extends Boss {
         if (this.stateT <= 0) { this.state = 'idle'; this.stateT = (0.9 + Math.random() * 0.6) * this.cdMul; this.torso.rotation.x = 0; }
         break;
     }
-    this.pushPlayer(1.4);
-    this.clampArena(1.5);
+    this.pushPlayer(1.7);
+    this.clampArena(1.8);
   }
   animate() {
     const s = this.stride || 0;

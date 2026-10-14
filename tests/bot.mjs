@@ -120,6 +120,8 @@ let last = -1;
 while (Date.now() - t0 < 25 * 60 * 1000) {
   await page.waitForTimeout(3000);
   const s = await page.evaluate(() => { const g = window.__vg; return { state: g.state, room: g.level.current.index, rs: g.level.current.state, hp: Math.round(g.player.hp), kills: g.run.kills, dmg: Math.round(g.run.damageTaken), enemies: g.enemies.aliveCount, boss: g.bosses.active ? Math.round(g.bosses.active.hp) : null, assists: window.__bot.assists, owned: g.weapons.owned.length, ups: g.upgrades.taken.length, err: g.lastError }; });
+  const extra = await page.evaluate(() => { const g = window.__vg; return g.enemies.list.filter((e) => e.alive).map((e) => `${e.type}${e.perch ? '(perch)' : ''}@${e.pos.x.toFixed(0)},${e.pos.y.toFixed(1)},${e.pos.z.toFixed(0)} hp${Math.round(e.hp)} see${e.canSee ? 1 : 0} st=${e.state}`).join(' | ') + ' || player ' + g.player.body.pos.toArray().map((v) => v.toFixed(1)).join(','); });
+  if (Date.now() - (globalThis.lastPrint || 0) > 20000) { globalThis.lastPrint = Date.now(); console.log('  ...', JSON.stringify(s), extra); }
   if (s.room !== last) { console.log(JSON.stringify(s)); last = s.room; await page.screenshot({ path: `${OUT}room-${String(s.room).padStart(2, '0')}.png` }); }
   if (s.err) { console.log('ERROR', s.err); break; }
   if (s.state === 'dead') {
