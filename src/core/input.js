@@ -1,0 +1,266 @@
+// Unified input: keyboard + mouse (pointer lock) and independent multi-touch controls.
+// Every touch is tracked by pointerId so movement, aiming and firing work simultaneously.
+
+const KEYMAP = {
+  KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
+  Space: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', ControlLeft: 'slide', KeyC: 'slide', KeyF: 'punch', KeyV: 'punch',
+  KeyR: 'reload', KeyQ: 'lastWeapon', KeyE: 'ads', Escape: 'pause', KeyP: 'pause', Enter: 'confirm',
+};
+const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm']);
+
+export class Input {
+  constructor(settings, canvas) {
+    this.settings = settings;
+    this.canvas = canvas;
+    this.held = Object.create(null);
+    this.pressed = Object.create(null);
+    this.lookDX = 0; this.lookDY = 0;
+    this.moveX = 0; this.moveY = 0; // analog from touch
+    this.fire = false; this.firePressed = false;
+    this.ads = false;
+    this.slot = -1; this.wheel = 0;
+    this.locked = false;
+    this.enabled = false; // gameplay input active
+    this.usingTouch = false;
+    this.touchSprint = false;
+    this.onPauseRequest = null;
+    this.onLockLost = null;
+    this.wantLock = false;
+    this.lockTime = 0;
+    this.bindKeyboardMouse();
+  }
+
+  bindKeyboardMouse() {
+    window.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT')) return;
+      const a = KEYMAP[e.code];
+      if (e.code.startsWith('Digit')) {
+        const n = parseInt(e.code.slice(5), 10);
+        if (n >= 1 && n <= 9) this.slot = n - 1;
+      }
+      if (a) {
+        if (!this.held[a] && EDGE.has(a)) this.pressed[a] = true;
+        if (a === 'slide' && !this.held[a]) this.pressed.slideTap = true;
+        if (a === 'ads') this.ads = true;
+        this.held[a] = true;
+        if (a !== 'pause' || this.enabled) e.preventDefault();
+      }
+      if (e.code === 'Tab') e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => {
+      const a = KEYMAP[e.code];
+      if (a) this.held[a] = false;
+      if (a === 'ads') this.ads = false;
+    });
+    window.addEventListener('blur', () => this.releaseAll());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.releaseAll(); });
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (this.usingTouch) return;
+      if (!this.locked) { if (this.enabled) this.requestLock(); return; }
+      if (e.button === 0) { this.fire = true; this.firePressed = true; }
+      if (e.button === 2) this.ads = true;
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.fire = false;
+      if (e.button === 2) this.ads = false;
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!this.locked) return;
+      // Chrome can emit one bogus huge delta right after pointer lock engages; drop it
+      if (performance.now() - this.lockTime < 120) return;
+      const mx = e.movementX || 0, my = e.movementY || 0;
+      if (Math.abs(mx) > 400 || Math.abs(my) > 400) return;
+      const dx = mx, dy = my;
+      const s = 0.0022 * this.settings.get('mouseSens') * (this.ads ? 0.6 : 1);
+      this.lookDX += dx * s;
+      this.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
+    });
+    window.addEventListener('wheel', (e) => { if (this.enabled) this.wheel += Math.sign(e.deltaY); }, { passive: true });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('pointerlockchange', () => {
+      const was = this.locked;
+      this.locked = document.pointerLockElement === this.canvas;
+      if (this.locked && !was) this.lockTime = performance.now();
+      if (was && !this.locked) {
+        this.releaseAll();
+        if (this.onLockLost) this.onLockLost();
+      }
+    });
+  }
+
+  requestLock() {
+    if (this.usingTouch) return;
+    try {
+      const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
+      if (p && p.catch) p.catch(() => { try { this.canvas.requestPointerLock(); } catch { /* ignore */ } });
+    } catch { try { this.canvas.requestPointerLock(); } catch { /* ignore */ } }
+  }
+  exitLock() { if (document.pointerLockElement) document.exitPointerLock(); }
+
+  releaseAll() {
+    for (const k in this.held) this.held[k] = false;
+    this.fire = false; this.ads = false;
+    this.moveX = 0; this.moveY = 0;
+    this.touchSprint = false;
+    if (this.touch) this.touch.reset();
+  }
+
+  // Called once per frame by the game after reading input.
+  endFrame() {
+    for (const k in this.pressed) this.pressed[k] = false;
+    this.lookDX = 0; this.lookDY = 0;
+    this.firePressed = false;
+    this.slot = -1; this.wheel = 0;
+  }
+
+  axis() {
+    let x = this.moveX, y = this.moveY;
+    if (this.held.right) x += 1;
+    if (this.held.left) x -= 1;
+    if (this.held.fwd) y += 1;
+    if (this.held.back) y -= 1;
+    const l = Math.hypot(x, y);
+    if (l > 1) { x /= l; y /= l; }
+    return { x, y };
+  }
+
+  isHeld(a) { return !!this.held[a]; }
+  wasPressed(a) { return !!this.pressed[a]; }
+  press(a) { this.pressed[a] = true; }
+}
+
+// ---------------------------------------------------------------------------------------
+// Touch controls
+// ---------------------------------------------------------------------------------------
+export class TouchControls {
+  constructor(input, root, settings) {
+    this.input = input;
+    this.root = root;
+    this.settings = settings;
+    this.pointers = new Map(); // pointerId -> {role, x, y, ...}
+    this.build();
+    this.applyLayout();
+    settings.onChange((k) => { if (k === 'leftHanded' || k === 'buttonScale' || k === '*') this.applyLayout(); });
+  }
+
+  build() {
+    const r = this.root;
+    r.innerHTML = `
+      <div class="tc-zone tc-move" data-role="move"></div>
+      <div class="tc-zone tc-look" data-role="look"></div>
+      <div class="tc-stick"><div class="tc-knob"></div></div>
+      <button class="tc-btn tc-fire" data-act="fire"><span>FIRE</span></button>
+      <button class="tc-btn tc-jump" data-act="jump"><span>JUMP</span></button>
+      <button class="tc-btn tc-dash" data-act="dash"><span>DASH</span></button>
+      <button class="tc-btn tc-slide" data-act="slide"><span>SLIDE</span></button>
+      <button class="tc-btn tc-punch" data-act="punch"><span>PARRY</span></button>
+      <button class="tc-btn tc-reload" data-act="reload"><span>RLD</span></button>
+      <button class="tc-btn tc-ads" data-act="ads"><span>AIM</span></button>
+      <button class="tc-btn tc-swap" data-act="swap"><span>SWAP</span></button>
+      <button class="tc-btn tc-pause" data-act="pause"><span>II</span></button>
+    `;
+    this.stick = r.querySelector('.tc-stick');
+    this.knob = r.querySelector('.tc-knob');
+    const opts = { passive: false };
+    r.querySelectorAll('[data-role],[data-act]').forEach((el) => {
+      el.addEventListener('pointerdown', (e) => this.down(e, el), opts);
+      el.addEventListener('pointermove', (e) => this.move(e), opts);
+      el.addEventListener('pointerup', (e) => this.up(e), opts);
+      el.addEventListener('pointercancel', (e) => this.up(e), opts);
+      el.addEventListener('lostpointercapture', (e) => this.up(e), opts);
+    });
+    r.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  applyLayout() {
+    this.root.classList.toggle('lefty', !!this.settings.get('leftHanded'));
+    this.root.style.setProperty('--btn-scale', this.settings.get('buttonScale'));
+  }
+
+  down(e, el) {
+    e.preventDefault();
+    this.input.usingTouch = true;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const role = el.dataset.role || null;
+    const act = el.dataset.act || null;
+    const p = { role, act, el, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
+    this.pointers.set(e.pointerId, p);
+    const inp = this.input;
+    if (role === 'move') {
+      const rect = this.stick.getBoundingClientRect();
+      p.cx = e.clientX; p.cy = e.clientY;
+      this.stick.style.left = (e.clientX - rect.width / 2) + 'px';
+      this.stick.style.top = (e.clientY - rect.height / 2) + 'px';
+      this.stick.classList.add('active');
+    }
+    if (act) {
+      el.classList.add('down');
+      if (act === 'fire') { inp.fire = true; inp.firePressed = true; }
+      else if (act === 'jump') inp.press('jump');
+      else if (act === 'dash') { inp.press('dash'); inp.touchSprint = true; }
+      else if (act === 'slide') { inp.held.slide = true; inp.press('slideTap'); }
+      else if (act === 'punch') inp.press('punch');
+      else if (act === 'reload') inp.press('reload');
+      else if (act === 'ads') inp.ads = !inp.ads;
+      else if (act === 'swap') inp.press('lastWeapon');
+      else if (act === 'pause') inp.press('pause');
+    }
+  }
+
+  move(e) {
+    const p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    e.preventDefault();
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    const inp = this.input;
+    if (p.role === 'move') {
+      const max = 60 * (this.settings.get('buttonScale') || 1);
+      let ox = e.clientX - p.cx, oy = e.clientY - p.cy;
+      const l = Math.hypot(ox, oy);
+      if (l > max) { ox = ox / l * max; oy = oy / l * max; }
+      this.knob.style.transform = `translate(${ox}px, ${oy}px)`;
+      const nx = ox / max, ny = -oy / max;
+      // small deadzone with rescale
+      const m = Math.hypot(nx, ny);
+      const dz = 0.12;
+      const k = m < dz ? 0 : (m - dz) / (1 - dz) / m;
+      inp.moveX = nx * k; inp.moveY = ny * k;
+      inp.stickSprint = m > 0.95;
+    } else if (p.role === 'look' || p.act === 'fire') {
+      const s = 0.0055 * this.settings.get('touchSens') * (inp.ads ? 0.55 : 1);
+      inp.lookDX += dx * s;
+      inp.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
+    }
+  }
+
+  up(e) {
+    const p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    this.pointers.delete(e.pointerId);
+    const inp = this.input;
+    if (p.role === 'move') {
+      inp.moveX = 0; inp.moveY = 0; inp.stickSprint = false;
+      this.knob.style.transform = '';
+      this.stick.classList.remove('active');
+      this.stick.style.left = ''; this.stick.style.top = '';
+    }
+    if (p.act) {
+      p.el.classList.remove('down');
+      if (p.act === 'fire') {
+        // only release fire if no other pointer is still holding fire
+        let still = false;
+        for (const q of this.pointers.values()) if (q.act === 'fire') still = true;
+        if (!still) inp.fire = false;
+      } else if (p.act === 'slide') inp.held.slide = false;
+      else if (p.act === 'dash') inp.touchSprint = false;
+    }
+  }
+
+  reset() {
+    for (const p of this.pointers.values()) if (p.el) p.el.classList.remove('down');
+    this.pointers.clear();
+    this.knob.style.transform = '';
+    this.stick.classList.remove('active');
+  }
+}

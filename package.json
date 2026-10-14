@@ -1,0 +1,22 @@
+{
+  "name": "voltgrave",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --mode single",
+    "preview": "vite preview",
+    "test": "node tests/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0",
+    "@fontsource/oswald": "5.1.0",
+    "@fontsource/share-tech-mono": "5.1.0"
+  },
+  "devDependencies": {
+    "vite": "5.4.11",
+    "vite-plugin-singlefile": "2.0.3"
+  }
+}
