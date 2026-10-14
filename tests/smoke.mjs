@@ -175,11 +175,12 @@ try {
 
   // death + restart
   await page.evaluate(() => { const g = window.__vg; g.debug.god(false); g.player.stats.maxHp = 100; g.player.stats.phoenix = 0; g.player.stats.shieldMax = 0; g.player.shield = 0; g.player.hp = 1; g.player.invuln = 0; g.player.damage(50, null, 'TEST', 'This is a test.'); });
-  await sleep(2000);
+  await page.waitForFunction(() => window.__vg.state === 'dead', null, { timeout: 20000 }).catch(() => {});
   if ((await page.evaluate(() => window.__vg.state)) !== 'dead') fail('death screen not shown');
   await page.screenshot({ path: SHOTS + '91-dead.png' });
   await page.keyboard.press('KeyR');
-  await sleep(600);
+  await page.waitForFunction(() => window.__vg.state === 'playing', null, { timeout: 10000 }).catch(() => {});
+  await sleep(300);
   i = await info();
   if (i.state !== 'playing' || i.room !== 0 || i.hp !== 100) fail('restart failed: ' + JSON.stringify(i));
   console.log('restart ok');
@@ -191,7 +192,9 @@ try {
   await mp.goto(`http://localhost:${PORT}/`);
   await mp.waitForFunction(() => window.__vg && window.__vg.debug);
   await mp.tap('[data-a="start"]');
+  await mp.waitForFunction(() => window.__vg.state === 'playing', null, { timeout: 10000 });
   await mp.waitForTimeout(800);
+  await mp.screenshot({ path: SHOTS + '81-mobile-lobby.png' });
   // simultaneous touches: move stick + hold fire, via CDP multi-touch
   const cdp = await ctx.newCDPSession(mp);
   const tp = (id, x, y) => ({ x, y, id, radiusX: 4, radiusY: 4, force: 1 });
@@ -202,11 +205,12 @@ try {
   await mp.waitForTimeout(300);
   const both = await mp.evaluate(() => ({ move: window.__vg.input.moveY, fire: window.__vg.input.fire, touch: window.__vg.input.usingTouch, z: window.__vg.player.body.pos.z }));
   // lift only the fire finger: movement must continue
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [tp(1, 150, 240)] });
+  // CDP touchEnd lists the point(s) being released
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [tp(2, fireBox.x + fireBox.width / 2, fireBox.y + fireBox.height / 2)] });
   await mp.waitForTimeout(150);
   const after = await mp.evaluate(() => ({ move: window.__vg.input.moveY, fire: window.__vg.input.fire }));
   await mp.screenshot({ path: SHOTS + '80-mobile.png' });
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [tp(1, 150, 240)] });
   console.log('multitouch:', JSON.stringify(both), '-> after lifting fire finger:', JSON.stringify(after));
   if (!(both.move > 0.5 && both.fire)) fail('simultaneous move+fire touch failed');
   if (!(after.move > 0.5 && !after.fire)) fail('lifting one finger affected the other touch');

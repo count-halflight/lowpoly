@@ -460,8 +460,10 @@ class Game {
       this.contextHints();
       if (this.state === 'dying') {
         this.deathT -= realDt;
-        this.camera.position.y -= (1 - Math.max(0, this.deathT)) * 0.02;
-        this.camera.rotation.z += realDt * 0.4;
+        const k = Math.min(1, 1 - this.deathT / 1.2);
+        this.camera.position.y -= k * k * 1.2;
+        this.camera.rotation.z += k * 0.5;
+        this.camera.rotation.x -= k * 0.3;
         if (this.deathT <= 0) this.finishDeath();
       }
     } else {

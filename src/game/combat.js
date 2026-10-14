@@ -99,7 +99,6 @@ export class Combat {
     const head = info.part === 'head';
     if (head) mul *= (info.headMul || 2) * g.player.stats.headMul;
     if (e.elite) mul *= g.player.stats.elitesMul;
-    if (info.source !== 'enemy') mul *= g.player.stats.dmgMul > 0 ? 1 : 1;
     // type-specific armour (e.g. Bulwark front shield)
     const armor = e.armorFactor ? e.armorFactor(info) : 1;
     let amount = dmg * mul * armor;
@@ -165,6 +164,8 @@ export class Combat {
     else if (g.player.stats.healOnKill) g.player.heal(g.player.stats.healOnKill);
     g.run.kills++;
     g.audio.play('kill', e.pos, 0.9);
+    g.addShake(e.elite || e.heavy ? 0.2 : 0.07);
+    if (head || e.elite || e.heavy) g.hitstop(e.elite || e.heavy ? 0.06 : 0.03);
     if (info.source === 'explosion' || (info.knock && info.knock > 9) || head) g.audio.play('gib', e.pos, 0.6);
     e.die(info);
     g.pickups.onEnemyKilled(e);

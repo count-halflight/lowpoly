@@ -24,7 +24,7 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 #boot.gone { display: none; }
 
 /* ---------------------------------------------------------------- HUD */
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; opacity: 0; transition: opacity 0.3s; font-family: var(--display); }
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 13; opacity: 0; transition: opacity 0.3s; font-family: var(--display); }
 #hud.on { opacity: 1; }
 .hud-top { position: absolute; top: calc(10px + var(--safe-t)); left: calc(12px + var(--safe-l)); right: calc(12px + var(--safe-r)); display: flex; justify-content: flex-end; align-items: flex-start; gap: 18px; }
 .alert { margin-right: auto; margin-left: 30%; padding: 2px 26px; font-weight: 700; font-size: 18px; letter-spacing: 0.08em; color: #fff;
@@ -153,37 +153,41 @@ body.touch.playing #touch { display: block; }
 .tc-knob { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; background: rgba(62, 240, 208, 0.55); border: 2px solid var(--cyan); }
 .tc-btn { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); background: rgba(8, 10, 14, 0.45); color: #fff; font-family: var(--display); font-size: calc(12px * var(--btn-scale)); letter-spacing: 0.05em; touch-action: none; padding: 0; display: grid; place-items: center; }
 .tc-btn.down { background: rgba(62, 240, 208, 0.45); border-color: var(--cyan); }
-.tc-fire { width: calc(96px * var(--btn-scale)); height: calc(96px * var(--btn-scale)); right: calc(118px + var(--safe-r)); bottom: calc(118px + var(--safe-b)); border-color: rgba(255, 48, 80, 0.8); font-size: calc(16px * var(--btn-scale)); }
+.tc-fire { width: calc(96px * var(--btn-scale)); height: calc(96px * var(--btn-scale)); right: calc(112px + var(--safe-r)); bottom: calc(100px + var(--safe-b)); border-color: rgba(255, 48, 80, 0.8); font-size: calc(16px * var(--btn-scale)); }
 .tc-fire.down { background: rgba(255, 48, 80, 0.45); }
-.tc-jump { width: calc(70px * var(--btn-scale)); height: calc(70px * var(--btn-scale)); right: calc(24px + var(--safe-r)); bottom: calc(96px + var(--safe-b)); }
-.tc-dash { width: calc(62px * var(--btn-scale)); height: calc(62px * var(--btn-scale)); right: calc(100px + var(--safe-r)); bottom: calc(30px + var(--safe-b)); }
-.tc-slide { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(176px + var(--safe-r)); bottom: calc(24px + var(--safe-b)); }
-.tc-punch { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(226px + var(--safe-r)); bottom: calc(110px + var(--safe-b)); border-color: rgba(255, 226, 58, 0.7); }
-.tc-reload { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(30px + var(--safe-r)); bottom: calc(186px + var(--safe-b)); }
-.tc-ads { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(150px + var(--safe-r)); bottom: calc(222px + var(--safe-b)); }
-.tc-swap { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(86px + var(--safe-r)); bottom: calc(232px + var(--safe-b)); }
+.tc-jump { width: calc(70px * var(--btn-scale)); height: calc(70px * var(--btn-scale)); right: calc(22px + var(--safe-r)); bottom: calc(86px + var(--safe-b)); }
+.tc-dash { width: calc(62px * var(--btn-scale)); height: calc(62px * var(--btn-scale)); right: calc(104px + var(--safe-r)); bottom: calc(18px + var(--safe-b)); }
+.tc-slide { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(186px + var(--safe-r)); bottom: calc(14px + var(--safe-b)); }
+.tc-punch { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(222px + var(--safe-r)); bottom: calc(100px + var(--safe-b)); border-color: rgba(255, 226, 58, 0.7); }
+.tc-reload { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(34px + var(--safe-r)); bottom: calc(172px + var(--safe-b)); }
+.tc-ads { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(166px + var(--safe-r)); bottom: calc(210px + var(--safe-b)); }
+.tc-swap { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(100px + var(--safe-r)); bottom: calc(210px + var(--safe-b)); }
 .tc-pause { width: 40px; height: 40px; left: calc(12px + var(--safe-l)); top: calc(10px + var(--safe-t)); border-radius: 6px; font-size: 14px; }
 body.touch .hud-top { left: calc(64px + var(--safe-l)); }
-body.touch .ammo { bottom: auto; top: calc(96px + var(--safe-t)); }
-body.touch .ammo .ammo-num { font-size: 40px; }
+body.touch .ammo { bottom: auto; top: calc(54px + var(--safe-t)); }
+body.touch .weapons { margin-bottom: 2px; }
+body.touch .ammo-name { font-size: 12px; }
+body.touch .reload { width: 120px; margin-left: auto; }
+body.touch .ammo .ammo-num { font-size: 32px; }
+body.touch .ammo .hp-slash.r { font-size: 32px; }
 body.touch .hp .hp-num, body.touch .hp .hp-slash { font-size: 40px; }
 body.touch .hp { bottom: auto; top: calc(56px + var(--safe-t)); }
 body.touch .hp-shield { width: 150px; }
 body.touch .stylebox { top: calc(130px + var(--safe-t)); transform: scale(0.85); transform-origin: left top; }
 body.touch .uplink { top: calc(170px + var(--safe-t)); }
-body.touch .hint { bottom: auto; top: 18%; }
+body.touch .hint { bottom: auto; top: 27%; font-size: 11px; max-width: 54vw; }
 /* left-handed mirror */
 #touch.lefty .tc-move { left: auto; right: 0; }
 #touch.lefty .tc-look { right: auto; left: 0; }
 #touch.lefty .tc-btn:not(.tc-pause) { right: auto; }
-#touch.lefty .tc-fire { left: calc(118px + var(--safe-l)); }
-#touch.lefty .tc-jump { left: calc(24px + var(--safe-l)); }
-#touch.lefty .tc-dash { left: calc(100px + var(--safe-l)); }
-#touch.lefty .tc-slide { left: calc(176px + var(--safe-l)); }
-#touch.lefty .tc-punch { left: calc(226px + var(--safe-l)); }
-#touch.lefty .tc-reload { left: calc(30px + var(--safe-l)); }
-#touch.lefty .tc-ads { left: calc(150px + var(--safe-l)); }
-#touch.lefty .tc-swap { left: calc(86px + var(--safe-l)); }
+#touch.lefty .tc-fire { left: calc(112px + var(--safe-l)); }
+#touch.lefty .tc-jump { left: calc(22px + var(--safe-l)); }
+#touch.lefty .tc-dash { left: calc(104px + var(--safe-l)); }
+#touch.lefty .tc-slide { left: calc(186px + var(--safe-l)); }
+#touch.lefty .tc-punch { left: calc(222px + var(--safe-l)); }
+#touch.lefty .tc-reload { left: calc(34px + var(--safe-l)); }
+#touch.lefty .tc-ads { left: calc(166px + var(--safe-l)); }
+#touch.lefty .tc-swap { left: calc(100px + var(--safe-l)); }
 #touch.lefty .tc-stick { left: auto; right: calc(70px + var(--safe-r)); }
 #touch.lefty .tc-pause { left: auto; right: calc(12px + var(--safe-r)); }
 
@@ -270,3 +274,5 @@ body.touch .hint { bottom: auto; top: 18%; }
   .bossbar { top: calc(54px + var(--safe-t)); }
   .objective { top: calc(46px + var(--safe-t)); font-size: 11px; }
 }
+
+body.touch .weapons .w { padding: 5px 8px; font-size: 11px; }

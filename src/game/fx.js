@@ -234,7 +234,7 @@ export class FX {
     this.tracers = new Tracers(scene, 64);
     this.decals = new Decals(scene, mobile ? 96 : 160);
     const box = new THREE.BoxGeometry(1, 1, 1);
-    box.translate(0, 0, -0.5); // so scale.z = length along -z (lookAt)
+    box.translate(0, 0, 0.5); // mesh.lookAt aims +Z at the target, so the beam spans +Z from its origin
     this.beams = new MeshPool(scene, box, () => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 24);
     const ico = new THREE.IcosahedronGeometry(1, 1);
     this.balls = new MeshPool(scene, ico, () => psxify(new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })), 16);
