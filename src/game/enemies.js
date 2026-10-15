@@ -56,7 +56,7 @@ function part(w, h, d, mat, px, py, pz, ox = 0, oy = 0, oz = 0) {
 // ---------------------------------------------------------------------------------------
 // Base enemy
 // ---------------------------------------------------------------------------------------
-class Enemy {
+export class Enemy {
   constructor(game, type, pos, opts) {
     this.game = game;
     this.type = type;
@@ -180,6 +180,7 @@ class Enemy {
     if (!this.flying) b.vel.y -= 25 * dt;
     const before = this.pos.clone();
     moveBody(b, b.vel.x * dt, b.vel.y * dt, b.vel.z * dt, this.game.level.colliders);
+    if (!this.flying) this.game.level.applyEnemyProps(this, dt);
     if (this.perch) {
       this.pos.x = clamp(this.pos.x, this.perch.wx0, this.perch.wx1);
       this.pos.z = clamp(this.pos.z, this.perch.wz0, this.perch.wz1);
@@ -945,7 +946,7 @@ export class Enemies {
       for (const e of alive) {
         if (!e.flying && !e.perch && bodyOverlapsAny(e.body, g.level.colliders)) {
           const k = room.nav.nearestFree(e.pos.x, e.pos.z, 8);
-          if (k >= 0) { const c = room.nav.center(k, { x: 0, z: 0 }); e.pos.set(c.x, 0.05, c.z); e.body.vel.set(0, 0, 0); }
+          if (k >= 0) { const c = room.nav.center(k, { x: 0, z: 0 }); e.pos.set(c.x, room.floorAt(c.x, c.z) + 0.05, c.z); e.body.vel.set(0, 0, 0); }
         }
       }
       if (alive.length && alive.length <= 2 && g.time - (this.lastKill || 0) > 12 && room.state === 'combat') {
@@ -972,7 +973,7 @@ export class Enemies {
     this.timers = this.timers.filter((t) => t.t > 0);
   }
 
-  onKilled() { this.lastKill = this.game.time; }
+  onKilled(e) { this.lastKill = this.game.time; if (e) { this.game.director.onKill(e); this.game.emit('kill', e); } }
 
   clear() {
     for (const e of this.list) e.remove();

@@ -233,6 +233,22 @@ const SFX = {
   laser(a, o, t) { a.tone(o, t, 0.6, 'sawtooth', 220, 230, 0.25, 0.05); },
   zap(a, o, t) { a.noise(o, t, 0.12, 'highpass', 3000, 1, 0.001, 0.5); a.tone(o, t, 0.1, 'square', 90, 60, 0.4); },
   sizzle(a, o, t) { a.noise(o, t, 0.15, 'highpass', 5000, 1, 0.005, 0.25); },
+  coin(a, o, t) { a.tone(o, t, 0.25, 'triangle', 2600, 3400, 0.25); a.tone(o, t + 0.04, 0.2, 'triangle', 3900, 3900, 0.12); },
+  ricochet(a, o, t) { a.tone(o, t, 0.35, 'triangle', 3200, 900, 0.4); a.tone(o, t, 0.12, 'square', 1800, 600, 0.2); a.noise(o, t, 0.08, 'highpass', 5000, 1, 0.001, 0.4); },
+  saw(a, o, t) { a.tone(o, t, 0.5, 'sawtooth', 900, 1300, 0.2); a.noise(o, t, 0.4, 'bandpass', 4000, 2, 0.01, 0.3); },
+  stick(a, o, t) { a.noise(o, t, 0.06, 'bandpass', 1200, 3, 0.001, 0.5); a.tone(o, t, 0.06, 'square', 300, 200, 0.2); },
+  hook(a, o, t) { a.tone(o, t, 0.25, 'sawtooth', 300, 1600, 0.25); a.noise(o, t, 0.15, 'highpass', 3000, 1, 0.001, 0.3); },
+  emp(a, o, t) { a.tone(o, t, 0.8, 'sine', 1200, 60, 0.7); a.noise(o, t, 0.6, 'bandpass', 2500, 0.8, 0.002, 0.7, 200); a.tone(o, t, 0.3, 'square', 80, 40, 0.5); },
+  terminal(a, o, t) { for (let i = 0; i < 4; i++) a.tone(o, t + i * 0.05, 0.04, 'square', 900 + (i % 2) * 400, 900 + (i % 2) * 400, 0.12); },
+  type(a, o, t) { a.tone(o, t, 0.02, 'square', 1400 + Math.random() * 300, 1400, 0.05); },
+  sting(a, o, t) { a.tone(o, t, 1.6, 'sawtooth', 55, 52, 0.5, 0.02); a.tone(o, t, 1.6, 'sawtooth', 82, 80, 0.35, 0.02); a.noise(o, t, 1.4, 'lowpass', 400, 2, 0.02, 0.6, 80); a.tone(o, t + 0.05, 0.6, 'square', 880, 440, 0.12); },
+  miniSting(a, o, t) { a.tone(o, t, 0.6, 'sawtooth', 110, 90, 0.4, 0.01); a.tone(o, t, 0.25, 'square', 660, 330, 0.15); a.noise(o, t, 0.4, 'lowpass', 900, 1, 0.01, 0.4, 100); },
+  levelClear(a, o, t) { [523, 659, 784, 1046, 1318].forEach((f, i) => a.tone(o, t + i * 0.08, 0.6, 'square', f, f, 0.1)); a.tone(o, t, 1.0, 'triangle', 130, 130, 0.3); },
+  rank(a, o, t) { a.tone(o, t, 0.5, 'square', 220, 880, 0.2); a.noise(o, t, 0.3, 'lowpass', 2000, 1, 0.001, 0.6, 200); },
+  pad(a, o, t) { a.tone(o, t, 0.4, 'sine', 200, 900, 0.5); a.noise(o, t, 0.2, 'bandpass', 1500, 1, 0.001, 0.3); },
+  barrel(a, o, t) { a.noise(o, t, 0.06, 'bandpass', 1500, 4, 0.001, 0.5); a.tone(o, t, 0.08, 'square', 180, 120, 0.3); },
+  glitch(a, o, t) { for (let i = 0; i < 5; i++) a.tone(o, t + i * 0.03, 0.03, 'square', 200 + Math.random() * 3000, 200, 0.1); },
+  heartbeat(a, o, t) { a.tone(o, t, 0.15, 'sine', 70, 40, 0.8); a.tone(o, t + 0.22, 0.15, 'sine', 65, 38, 0.6); },
   death(a, o, t) {
     a.tone(o, t, 1.6, 'sawtooth', 300, 30, 0.6);
     a.noise(o, t, 1.2, 'lowpass', 1200, 1, 0.01, 0.8, 60);

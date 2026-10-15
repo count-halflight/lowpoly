@@ -35,6 +35,30 @@ export const THEMES = [
     light: 0xc0d0ff, floorTex: 'grate', wallTex: 'panel', hazard: 'electric',
   },
   {
+    id: 'cryo', name: 'COLD STORAGE',
+    wall: 0x8aa8bc, floor: 0x9ab0c0, trim: 0x2a3440, prop: 0x7a8a96, accent: 0x9ff0ff, accent2: 0xff4060,
+    lamp: 0xe8f8ff, fog: 0x0a121a, fogNear: 9, fogFar: 56, sky: 0x8ab0d0, ground: 0x1a2430, hemi: 1.15,
+    light: 0xd8f0ff, floorTex: 'tile', wallTex: 'panel', hazard: 'coolant',
+  },
+  {
+    id: 'slaughter', name: 'SLAUGHTERWORKS',
+    wall: 0x8a5a58, floor: 0x6a5450, trim: 0x2a1414, prop: 0x7a5a50, accent: 0xff3030, accent2: 0xffd060,
+    lamp: 0xffd8c8, fog: 0x140606, fogNear: 9, fogFar: 54, sky: 0xa06060, ground: 0x2a0a0a, hemi: 1.15,
+    light: 0xffb0a0, floorTex: 'tile', wallTex: 'panel', hazard: 'molten',
+  },
+  {
+    id: 'choir', name: 'THE CHOIR',
+    wall: 0x7a6a8a, floor: 0x6a5a5a, trim: 0x2a1a2a, prop: 0x6a4a3a, accent: 0xffd060, accent2: 0xa080ff,
+    lamp: 0xfff0c8, fog: 0x0e0a12, fogNear: 10, fogFar: 60, sky: 0x9a80a8, ground: 0x1a1018, hemi: 1.15,
+    light: 0xffe0b0, floorTex: 'tile', wallTex: 'panel', hazard: 'electric',
+  },
+  {
+    id: 'core', name: 'THE CORE',
+    wall: 0x50545e, floor: 0x3a3e48, trim: 0x101216, prop: 0x5a5e6a, accent: 0x3ef0d0, accent2: 0xff3050,
+    lamp: 0xf0ffff, fog: 0x030406, fogNear: 9, fogFar: 58, sky: 0x6a7a90, ground: 0x08090c, hemi: 1.1,
+    light: 0xc8fff4, floorTex: 'grate', wallTex: 'panel', hazard: 'electric',
+  },
+  {
     id: 'breach', name: 'THE BREACH',
     wall: 0x6a3a6a, floor: 0x4a3a52, trim: 0x2a1030, prop: 0x5a2a4a, accent: 0xff3df0, accent2: 0x7affe0,
     lamp: 0xffc0f0, fog: 0x0e040e, fogNear: 8, fogFar: 54, sky: 0x8a4a8a, ground: 0x1a061a, hemi: 1.2,

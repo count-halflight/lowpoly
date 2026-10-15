@@ -24,6 +24,7 @@ export class Projectiles {
     game.scene.add(this.glow);
     this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.s = new THREE.Vector3(); this.tmp = new THREE.Vector3();
     this.d = new THREE.Vector3();
+    this.dark = new THREE.Color(0.25, 0.25, 0.28);
   }
 
   alloc() {
@@ -58,6 +59,9 @@ export class Projectiles {
     p.marker = opts.marker || null;
     p.spin = Math.random() * 6;
     p.trail = opts.trail !== false;
+    p.bounces = opts.kind === 'saw' ? 3 : (opts.bounces || 0);
+    p.hitMap = null;
+    p.stuck = false; p.stuckTo = null;
     return p;
   }
 
@@ -109,6 +113,11 @@ export class Projectiles {
     return best;
   }
 
+  kill(p) {
+    p.active = false;
+    if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; }
+  }
+
   clear() {
     for (const p of this.list) {
       if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; }
@@ -131,6 +140,12 @@ export class Projectiles {
         const to = this.tmp.set(pcx - p.pos.x, pcy - p.pos.y, pcz - p.pos.z).normalize();
         const sp = p.vel.length();
         p.vel.normalize().lerp(to, Math.min(1, p.homing * dt)).normalize().multiplyScalar(sp);
+      }
+      if (p.stuck) {
+        if (p.stuckTo) { if (p.stuckTo.alive) p.pos.copy(p.stuckTo.centerPos()).add(p.stuckOff); else p.stuckTo = null; }
+        if (Math.random() < 0.15) g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0.5, 0, 1, 0.2, 0.1, 1, 0.1, 0.2, 0, 0);
+        this.render(p, i++, dt);
+        continue;
       }
       p.vel.y -= p.gravity * dt;
       p.prev.copy(p.pos);
@@ -162,15 +177,27 @@ export class Projectiles {
           const c = e.centerPos();
           const rr = e.radius + p.r + 0.15;
           if (segPointDist2(p.prev.x, p.prev.y, p.prev.z, p.pos.x, p.pos.y, p.pos.z, c.x, c.y, c.z) < rr * rr * 1.6) {
+            if (p.kind === 'saw') {
+              if (!p.hitMap) p.hitMap = new Map();
+              if ((p.hitMap.get(e) || 0) < g.time) { p.hitMap.set(e, g.time + 0.25); g.combat.damageEnemy(e, p.dmg, { source: 'hitscan', point: p.pos.clone(), dir: d.clone(), knock: 2, stagger: 0.2, quiet: true }); g.fx.blood(p.pos, d, 0.6, e.bloodColor); }
+              continue;
+            }
+            if (p.kind === 'sticky') { p.stuck = true; p.stuckTo = e; p.stuckOff = p.pos.clone().sub(c).multiplyScalar(0.6); p.vel.set(0, 0, 0); g.audio.play('stick', p.pos, 0.6); break; }
             if (p.explode) this.detonate(p, e);
             else g.combat.damageEnemy(e, p.dmg, { source: p.parried ? 'parry' : 'projectile', point: p.pos.clone(), dir: d.clone(), knock: 6, stagger: 0.4 });
             consumed = true; break;
           }
         }
+        if (p.stuck) { this.render(p, i++, dt); continue; }
         const boss = g.bosses.active;
         if (!consumed && boss && boss.alive && len > 0) {
           for (const hb of boss.hitboxes()) {
             const t = raySphere(p.prev.x, p.prev.y, p.prev.z, d.x, d.y, d.z, hb.x, hb.y, hb.z, hb.r + p.r, len + 0.01);
+            if (t >= 0 && p.kind === 'saw') {
+              if ((p.bossHitT || 0) < g.time) { p.bossHitT = g.time + 0.2; g.combat.damageBoss(boss, p.dmg, { source: 'hitscan', part: hb, point: p.pos.clone(), quiet: true }); }
+              break;
+            }
+            if (t >= 0 && p.kind === 'sticky') { p.stuck = true; p.vel.set(0, 0, 0); break; }
             if (t >= 0) {
               if (p.explode) this.detonate(p, null, hb);
               else g.combat.damageBoss(boss, p.dmg, { source: p.parried ? 'parry' : 'projectile', part: hb, point: p.pos.clone() });
@@ -180,35 +207,56 @@ export class Projectiles {
           }
         }
       }
+      if (!consumed && hitWorld && p.bounces > 0) {
+        p.bounces--;
+        p.pos.copy(p.prev).addScaledVector(d, Math.max(0, hitWorld.t - 0.05));
+        const n = new THREE.Vector3(hitWorld.nx, hitWorld.ny, hitWorld.nz);
+        p.vel.addScaledVector(n, -2 * p.vel.dot(n));
+        g.fx.sparksBurst(p.pos, 0xc8f8ff, 6, 5, 0.2);
+        g.audio.play('ricochet', p.pos, 0.5);
+        this.render(p, i++, dt);
+        continue;
+      }
+      if (!consumed && hitWorld && p.kind === 'sticky' && !p.stuck) {
+        p.pos.copy(p.prev).addScaledVector(d, Math.max(0, hitWorld.t - 0.05));
+        p.stuck = true; p.vel.set(0, 0, 0);
+        g.audio.play('stick', p.pos, 0.6);
+        this.render(p, i++, dt);
+        continue;
+      }
       if (!consumed && hitWorld) {
         p.pos.copy(p.prev).addScaledVector(d, Math.max(0, hitWorld.t - 0.05));
+        if (hitWorld.box.tag === 'barrel' && hitWorld.box.ref) g.level.hitBarrel(hitWorld.box.ref);
         if (p.explode) this.detonate(p, null);
         else g.fx.impact(p.pos, new THREE.Vector3(hitWorld.nx, hitWorld.ny, hitWorld.nz), 'energy', 0.6);
         consumed = true;
       }
       if (consumed) { p.active = false; if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; } this.hide(i++); continue; }
-      // trail
       if (p.trail && Math.random() < (g.lowPower ? 0.35 : 0.7)) {
         g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0, 0, p.color.r * 0.8, p.color.g * 0.8, p.color.b * 0.8, 1, p.size * 1.4, 0.15, 0, 0);
       }
-      // render
-      p.spin += dt * 8;
-      this.q.setFromAxisAngle(this.tmp.set(0.3, 1, 0.2).normalize(), p.spin);
-      const s = p.size;
-      this.s.set(s, s, s);
-      this.m.compose(p.pos, this.q, this.s);
-      this.mesh.setMatrixAt(i, this.m);
-      this.mesh.setColorAt(i, p.kind === 'grenade' ? new THREE.Color(0.25, 0.25, 0.28) : p.color);
-      this.s.set(s * 2.2, s * 2.2, s * 2.2);
-      this.m.compose(p.pos, this.q, this.s);
-      this.glow.setMatrixAt(i, this.m);
-      this.glow.setColorAt(i, p.color);
-      i++;
+      this.render(p, i++, dt);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.glow.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     if (this.glow.instanceColor) this.glow.instanceColor.needsUpdate = true;
+  }
+
+  render(p, i, dt) {
+    p.spin += dt * (p.kind === 'saw' ? 40 : 8);
+    if (p.kind === 'saw') this.q.setFromAxisAngle(this.tmp.set(0, 1, 0), p.spin);
+    else this.q.setFromAxisAngle(this.tmp.set(0.3, 1, 0.2).normalize(), p.spin);
+    const s = p.size;
+    if (p.kind === 'saw') this.s.set(s * 1.6, s * 0.25, s * 1.6); else this.s.set(s, s, s);
+    this.m.compose(p.pos, this.q, this.s);
+    this.mesh.setMatrixAt(i, this.m);
+    this.mesh.setColorAt(i, p.kind === 'grenade' || p.kind === 'sticky' ? this.dark : p.color);
+    const gs = p.stuck ? s * (2 + Math.sin(this.game.time * 20) * 0.6) : s * 2.2;
+    this.s.set(gs, gs, gs);
+    this.m.compose(p.pos, this.q, this.s);
+    this.glow.setMatrixAt(i, this.m);
+    this.glow.setColorAt(i, p.color);
   }
 
   hide(i) {

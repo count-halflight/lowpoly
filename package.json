@@ -11,9 +11,9 @@
     "test": "node tests/smoke.mjs"
   },
   "dependencies": {
-    "three": "0.170.0",
-    "@fontsource/oswald": "5.1.0",
-    "@fontsource/share-tech-mono": "5.1.0"
+    "@fontsource/libre-caslon-condensed": "^5.3.1",
+    "@fontsource/vt323": "^5.3.0",
+    "three": "0.170.0"
   },
   "devDependencies": {
     "vite": "5.4.11",

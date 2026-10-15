@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { GeoBuilder, FACES } from './builder.js';
 import { generateSpec, COMBAT_ARCHES } from './rooms.js';
 import { THEMES, themeMaterials, sharedMaterials } from '../render/materials.js';
-import { makeBox } from '../core/collide.js';
+import { makeBox, moveBody } from '../core/collide.js';
 import { RNG, hashSeed } from '../core/rng.js';
 import { psxify } from '../render/renderer.js';
+import { getTexture } from '../render/textures.js';
+import { buildKit, graffitiCanvas, terminalCanvas } from './kits.js';
+import { GRAFFITI } from '../data/lore.js';
 
 const DOOR_W = 3, DOOR_H = 3.6, WALL_T = 1, CORR_L = 8, CORR_HW = 2, CORR_H = 4.4;
 
@@ -36,6 +39,16 @@ export class NavGrid {
         // only block if cell centre is within padded box (more precise than the overlap)
         const cx = this.ox + (i + 0.5) * this.cell, cz = this.oz + (j + 0.5) * this.cell;
         if (cx > b.minX - pad && cx < b.maxX + pad && cz > b.minZ - pad && cz < b.maxZ + pad) this.blocked[j * this.nx + i] = 1;
+      }
+    }
+    // permanent hazard pools are off limits unless a low walkway covers them
+    for (const h of this.room.hazards) {
+      if (h.on || h.dyn) continue;
+      for (let j = 0; j < this.nz; j++) for (let i = 0; i < this.nx; i++) {
+        const cx = this.ox + (i + 0.5) * this.cell, cz = this.oz + (j + 0.5) * this.cell;
+        if (cx < h.wx0 - 0.3 || cx > h.wx1 + 0.3 || cz < h.wz0 - 0.3 || cz > h.wz1 + 0.3) continue;
+        const covered = colliders.some((b) => b.active && b.maxY >= 0.2 && b.maxY <= 0.46 && cx > b.minX + 0.2 && cx < b.maxX - 0.2 && cz > b.minZ + 0.2 && cz < b.maxZ - 0.2);
+        if (!covered) this.blocked[j * this.nx + i] = 1;
       }
     }
     // border cells are too close to walls
@@ -119,8 +132,15 @@ export class NavGrid {
 // --------------------------------------------------------------------------------------
 
 export class Room {
-  constructor(level, index, spec, origin, theme, hasCorridor) {
+  constructor(level, index, spec, origin, theme, hasCorridor, ctx = {}) {
     this.level = level;
+    this.ctx = ctx;
+    this.cond = ctx.cond || 'none';
+    this.pads = [];
+    this.conveyors = [];
+    this.barrels = [];
+    this.terminals = [];
+    this.dynHazards = 0;
     this.game = level.game;
     this.index = index;
     this.spec = spec;
@@ -251,7 +271,7 @@ export class Room {
         continue;
       }
       gb.box(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, m, { tint, faces: 63 & ~FACES.NY });
-      this.addCollider(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, { surface: p.surface || 'metal', nav: true });
+      this.addCollider(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, { surface: p.surface || 'metal', nav: !p.noNav });
       if (p.trimTop) gb.box(p.x0 - 0.04, p.y1, p.z0 - 0.04, p.x1 + 0.04, p.y1 + 0.08, p.z1 + 0.04, M.trim, { faces: 63 & ~FACES.NY });
       if (p.platform) {
         // railing posts + edge accent
@@ -291,9 +311,32 @@ export class Room {
     }
     for (const r of s.rugs) gb.box(r.x - r.w / 2, 0, r.z - r.d / 2, r.x + r.w / 2, 0.02, r.z + r.d / 2, M.rug, { faces: FACES.PY, uvScale: 0.5 });
     for (const sc of s.screens) {
-      gb.box(sc.x, 1.4, sc.z - 1.2, sc.x + 0.06, 2.6, sc.z + 1.2, M.trim);
-      gb.box(sc.x + 0.06, 1.5, sc.z - 1.1, sc.x + 0.08, 2.5, sc.z + 1.1, M.screen, { faces: FACES.PX, uvScale: 2.2 });
+      if (sc.side === 'east') {
+        gb.box(sc.x - 0.06, 1.4, sc.z - 1.2, sc.x, 2.6, sc.z + 1.2, M.trim);
+        gb.box(sc.x - 0.08, 1.5, sc.z - 1.1, sc.x - 0.06, 2.5, sc.z + 1.1, M.screen, { faces: FACES.NX, uvScale: 2.2 });
+      } else {
+        gb.box(sc.x, 1.4, sc.z - 1.2, sc.x + 0.06, 2.6, sc.z + 1.2, M.trim);
+        gb.box(sc.x + 0.06, 1.5, sc.z - 1.1, sc.x + 0.08, 2.5, sc.z + 1.1, M.screen, { faces: FACES.PX, uvScale: 2.2 });
+      }
     }
+    // stratum dressing kit
+    for (const k of s.kit) buildKit(this, gb, M, k, rng);
+    // launch pad bases
+    for (const pd of s.pads) {
+      gb.cylinder(pd.x, 0.06, pd.z, 1.25, 0.12, 'y', 8, M.trim, { tint: 0.7 });
+      gb.cylinder(pd.x, 0.125, pd.z, 1.0, 0.01, 'y', 8, M.hazard, { caps: true });
+    }
+    // terminals: a slanted console against the wall
+    for (const t of s.terminals) {
+      const side = t.x < 0 ? -1 : 1;
+      const x0 = side < 0 ? -W / 2 : W / 2 - 0.7, x1 = side < 0 ? -W / 2 + 0.7 : W / 2;
+      gb.box(x0, 0, t.z - 0.55, x1, 1.0, t.z + 0.55, M.trim, { tint: 0.75 });
+      gb.box(side < 0 ? -W / 2 : W / 2 - 0.25, 1.0, t.z - 0.55, side < 0 ? -W / 2 + 0.25 : W / 2, 1.7, t.z + 0.55, M.trim, { tint: 0.6 });
+      gb.box(side < 0 ? -W / 2 + 0.7 : W / 2 - 0.72, 0.1, t.z - 0.3, side < 0 ? -W / 2 + 0.72 : W / 2 - 0.7, 0.3, t.z + 0.3, M.accent, { faces: side < 0 ? FACES.PX : FACES.NX });
+      this.addCollider(x0, 0, t.z - 0.55, x1, 1.0, t.z + 0.55, { surface: 'metal', nav: true });
+    }
+    // bridges/walkways without railings
+    for (const p of s.props) if (p.platformFlat) gb.box(p.x0, p.y1, p.z0, p.x1, p.y1 + 0.04, p.z1, M.grate, { faces: FACES.PY, tint: 1.15 });
 
     // corridor connecting the previous room's exit to this entrance
     if (this.hasCorridor) {
@@ -321,23 +364,7 @@ export class Room {
     this.disposables.push(...built.geos);
 
     // hazards (separate animated material)
-    for (const h of s.hazards) {
-      const color = h.type === 'electric' ? 0x40a0ff : h.type === 'molten' ? 0xff6a10 : 0x50ff70;
-      const mat = psxify(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }));
-      const g = new THREE.BoxGeometry(h.x1 - h.x0, 0.05, h.z1 - h.z0);
-      const mesh = new THREE.Mesh(g, mat);
-      mesh.position.set((h.x0 + h.x1) / 2, 0.025, (h.z0 + h.z1) / 2);
-      this.group.add(mesh);
-      this.disposables.push(g, mat);
-      // hazard stripe borders
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(h.x1 - h.x0, 0.06, 0.25), sharedMaterials().door);
-      b1.position.set((h.x0 + h.x1) / 2, 0.03, h.z0 - 0.125);
-      const b2 = b1.clone(); b2.position.z = h.z1 + 0.125;
-      this.group.add(b1, b2);
-      this.disposables.push(b1.geometry);
-      this.hazards.push({ ...h, mesh, mat, color: new THREE.Color(color), active: !h.on, warn: false,
-        wx0: this.wx(h.x0), wx1: this.wx(h.x1), wz0: this.wz(h.z0), wz1: this.wz(h.z1) });
-    }
+    for (const h of s.hazards) this.addHazard(h);
     // sliders (moving cover)
     for (const sl of s.sliders) {
       const g = new THREE.BoxGeometry(sl.w, sl.h, sl.d);
@@ -368,9 +395,135 @@ export class Room {
       this.sweepers.push({ ...sw, beam, angle: 0, hitCd: 0 });
     }
 
+    this.buildFeatures(rng);
+
     // doors
     this.entrance = this.makeDoor(s.entX, D / 2 + T / 2, 'entrance', -1);
     s.exits.forEach((ex, i) => { this.exitDoors.push(this.makeDoor(ex, -D / 2 - T / 2, 'exit', i)); });
+  }
+
+  addHazard(h) {
+    const color = h.type === 'electric' ? 0x40a0ff : h.type === 'molten' ? 0xff6a10 : 0x50ff70;
+    const mat = psxify(new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    const g = new THREE.BoxGeometry(h.x1 - h.x0, 0.05, h.z1 - h.z0);
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.position.set((h.x0 + h.x1) / 2, 0.025 + (h.dyn ? 0.01 : 0), (h.z0 + h.z1) / 2);
+    this.group.add(mesh);
+    this.disposables.push(g, mat);
+    // hazard stripe borders
+    const b1 = new THREE.Mesh(new THREE.BoxGeometry(h.x1 - h.x0, 0.06, 0.25), sharedMaterials().door);
+    b1.position.set((h.x0 + h.x1) / 2, 0.03, h.z0 - 0.125);
+    const b2 = new THREE.Mesh(b1.geometry, b1.material); b2.position.set(b1.position.x, 0.03, h.z1 + 0.125);
+    this.group.add(b1, b2);
+    this.disposables.push(b1.geometry);
+    const hz = { ...h, mesh, mat, color: new THREE.Color(color), active: !h.on, warn: false,
+      wx0: this.wx(h.x0), wx1: this.wx(h.x1), wz0: this.wz(h.z0), wz1: this.wz(h.z1) };
+    this.hazards.push(hz);
+    return hz;
+  }
+
+  // Pads, conveyors, barrels, terminals, graffiti: separate meshes (animated or removable)
+  buildFeatures(rng) {
+    const s = this.spec, lv = this.level;
+    for (const pd of s.pads) {
+      const glow = new THREE.Mesh(lv.padGlowGeo, lv.padGlowMat);
+      glow.position.set(pd.x, 0.14, pd.z);
+      const beam = new THREE.Mesh(lv.padBeamGeo, lv.padBeamMat);
+      beam.position.set(pd.x, 1.4, pd.z);
+      this.group.add(glow, beam);
+      this.pads.push({ ...pd, wx: this.wx(pd.x), wz: this.wz(pd.z), cd: 0, beam });
+    }
+    for (const c of s.conveyors) {
+      const len = c.x1 - c.x0, dep = c.z1 - c.z0;
+      const tex = lv.conveyorTex.clone();
+      tex.needsUpdate = true;
+      tex.repeat.set((c.dx >= 0 ? 1 : -1) * len / 2, Math.max(1, Math.round(dep / 2)));
+      const mat = psxify(new THREE.MeshLambertMaterial({ map: tex, color: 0x9a9aa0 }));
+      const geo = new THREE.PlaneGeometry(len, dep);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set((c.x0 + c.x1) / 2, 0.015, (c.z0 + c.z1) / 2);
+      this.group.add(mesh);
+      this.disposables.push(geo, mat, tex);
+      this.conveyors.push({ ...c, tex, wx0: this.wx(c.x0), wx1: this.wx(c.x1), wz0: this.wz(c.z0), wz1: this.wz(c.z1), speed: Math.hypot(c.dx, c.dz) * 16 });
+    }
+    for (const b of s.barrels) {
+      const mesh = new THREE.Mesh(lv.barrelGeo, lv.barrelMat);
+      const band = new THREE.Mesh(lv.barrelBandGeo, sharedMaterials().door);
+      band.position.y = 0.15;
+      mesh.add(band);
+      mesh.position.set(b.x, 0.6, b.z);
+      mesh.rotation.y = rng.next() * 3;
+      this.group.add(mesh);
+      const col = this.addCollider(b.x - 0.42, 0, b.z - 0.42, b.x + 0.42, 1.2, b.z + 0.42, { surface: 'metal', nav: false, tag: 'barrel' });
+      const br = { room: this, mesh, col, alive: true, pos: new THREE.Vector3(this.wx(b.x), 0.6, this.wz(b.z)), fuse: -1 };
+      col.ref = br;
+      this.barrels.push(br);
+    }
+    for (const t of s.terminals) {
+      const side = t.x < 0 ? -1 : 1;
+      const read = lv.game.codex ? lv.game.codex.has(t.id) : false;
+      const c = terminalCanvas(read);
+      const tex = new THREE.CanvasTexture(c);
+      tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+      const mat = new THREE.MeshBasicMaterial({ map: tex });
+      const geo = new THREE.PlaneGeometry(0.9, 0.62);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(side * (s.W / 2 - 0.26), 1.38, t.z);
+      mesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      this.group.add(mesh);
+      this.disposables.push(geo, mat, tex);
+      this.terminals.push({ id: t.id, pos: new THREE.Vector3(this.wx(side * (s.W / 2 - 1.0)), 0, this.wz(t.z)), mesh, tex, read, side });
+    }
+    for (const gf of s.graffiti) {
+      const text = GRAFFITI[gf.idx % GRAFFITI.length];
+      const c = graffitiCanvas(text, gf.idx);
+      const tex = new THREE.CanvasTexture(c);
+      tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, depthWrite: false, opacity: 0.9 });
+      const geo = new THREE.PlaneGeometry(2.8, 1.05);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(gf.side * (s.W / 2 - 0.03), gf.y, gf.z);
+      mesh.rotation.set(0, gf.side < 0 ? Math.PI / 2 : -Math.PI / 2, gf.rot);
+      this.group.add(mesh);
+      this.disposables.push(geo, mat, tex);
+    }
+  }
+
+  // Highest walkable surface under a world point (ignores walls / ceilings / doors).
+  floorAt(x, z) {
+    let y = 0;
+    const H = this.spec.H - 0.05;
+    for (const b of this.colliders) {
+      if (!b.active || b.tag === 'door' || b.maxY >= H || b.maxY <= y || b.minY > 0.3) continue;
+      if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) y = b.maxY;
+    }
+    return y;
+  }
+
+  // Boss gimmicks add hazard zones mid-fight (electric pulses, rising slag).
+  addDynamicHazards(type, n) {
+    const g = this.game, s = this.spec;
+    if (this.dynHazards >= 10) return;
+    const pp = g.player.body.pos;
+    let placed = 0;
+    for (let tries = 0; tries < 60 && placed < n; tries++) {
+      const w = type === 'molten' ? 4.5 : 3.5;
+      const x = (Math.random() - 0.5) * (s.W - w - 4), z = (Math.random() - 0.5) * (s.D - w - 8);
+      if (Math.hypot(this.wx(x) - pp.x, this.wz(z) - pp.z) < w + 2) continue;
+      if (this.hazards.some((h) => x + w / 2 > h.x0 - 1 && x - w / 2 < h.x1 + 1 && z + w / 2 > h.z0 - 1 && z - w / 2 < h.z1 + 1)) continue;
+      if (Math.hypot(x - s.entX, z - s.D / 2) < 5) continue;
+      const h = type === 'electric'
+        ? { type, x0: x - w / 2, z0: z - w / 2, x1: x + w / 2, z1: z + w / 2, on: 1.6, off: 2.4, phase: Math.random() * 4, dps: 30, dyn: true }
+        : { type, x0: x - w / 2, z0: z - w / 2, x1: x + w / 2, z1: z + w / 2, dps: 26, dyn: true };
+      const hz = this.addHazard(h);
+      hz.grow = 0;
+      hz.mesh.scale.set(0.01, 1, 0.01);
+      this.dynHazards++;
+      placed++;
+      g.fx.telegraphDisc(this.wx(x), 0.05, this.wz(z), w * 0.6, type === 'electric' ? 0x40a0ff : 0xff6a10, 0.9);
+    }
+    if (placed) g.audio.play(type === 'electric' ? 'zap' : 'sizzle', null, 0.8);
   }
 
   makeDoor(x, z, kind, index) {
@@ -425,6 +578,7 @@ export class Room {
 
   update(dt, player) {
     this.time += dt;
+    this.updateFeatures(dt);
     for (const d of this.doors) {
       const prev = d.open;
       d.open += Math.sign(d.target - d.open) * Math.min(Math.abs(d.target - d.open), dt * 3.2);
@@ -434,6 +588,12 @@ export class Room {
     }
     // hazards
     for (const h of this.hazards) {
+      if (h.grow !== undefined && h.grow < 1) {
+        h.grow = Math.min(1, h.grow + dt * 1.1);
+        h.mesh.scale.set(h.grow, 1, h.grow);
+        h.wx0 = this.wx(h.x0 + (h.x1 - h.x0) * (1 - h.grow) / 2); h.wx1 = this.wx(h.x1 - (h.x1 - h.x0) * (1 - h.grow) / 2);
+        h.wz0 = this.wz(h.z0 + (h.z1 - h.z0) * (1 - h.grow) / 2); h.wz1 = this.wz(h.z1 - (h.z1 - h.z0) * (1 - h.grow) / 2);
+      }
       if (h.on) {
         const cyc = h.on + h.off;
         const t = (this.time + h.phase) % cyc;
@@ -478,6 +638,14 @@ export class Room {
         sw.hitCd = 0.6;
         this.game.player.damage(18, { x: p.x - dzb, z: p.z + dxb }, 'SWEEPER BEAM', 'Jump over the red sweeper beam.');
       }
+    }
+  }
+
+  updateFeatures(dt) {
+    for (const c of this.conveyors) c.tex.offset.x -= c.speed * dt / 2;
+    for (const p of this.pads) { p.cd -= dt; p.beam.scale.y = 0.8 + 0.2 * Math.sin(this.time * 6 + p.x); }
+    for (const b of this.barrels) {
+      if (b.alive && b.fuse >= 0) { b.fuse -= dt; b.mesh.position.y = 0.6 + Math.random() * 0.04; if (b.fuse < 0) this.level.explodeBarrel(b); }
     }
   }
 
@@ -539,12 +707,27 @@ export class Level {
     }
     this.hemi = new THREE.HemisphereLight(0x8890c0, 0x201820, 0.9);
     game.scene.add(this.hemi);
+    // shoulder lamp: always in the scene (constant light count avoids shader recompiles)
+    this.playerLight = new THREE.PointLight(0xfff0d8, 0, 16, 1.4);
+    game.scene.add(this.playerLight);
+    this.dark = false; this.darkK = 0;
+    // shared feature resources
+    this.padGlowGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.03, 8);
+    this.padGlowMat = new THREE.MeshBasicMaterial({ color: 0x3ef0d0 });
+    this.padBeamGeo = new THREE.CylinderGeometry(0.8, 1.0, 2.6, 8, 1, true);
+    this.padBeamMat = new THREE.MeshBasicMaterial({ color: 0x3ef0d0, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    this.barrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 8);
+    this.barrelBandGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.22, 8);
+    this.barrelMat = psxify(new THREE.MeshLambertMaterial({ map: getTexture('panel'), color: 0xc02818 }));
+    this.conveyorTex = makeConveyorTexture();
+    this.cond = 'none';
     this.recentArches = [];
     this.disposeQueue = [];
     this.lightFlicker = 0;
   }
 
   reset(seed) {
+    this.setDarkness(false);
     for (const r of this.rooms) r.dispose();
     this.rooms = [];
     this.current = this.next = null;
@@ -566,14 +749,14 @@ export class Level {
 
   // Create a room, validating that entrance, exits and cache spot are mutually reachable.
   createRoom(index, arch, origin, ctx, hasCorridor) {
-    const theme = this.themeFor(index);
+    const theme = ctx.themeObj || this.themeFor(index);
     let room = null;
     for (let attempt = 0; attempt < 6; attempt++) {
       const rng = new RNG(hashSeed(this.seed, index, arch, attempt));
-      const spec = generateSpec(attempt < 5 ? arch : 'arena', rng, { ...ctx, theme });
-      if (attempt === 5) { spec.props = []; spec.cyl = []; spec.sliders = []; }
+      const spec = generateSpec(attempt < 5 ? arch : (arch === 'boss' || arch === 'miniboss' || arch === 'tutorial' ? arch : 'arena'), rng, { ...ctx, theme });
+      if (attempt === 5) { spec.props = spec.props.filter((p) => p.platformFlat); spec.cyl = []; spec.sliders = []; spec.kit = []; }
       const o = origin(spec);
-      room = new Room(this, index, spec, o, theme, hasCorridor);
+      room = new Room(this, index, spec, o, theme, hasCorridor, ctx);
       const nav = room.nav;
       const ex = room.wx(spec.entX), ez = room.wz(spec.D / 2 - 1.5);
       let ok = true;
@@ -581,7 +764,7 @@ export class Level {
       const check = (x, z) => { const k = nav.nearestFree(room.wx(x), room.wz(z), 2); return k >= 0 && nav.dist[k] >= 0; };
       for (const x of spec.exits) if (!check(x, -spec.D / 2 + 1.5)) ok = false;
       if (!check(spec.cachePos.x, spec.cachePos.z)) ok = false;
-      if (ok) break;
+      if (ok || arch === 'tutorial') break;
       room.dispose();
       room = null;
     }
@@ -647,6 +830,7 @@ export class Level {
     if (!scene.fog) scene.fog = new THREE.Fog(t.fog, t.fogNear, t.fogFar);
     scene.fog.color.setHex(t.fog);
     scene.fog.near = t.fogNear; scene.fog.far = t.fogFar + (room.spec.D > 40 ? 15 : 0);
+    if (room.cond === 'fog') { scene.fog.near = 2; scene.fog.far = 26; scene.fog.color.lerp(new THREE.Color(0x8890a0), 0.35); }
     this.hemi.color.setHex(t.sky);
     this.hemi.groundColor.setHex(t.ground);
     this.hemi.intensity = t.hemi;
@@ -694,8 +878,13 @@ export class Level {
           l.color.setHex(0xff2030);
           k *= 0.6 + 0.4 * Math.sin(performance.now() * 0.006);
         } else if (i === 0 && !this.current.spec.redLight) l.color.setHex(this.current.theme.light);
-        l.intensity = base * k;
+        l.intensity = base * k * (1 - this.darkK * 0.82);
       });
+      const wantDark = this.dark || this.current.cond === 'dark';
+      this.darkK += ((wantDark ? 1 : 0) - this.darkK) * Math.min(1, dt * 2);
+      this.playerLight.intensity = this.darkK * 22;
+      if (this.darkK > 0.01) { const cam = g.camera; this.playerLight.position.set(cam.position.x, cam.position.y + 0.2, cam.position.z); }
+      this.hemi.intensity = this.current.theme.hemi * (1 - this.darkK * 0.65);
     }
     // delayed disposal
     for (let i = this.disposeQueue.length - 1; i >= 0; i--) {
@@ -724,6 +913,94 @@ export class Level {
     }
   }
 
+  // Jump pads, conveyor belts and level-wide physics conditions.
+  applyPlayerProps(player, dt) {
+    const room = this.current;
+    const b = player.body;
+    const cond = room ? room.cond : 'none';
+    player.gravityMul = cond === 'lowgrav' ? 0.5 : 1;
+    player.friction = cond === 'ice' ? 0.16 : 1;
+    player.conveyor = null;
+    if (!room) return;
+    for (const r of [room, this.next]) {
+      if (!r) continue;
+      for (const p of r.pads) {
+        if (p.cd > 0) continue;
+        const d = Math.hypot(b.pos.x - p.wx, b.pos.z - p.wz);
+        if (d < 1.15 && b.pos.y < 0.5 && b.vel.y <= 1) {
+          p.cd = 0.5;
+          b.vel.y = p.power * (cond === 'lowgrav' ? 0.75 : 1);
+          b.grounded = false;
+          const hv = Math.hypot(b.vel.x, b.vel.z);
+          if (hv > 2) { b.vel.x *= 1.15; b.vel.z *= 1.15; }
+          player.sliding = false;
+          this.game.audio.play('pad', null, 0.9);
+          this.game.fx.ring(p.wx, 0.2, p.wz, 2.2, 0x3ef0d0, 0.35);
+          player.emit('pad');
+        }
+      }
+    }
+    if (b.grounded && b.pos.y < 0.2) {
+      for (const c of room.conveyors) {
+        if (b.pos.x > c.wx0 && b.pos.x < c.wx1 && b.pos.z > c.wz0 && b.pos.z < c.wz1) {
+          const l = Math.hypot(c.dx, c.dz) || 1;
+          moveBody(b, c.dx / l * c.speed * dt, 0, c.dz / l * c.speed * dt, this.colliders);
+          break;
+        }
+      }
+    }
+    if (this.dark || this.darkK > 0) {
+      const cam = this.game.camera;
+      this.playerLight.position.set(cam.position.x, cam.position.y + 0.2, cam.position.z);
+    }
+  }
+
+  // Enemies on conveyors drift too (cheap: only grounded walkers).
+  applyEnemyProps(e, dt) {
+    const room = this.current;
+    if (!room || !room.conveyors.length || !e.body || !e.body.grounded) return;
+    const p = e.body.pos;
+    for (const c of room.conveyors) {
+      if (p.x > c.wx0 && p.x < c.wx1 && p.z > c.wz0 && p.z < c.wz1) { const l = Math.hypot(c.dx, c.dz) || 1; moveBody(e.body, c.dx / l * c.speed * dt, 0, c.dz / l * c.speed * dt, this.colliders); break; }
+    }
+  }
+
+  hitBarrel(ref) {
+    if (!ref || !ref.alive || ref.fuse >= 0) return;
+    this.explodeBarrel(ref);
+  }
+
+  explodeBarrel(br) {
+    if (!br.alive) return;
+    const g = this.game;
+    br.alive = false;
+    br.col.active = false;
+    br.room.group.remove(br.mesh);
+    const p = br.pos.clone();
+    p.y = 0.8;
+    g.fx.explosion(p, 4.5, 0xff6a20);
+    g.audio.play('barrel', p, 1);
+    g.addShake(0.35);
+    g.combat.radialDamage(p, 5, 120, { source: 'explosion', selfKnock: 18, barrel: true });
+    g.style.add('BARREL', 15, true);
+    g.emit('barrel');
+  }
+
+  // Explosions set off nearby barrels after a short fuse (chain reactions).
+  blastBarrels(pos, radius) {
+    const room = this.current;
+    if (!room) return;
+    for (const b of room.barrels) {
+      if (!b.alive || b.fuse >= 0) continue;
+      if (b.pos.distanceTo(pos) < radius + 0.6) b.fuse = 0.12 + Math.random() * 0.1;
+    }
+  }
+
+  setDarkness(on) {
+    this.dark = on;
+    if (!on) this.playerLight.intensity = 0;
+  }
+
   enterNext() {
     const old = this.current;
     const room = this.next;
@@ -735,4 +1012,18 @@ export class Level {
     this.activate(room);
     this.game.onRoomEnter(room);
   }
+}
+
+function makeConveyorTexture() {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 32;
+  const x = c.getContext('2d');
+  x.fillStyle = '#2a2a30'; x.fillRect(0, 0, 32, 32);
+  x.fillStyle = '#18181c'; for (let i = 0; i < 32; i += 8) x.fillRect(i, 0, 2, 32);
+  x.fillStyle = '#e0b020';
+  x.beginPath(); x.moveTo(10, 6); x.lineTo(22, 16); x.lineTo(10, 26); x.lineTo(14, 26); x.lineTo(26, 16); x.lineTo(14, 6); x.closePath(); x.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+  return t;
 }

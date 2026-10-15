@@ -16,6 +16,12 @@ export const ARCH_NAMES = {
   cache: ['ARMORY', 'MEDBAY', 'SUPPLY CACHE', 'WORKSHOP'],
   reactor: ['CORE ACCESS', 'COOLING TOWER', 'REACTOR RING', 'HEAT SINK'],
   boss: ['ARENA'],
+  pit: ['THE PIT', 'SUMP', 'CAULDRON', 'DRAIN HALL'],
+  bridges: ['CATWALKS', 'GANTRY CROSSING', 'SPILLWAY', 'TRESTLES'],
+  tower: ['UPDRAFT', 'LIFT SHAFT', 'RISER', 'STACK'],
+  hall: ['NAVE', 'PROCESSION', 'COLONNADE', 'GREAT HALL'],
+  miniboss: ['HOLDING PEN', 'CONTAINMENT', 'PROVING CAGE', 'THE RING'],
+  tutorial: ['TRAINING HALL'],
 };
 
 function base(rng, arch, W, D, H) {
@@ -24,6 +30,7 @@ function base(rng, arch, W, D, H) {
     entX: 0, exits: [0],
     props: [], cyl: [], decor: [], hazards: [], sweepers: [], sliders: [], perches: [],
     keepClear: [], lightSpots: [], rugs: [], screens: [],
+    pads: [], conveyors: [], barrels: [], terminals: [], graffiti: [], kit: [],
     cachePos: { x: 0, z: 0 },
   };
 }
@@ -54,6 +61,7 @@ function barrel(s, rng, x, z) {
 }
 function platform(s, rng, x0, z0, x1, z1, h, stairSide = 'south') {
   prop(s, x0, 0, z0, x1, h, z1, 'trim', 'metal', { platform: true, tint: 0.9 });
+  if (stairSide === 'none') { s.perches.push({ x0: x0 + 0.6, z0: z0 + 0.6, x1: x1 - 0.6, z1: z1 - 0.6, y: h }); return; }
   // railing (thin, blocks movement, allows shooting over)
   s.perches.push({ x0: x0 + 0.6, z0: z0 + 0.6, x1: x1 - 0.6, z1: z1 - 0.6, y: h });
   const steps = Math.ceil(h / 0.38);
@@ -341,39 +349,180 @@ const GEN = {
   },
   boss(rng, ctx) {
     const bt = ctx.bossType;
-    const W = bt === 'crucible' ? 40 : 38, D = bt === 'crucible' ? 40 : 40, H = 13;
+    const def = ctx.bossDef || {};
+    const big = bt === 'architect';
+    const W = big ? 52 : bt === 'crucible' ? 40 : 38, D = big ? 54 : 40, H = big ? 20 : 13;
     const s = base(rng, 'boss', W, D, H);
     s.exits = [0];
     s.bossType = bt;
-    if (bt === 'grindhammer') {
-      // breakable pillars to bait charges into
+    const layout = def.arena || (def.gimmick === 'pillars' ? 'pillars' : def.gimmick === 'pylons' ? 'ring' : def.gimmick === 'darkness' ? 'columns' : def.chassis && ['hover', 'orb', 'swarm', 'crystal', 'serpent'].includes(def.chassis) ? 'platforms' : 'cover');
+    if (big) {
+      // the final arena: a ring of low cover and four raised platforms with stairs
+      for (const [x, z] of [[-16, -6], [16, -6], [-16, 12], [16, 12]]) platform(s, rng, x - 3, z - 3, x + 3, z + 3, 2.6, x < 0 ? 'east' : 'west');
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; barrier(s, rng, Math.cos(a) * 9, 6 + Math.sin(a) * 6, 3, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x', 1.2); }
+      s.pads = [{ x: -8, z: 16, power: 15 }, { x: 8, z: 16, power: 15 }];
+      s.cachePos = { x: 0, z: 18 };
+    } else if (bt === 'grindhammer' || layout === 'pillars') {
       for (const [x, z] of [[-10, -9], [10, -9], [-10, 6], [10, 6], [-4.5, -1], [4.5, -1]]) pillar(s, x, z, 2.4, H, 'concrete');
       s.props.forEach((p) => { p.breakable = true; });
-    } else if (bt === 'vesper') {
+    } else if (bt === 'vesper' || layout === 'platforms') {
       for (const [x, z] of [[-10, -10], [10, -10], [-10, 9], [10, 9]]) platform(s, rng, x - 2.5, z - 2.5, x + 2.5, z + 2.5, 2.4, x < 0 ? 'east' : 'west');
       barrier(s, rng, 0, 4, 5, 'x'); barrier(s, rng, 0, -6, 5, 'x');
-    } else if (bt === 'crucible') {
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-        barrier(s, rng, Math.cos(a) * 13, Math.sin(a) * 13, 3, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x', 1.3);
-      }
+      s.pads = [{ x: 0, z: 0, power: 14 }];
+    } else if (bt === 'crucible' || layout === 'ring') {
+      for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + Math.PI / 8; barrier(s, rng, Math.cos(a) * 15, Math.sin(a) * 15, 3, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x', 1.3); }
+    } else if (layout === 'columns') {
+      for (let i = -1; i <= 1; i += 2) for (let k = -2; k <= 2; k++) pillar(s, i * 11, k * 6.5, 1.8, H, 'trim');
+      barrier(s, rng, 0, 0, 6, 'x');
     } else {
-      // scythewright: open arena with walls to bait the lunge into
       for (const [x, z] of [[-11, -9], [11, -9], [-11, 9], [11, 9]]) pillar(s, x, z, 3, H, 'trim');
       barrier(s, rng, -5, 0, 3.5, 'z'); barrier(s, rng, 5, 0, 3.5, 'z');
     }
     lightGrid(s, rng, 3, 3);
-    s.cachePos = { x: 0, z: 8 };
+    if (!big) s.cachePos = { x: 0, z: 8 };
     s.redLight = true;
+    return s;
+  },
+  miniboss(rng) {
+    const W = rng.int(28, 32), D = rng.int(28, 32), H = 10;
+    const s = base(rng, 'miniboss', W, D, H);
+    s.exits = [0];
+    const variant = rng.int(0, 2);
+    if (variant === 0) { for (const [x, z] of [[-7, -6], [7, -6], [-7, 6], [7, 6]]) pillar(s, x, z, 2, H, 'trim'); }
+    else if (variant === 1) { for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; barrier(s, rng, Math.cos(a) * 9, Math.sin(a) * 9, 3, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x'); } }
+    else { platform(s, rng, -W / 2, -4, -W / 2 + 5, 4, 2.4, 'east'); platform(s, rng, W / 2 - 5, -4, W / 2, 4, 2.4, 'west'); barrier(s, rng, 0, 3, 4, 'x'); }
+    lightGrid(s, rng, 3, 3);
+    s.cachePos = { x: 0, z: 6 };
+    s.redLight = true;
+    return s;
+  },
+  pit(rng, ctx) {
+    const W = rng.int(28, 32), D = rng.int(28, 32), H = 9;
+    const s = base(rng, 'pit', W, D, H);
+    s.exits = exitsFor(rng, W, 2);
+    const hz = ctx.theme.hazard === 'electric' ? 'molten' : ctx.theme.hazard;
+    const r = rng.range(5, 7);
+    s.hazards.push({ type: hz, x0: -r, z0: -r, x1: r, z1: r, dps: 34 });
+    // stepping stones across the pit
+    for (let k = -1; k <= 1; k++) prop(s, -1, 0, k * 3.5 - 1, 1, 0.9, k * 3.5 + 1, 'trim', 'metal', { tint: 0.8, trimTop: true });
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + Math.PI / 4; pillar(s, Math.cos(a) * (r + 3.5), Math.sin(a) * (r + 3.5), 1.6, H); }
+    s.pads = [{ x: -(r + 2), z: 0, power: 13 }, { x: r + 2, z: 0, power: 13 }];
+    lightGrid(s, rng, 3, 3);
+    s.cachePos = { x: 0, z: r + 4 };
+    return s;
+  },
+  bridges(rng, ctx) {
+    const W = rng.int(24, 28), D = rng.int(30, 36), H = 9;
+    const s = base(rng, 'bridges', W, D, H);
+    s.exits = exitsFor(rng, W, 2);
+    const hz = ctx.theme.hazard === 'electric' ? 'coolant' : ctx.theme.hazard;
+    // the middle floor is a hazard channel; low grated walkways cross it
+    s.hazards.push({ type: hz, x0: -W / 2, z0: -D / 2 + 5, x1: W / 2, z1: D / 2 - 5, dps: 30 });
+    const y = 0.32;
+    const lanes = rng.pick([[-7, 7], [-9, 0, 9], [-5, 5]]);
+    for (const x of lanes) prop(s, x - 1.4, 0, -D / 2 + 4, x + 1.4, y, D / 2 - 4, 'grate', 'metal', { platformFlat: true });
+    prop(s, -W / 2, 0, -1.3, W / 2, y, 1.3, 'grate', 'metal', { platformFlat: true });
+    if (rng.chance(0.5)) prop(s, -W / 2, 0, -D / 4 - 1.1, W / 2, y, -D / 4 + 1.1, 'grate', 'metal', { platformFlat: true });
+    for (let i = 0; i < 3; i++) crate(s, rng, rng.pick(lanes), rng.range(-D / 2 + 9, D / 2 - 9), 1.1, 1);
+    // gantry towers on the banks for snipers
+    platform(s, rng, -W / 2, -D / 2, -W / 2 + 4, -D / 2 + 4.5, 2.6, 'east');
+    lightGrid(s, rng, 3, 3);
+    s.cachePos = { x: lanes[0], z: D / 2 - 3 };
+    return s;
+  },
+  tower(rng) {
+    const W = rng.int(22, 26), D = rng.int(24, 28), H = 16;
+    const s = base(rng, 'tower', W, D, H);
+    s.exits = exitsFor(rng, W, 2);
+    platform(s, rng, -W / 2, -4, -W / 2 + 6, 4, 4, 'east');
+    platform(s, rng, W / 2 - 6, -4, W / 2, 4, 4, 'west');
+    prop(s, -4, 0, -D / 2 + 1, 4, 7, -D / 2 + 5, 'trim', 'metal', { platform: true, tint: 0.85 });
+    s.perches.push({ x0: -3.4, z0: -D / 2 + 1.6, x1: 3.4, z1: -D / 2 + 4.4, y: 7 });
+    s.pads = [{ x: 0, z: 0, power: 17 }, { x: -6, z: 7, power: 14 }, { x: 6, z: 7, power: 14 }, { x: 0, z: -D / 2 + 8, power: 16 }];
+    for (let i = 0; i < 3; i++) crate(s, rng, rng.range(-W / 2 + 8, W / 2 - 8), rng.range(-4, 8), 1.2, 1);
+    lightGrid(s, rng, 2, 3);
+    s.cachePos = { x: 0, z: 6 };
+    return s;
+  },
+  hall(rng) {
+    const W = rng.int(18, 22), D = rng.int(42, 50), H = 12;
+    const s = base(rng, 'hall', W, D, H);
+    s.exits = [0];
+    for (let z = D / 2 - 8; z > -D / 2 + 6; z -= 6) { pillar(s, -W / 2 + 4, z, 1.6, H, 'trim'); pillar(s, W / 2 - 4, z, 1.6, H, 'trim'); }
+    for (let z = D / 2 - 11; z > -D / 2 + 9; z -= 6) { prop(s, -4.5, 0, z - 0.4, -1.5, 0.9, z + 0.4, 'crate', 'wood', { tint: 0.6 }); prop(s, 1.5, 0, z - 0.4, 4.5, 0.9, z + 0.4, 'crate', 'wood', { tint: 0.6 }); }
+    platform(s, rng, -4, -D / 2, 4, -D / 2 + 4, 1.4, 'south');
+    s.rugs.push({ x: 0, z: 0, w: 2.4, d: D - 12 });
+    lightGrid(s, rng, 2, 6);
+    s.cachePos = { x: 0, z: -D / 2 + 7 };
+    return s;
+  },
+  tutorial(rng, ctx) {
+    const st = ctx.station || 0;
+    const W = 16, D = st === 6 ? 44 : st === 9 ? 26 : 22, H = st === 5 ? 9 : st === 8 ? 10 : 7;
+    const s = base(rng, 'tutorial', W, D, H);
+    s.exits = [0];
+    s.station = st;
+    if (st === 3) s.hazards.push({ type: 'molten', x0: -W / 2, z0: -2.5, x1: W / 2, z1: 2.5, dps: 12 });
+    if (st === 4) prop(s, -W / 2, 1.05, -1.5, W / 2, H, -0.5, 'wall', 'metal', { tint: 0.7, slideGate: true, noNav: true });
+    if (st === 5) {
+      // a 4.2m wall across the room; climb the chimney on the east side by wall-jumping
+      prop(s, -W / 2, 0, -1.6, W / 2, 4.2, -0.4, 'wall', 'metal', { tint: 0.75, noNav: true, trimTop: true });
+      prop(s, W / 2 - 3.1, 0, -0.4, W / 2 - 2.7, 4.2, 4.5, 'wall', 'metal', { tint: 0.6, noNav: true });
+    }
+    if (st === 6) { for (let z = D / 2 - 8; z > -D / 2 + 6; z -= 6) s.rugs.push({ x: 0, z, w: 3, d: 0.5 }); }
+    if (st === 8) {
+      s.pads = [{ x: 0, z: 3, power: 17.5 }];
+      prop(s, -W / 2, 0, -3, W / 2, 5.2, -1, 'trim', 'metal', { tint: 0.75, noNav: true, trimTop: true });
+    }
+    if (st === 9) { pillar(s, -4, -2, 1.6, H); pillar(s, 4, -2, 1.6, H); barrier(s, rng, 0, 3, 4, 'x'); }
+    lightGrid(s, rng, 1, Math.round(D / 7));
+    s.cachePos = { x: 0, z: 0 };
+    s.calm = true;
     return s;
   },
 };
 
-export const COMBAT_ARCHES = ['gauntlet', 'arena', 'warehouse', 'mezzanine', 'gallery', 'cells', 'movers', 'reactor'];
+// Thematic decoration kits: each stratum dresses its rooms differently.
+function decorate(s, rng, kit) {
+  const n = Math.round(s.W * s.D / 90);
+  const wallSpot = () => {
+    const side = rng.int(0, 1) ? 1 : -1;
+    return { x: side * (s.W / 2 - 1.1), z: rng.range(-s.D / 2 + 4, s.D / 2 - 4), side };
+  };
+  for (let i = 0; i < n; i++) {
+    const w = wallSpot();
+    const k = { kind: kit, x: w.x, z: w.z, side: w.side, v: rng.next() };
+    s.kit.push(k);
+  }
+}
+
+export const COMBAT_ARCHES = ['gauntlet', 'arena', 'warehouse', 'mezzanine', 'gallery', 'cells', 'movers', 'reactor', 'pit', 'bridges', 'tower', 'hall'];
 
 export function generateSpec(arch, rng, ctx) {
   const s = GEN[arch](rng, ctx);
   s.arch = arch;
+  const cond = ctx.cond || 'none';
+  const combat = !['lobby', 'cache', 'boss', 'tutorial', 'miniboss'].includes(arch);
+  // level conditions add features
+  if (cond === 'pads' && combat && !s.pads.length) { s.pads.push({ x: rng.range(-s.W / 4, s.W / 4), z: rng.range(-s.D / 4, s.D / 4), power: 15 }); s.pads.push({ x: rng.range(-s.W / 3, s.W / 3), z: rng.range(-s.D / 4, s.D / 4), power: 13 }); }
+  if (cond === 'conveyor' && combat) {
+    const z = rng.range(-s.D / 4, s.D / 4);
+    s.conveyors.push({ x0: -s.W / 2, z0: z - 2, x1: s.W / 2, z1: z + 2, dx: rng.sign() * 0.25, dz: 0 });
+    if (s.D > 30) s.conveyors.push({ x0: -s.W / 2, z0: z - 10, x1: s.W / 2, z1: z - 7, dx: rng.sign() * 0.25, dz: 0 });
+  }
+  if (cond === 'hazards' && combat && !s.hazards.length) {
+    const z = rng.range(-s.D / 4, s.D / 4);
+    s.hazards.push({ type: ctx.theme.hazard, x0: -s.W / 2, z0: z - 1.2, x1: s.W / 2, z1: z + 1.2, on: 2, off: 2.2, phase: rng.next() * 3, dps: 30 });
+  }
+  const nb = (cond === 'barrels' ? 7 : 2) * (combat ? 1 : 0) + (arch === 'miniboss' ? 2 : 0);
+  for (let i = 0; i < nb; i++) s.barrels.push({ x: rng.range(-s.W / 2 + 2, s.W / 2 - 2), z: rng.range(-s.D / 2 + 4, s.D / 2 - 4) });
+  // graffiti: 1-3 spray tags per room
+  if (arch !== 'tutorial') {
+    const ng = rng.int(1, 3);
+    for (let i = 0; i < ng; i++) s.graffiti.push({ side: rng.sign(), z: rng.range(-s.D / 2 + 3, s.D / 2 - 3), y: rng.range(1.5, 2.6), idx: rng.int(0, 999), rot: rng.range(-0.08, 0.08) });
+  }
+  if (ctx.kit && arch !== 'tutorial' && arch !== 'boss') decorate(s, rng, ctx.kit);
+  if (ctx.terminal) s.terminals.push({ x: rng.sign() * (s.W / 2 - 0.6), z: rng.range(-s.D / 4, s.D / 4), id: ctx.terminal });
   // keep entrance / exit approaches clear of props
   s.keepClear.push({ x: s.entX, z: s.D / 2 - 1.8, r: 3.2 });
   for (const ex of s.exits) s.keepClear.push({ x: ex, z: -s.D / 2 + 1.8, r: 3.2 });
@@ -391,5 +540,30 @@ export function generateSpec(arch, rng, ctx) {
     p.z0 = Math.max(p.z0, -s.D / 2); p.z1 = Math.min(p.z1, s.D / 2);
   }
   s.props = s.props.filter((p) => p.x1 - p.x0 > 0.05 && p.z1 - p.z0 > 0.05);
+  const near = (x, z, r) => s.keepClear.some((k) => Math.hypot(k.x - x, k.z - z) < k.r + r) || s.props.some((p) => x > p.x0 - r && x < p.x1 + r && z > p.z0 - r && z < p.z1 + r) || s.hazards.some((h) => x > h.x0 - 0.5 && x < h.x1 + 0.5 && z > h.z0 - 0.5 && z < h.z1 + 0.5);
+  s.barrels = s.barrels.filter((b) => !near(b.x, b.z, 1.0));
+  s.pads = s.pads.filter((p) => !s.keepClear.some((k) => Math.hypot(k.x - p.x, k.z - p.z) < k.r + 1));
+  s.kit = s.kit.filter((k) => !near(k.x, k.z, 0.9) && Math.abs(k.z) < s.D / 2 - 3);
+  if (ctx.mirror) mirrorSpec(s);
   return s;
+}
+
+// NG+: the world is rebuilt inside-out. Mirror every x coordinate in the spec.
+function mirrorSpec(s) {
+  const fx = (x) => -x;
+  s.entX = fx(s.entX);
+  s.exits = s.exits.map(fx);
+  for (const p of s.props) { const a = fx(p.x1), b = fx(p.x0); p.x0 = a; p.x1 = b; }
+  for (const c of s.cyl) c.x = fx(c.x);
+  for (const h of s.hazards) { const a = fx(h.x1), b = fx(h.x0); h.x0 = a; h.x1 = b; }
+  for (const p of s.perches) { const a = fx(p.x1), b = fx(p.x0); p.x0 = a; p.x1 = b; }
+  for (const c of s.conveyors) { const a = fx(c.x1), b = fx(c.x0); c.x0 = a; c.x1 = b; c.dx = -c.dx; }
+  for (const l of s.lightSpots) l.x = fx(l.x);
+  for (const r of s.rugs) r.x = fx(r.x);
+  for (const o of [...s.pads, ...s.barrels, ...s.terminals, ...s.kit, ...s.sliders, ...s.sweepers, ...s.screens, ...s.decor]) if (o.x !== undefined) o.x = fx(o.x);
+  for (const g of s.graffiti) g.side = -g.side;
+  for (const k of s.kit) k.side = -k.side;
+  for (const sc of s.screens) sc.side = sc.side === 'west' ? 'east' : 'west';
+  s.cachePos.x = fx(s.cachePos.x);
+  for (const k of s.keepClear) k.x = fx(k.x);
 }

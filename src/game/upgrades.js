@@ -1,4 +1,5 @@
 import { DEFS, WEAPON_ORDER } from './weapons.js';
+import { defaultStats } from './player.js';
 
 // Every upgrade has a concrete, implemented effect on player stats or weapon behaviour.
 export const UPGRADES = [
@@ -52,6 +53,20 @@ export class Upgrades {
     this.reset();
   }
   reset() { this.stacks = {}; this.taken = []; }
+
+  // checkpoint support: rebuild player stats by re-applying every stack
+  snapshot() { return { stacks: { ...this.stacks }, taken: this.taken.slice() }; }
+  restore(s) {
+    const g = this.game;
+    this.stacks = {};
+    this.taken = s.taken.slice();
+    g.player.stats = defaultStats();
+    for (const [id, n] of Object.entries(s.stacks)) {
+      const u = UPGRADES.find((x) => x.id === id);
+      if (!u) continue;
+      for (let k = 0; k < n; k++) { this.stacks[id] = (this.stacks[id] || 0) + 1; u.apply(g.player.stats, g); }
+    }
+  }
 
   available(u) {
     if ((this.stacks[u.id] || 0) >= u.max) return false;

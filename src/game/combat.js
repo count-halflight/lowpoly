@@ -225,6 +225,7 @@ export class Combat {
   radialDamage(pos, radius, dmg, opts = {}) {
     const g = this.game;
     let hits = 0;
+    g.level.blastBarrels(pos, radius);
     for (const e of g.enemies.list) {
       if (!e.alive) continue;
       const c = e.centerPos();

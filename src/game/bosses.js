@@ -32,13 +32,13 @@ function box(w, h, d, mat, x = 0, y = 0, z = 0) {
 }
 
 // ---------------------------------------------------------------------------------------
-class Boss {
-  constructor(game, room, type, tier) {
+export class Boss {
+  constructor(game, room, type, tier, info) {
     this.game = game;
     this.room = room;
     this.type = type;
     this.tier = tier;
-    this.info = BOSS_INFO[type];
+    this.info = info || BOSS_INFO[type];
     this.name = this.info.name + (tier > 0 ? ' ' + ['', 'MK-II', 'MK-III', 'MK-IV', 'MK-V'][Math.min(4, tier)] : '');
     if (tier > 4) this.name = this.info.name + ' MK-' + (tier + 1);
     this.title = this.info.title;
@@ -76,6 +76,7 @@ class Boss {
     this.hp -= amount;
     this.flashT = 0.06;
     if (this.phase === 1 && this.hp < this.maxHp * 0.5) this.enterPhase2();
+    else if (this.phase === 2 && this.maxPhase >= 3 && this.hp < this.maxHp * 0.22) this.enterPhase3 && this.enterPhase3();
     if (this.hp <= 0) { this.hp = 0; this.defeat(); }
     return amount;
   }
@@ -100,6 +101,7 @@ class Boss {
     if (!this.alive) return;
     const g = this.game;
     this.alive = false;
+    if (this.onDefeatExtra) this.onDefeatExtra();
     g.bosses.onDefeated(this);
     const c = this.center().clone();
     let i = 0;
@@ -488,10 +490,6 @@ class Vesper extends Boss {
         break;
       }
     }
-    if (g.bosses.barriers.length) {
-      for (const b of g.bosses.barriers) { b.t -= dt; }
-      g.bosses.barriers = g.bosses.barriers.filter((b) => { if (b.t <= 0 || b.hp <= 0) { this.game.scene.remove(b.mesh); b.mesh.geometry.dispose(); return false; } return true; });
-    }
   }
   sweepDirSign() { return this.phase === 2 && this.attackCount % 8 === 2 ? -1 : 1; }
   pickBlink() {
@@ -859,24 +857,4 @@ class Scythewright extends Boss {
   }
 }
 
-const TYPES = { grindhammer: Grindhammer, vesper: Vesper, crucible: Crucible, scythewright: Scythewright };
-
-export class Bosses {
-  constructor(game) {
-    this.game = game;
-    this.active = null;
-    this.barriers = [];
-  }
-  spawn(type, room, tier) {
-    const B = TYPES[type];
-    this.active = new B(this.game, room, tier);
-    return this.active;
-  }
-  update(dt) { if (this.active && this.active.alive) this.active.update(dt); }
-  onDefeated(boss) { this.game.onBossDefeated(boss); }
-  clear() {
-    if (this.active) { this.active.remove(); this.active = null; }
-    for (const b of this.barriers) { this.game.scene.remove(b.mesh); b.mesh.geometry.dispose(); }
-    this.barriers = [];
-  }
-}
+export const BESPOKE = { grindhammer: Grindhammer, vesper: Vesper, crucible: Crucible, scythewright: Scythewright };

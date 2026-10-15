@@ -4,9 +4,9 @@
 const KEYMAP = {
   KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   Space: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', ControlLeft: 'slide', KeyC: 'slide', KeyF: 'punch', KeyV: 'punch',
-  KeyR: 'reload', KeyQ: 'lastWeapon', KeyE: 'ads', Escape: 'pause', KeyP: 'pause', Enter: 'confirm',
+  KeyR: 'reload', KeyQ: 'lastWeapon', KeyE: 'use', KeyG: 'hook', Escape: 'pause', KeyP: 'pause', Enter: 'confirm', KeyZ: 'zoom',
 };
-const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm']);
+const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm', 'use', 'hook', 'altTap']);
 
 export class Input {
   constructor(settings, canvas) {
@@ -18,6 +18,7 @@ export class Input {
     this.moveX = 0; this.moveY = 0; // analog from touch
     this.fire = false; this.firePressed = false;
     this.ads = false;
+    this.alt = false;
     this.slot = -1; this.wheel = 0;
     this.locked = false;
     this.enabled = false; // gameplay input active
@@ -41,7 +42,6 @@ export class Input {
       if (a) {
         if (!this.held[a] && EDGE.has(a)) this.pressed[a] = true;
         if (a === 'slide' && !this.held[a]) this.pressed.slideTap = true;
-        if (a === 'ads') this.ads = true;
         this.held[a] = true;
         if (a !== 'pause' || this.enabled) e.preventDefault();
       }
@@ -50,7 +50,6 @@ export class Input {
     window.addEventListener('keyup', (e) => {
       const a = KEYMAP[e.code];
       if (a) this.held[a] = false;
-      if (a === 'ads') this.ads = false;
     });
     window.addEventListener('blur', () => this.releaseAll());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.releaseAll(); });
@@ -58,11 +57,12 @@ export class Input {
       if (this.usingTouch) return;
       if (!this.locked) { if (this.enabled) this.requestLock(); return; }
       if (e.button === 0) { this.fire = true; this.firePressed = true; }
-      if (e.button === 2) this.ads = true;
+      if (e.button === 2) { this.alt = true; this.pressed.altTap = true; }
+      if (e.button === 3 || e.button === 4 || e.button === 1) { this.pressed.hook = true; }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.fire = false;
-      if (e.button === 2) this.ads = false;
+      if (e.button === 2) this.alt = false;
     });
     window.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -71,7 +71,7 @@ export class Input {
       const mx = e.movementX || 0, my = e.movementY || 0;
       if (Math.abs(mx) > 400 || Math.abs(my) > 400) return;
       const dx = mx, dy = my;
-      const s = 0.0022 * this.settings.get('mouseSens') * (this.ads ? 0.6 : 1);
+      const s = 0.0022 * this.settings.get('mouseSens') * (this.ads ? 0.5 : 1);
       this.lookDX += dx * s;
       this.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
     });
@@ -99,7 +99,7 @@ export class Input {
 
   releaseAll() {
     for (const k in this.held) this.held[k] = false;
-    this.fire = false; this.ads = false;
+    this.fire = false; this.ads = false; this.alt = false;
     this.moveX = 0; this.moveY = 0;
     this.touchSprint = false;
     if (this.touch) this.touch.reset();
@@ -155,8 +155,10 @@ export class TouchControls {
       <button class="tc-btn tc-slide" data-act="slide"><span>SLIDE</span></button>
       <button class="tc-btn tc-punch" data-act="punch"><span>PARRY</span></button>
       <button class="tc-btn tc-reload" data-act="reload"><span>RLD</span></button>
-      <button class="tc-btn tc-ads" data-act="ads"><span>AIM</span></button>
+      <button class="tc-btn tc-alt" data-act="alt"><span>ALT</span></button>
+      <button class="tc-btn tc-hook" data-act="hook"><span>HOOK</span></button>
       <button class="tc-btn tc-swap" data-act="swap"><span>SWAP</span></button>
+      <button class="tc-btn tc-use" data-act="use"><span>USE</span></button>
       <button class="tc-btn tc-pause" data-act="pause"><span>II</span></button>
     `;
     this.stick = r.querySelector('.tc-stick');
@@ -186,6 +188,10 @@ export class TouchControls {
     const p = { role, act, el, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
     this.pointers.set(e.pointerId, p);
     const inp = this.input;
+    if (role === 'look' && this.onLookTap) {
+      const id = this.onLookTap(e.clientX, e.clientY);
+      if (id) { this.pointers.delete(e.pointerId); return; }
+    }
     if (role === 'move') {
       const rect = this.stick.getBoundingClientRect();
       p.cx = e.clientX; p.cy = e.clientY;
@@ -196,12 +202,14 @@ export class TouchControls {
     if (act) {
       el.classList.add('down');
       if (act === 'fire') { inp.fire = true; inp.firePressed = true; }
-      else if (act === 'jump') inp.press('jump');
+      else if (act === 'jump') { inp.press('jump'); inp.held.jump = true; }
       else if (act === 'dash') { inp.press('dash'); inp.touchSprint = true; }
       else if (act === 'slide') { inp.held.slide = true; inp.press('slideTap'); }
       else if (act === 'punch') inp.press('punch');
       else if (act === 'reload') inp.press('reload');
-      else if (act === 'ads') inp.ads = !inp.ads;
+      else if (act === 'alt') { inp.alt = true; inp.press('altTap'); }
+      else if (act === 'hook') inp.press('hook');
+      else if (act === 'use') inp.press('use');
       else if (act === 'swap') inp.press('lastWeapon');
       else if (act === 'pause') inp.press('pause');
     }
@@ -227,7 +235,7 @@ export class TouchControls {
       const k = m < dz ? 0 : (m - dz) / (1 - dz) / m;
       inp.moveX = nx * k; inp.moveY = ny * k;
       inp.stickSprint = m > 0.95;
-    } else if (p.role === 'look' || p.act === 'fire') {
+    } else if (p.role === 'look' || p.act === 'fire' || p.act === 'alt') {
       const s = 0.0055 * this.settings.get('touchSens') * (inp.ads ? 0.55 : 1);
       inp.lookDX += dx * s;
       inp.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
@@ -253,6 +261,8 @@ export class TouchControls {
         for (const q of this.pointers.values()) if (q.act === 'fire') still = true;
         if (!still) inp.fire = false;
       } else if (p.act === 'slide') inp.held.slide = false;
+      else if (p.act === 'alt') inp.alt = false;
+      else if (p.act === 'jump') inp.held.jump = false;
       else if (p.act === 'dash') inp.touchSprint = false;
     }
   }
