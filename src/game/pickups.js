@@ -53,7 +53,8 @@ export class Pickups {
     const low = pl.hp < pl.stats.maxHp * 0.4;
     const c = e.centerPos().clone();
     const hpChance = (low ? 0.5 : 0.22) + (e.elite ? 0.4 : 0);
-    if (Math.random() < hpChance) this.spawn('hp', c);
+    const bloodfuel = this.game.level.current && this.game.level.current.cond === 'bloodfuel';
+    if (!bloodfuel && Math.random() < hpChance) this.spawn('hp', c);
     const needy = g.weapons.neediest();
     if (needy && Math.random() < (e.elite ? 0.9 : 0.4)) this.spawn('ammo', c.clone().add(new THREE.Vector3(0.3, 0, 0)), { weapon: needy });
   }

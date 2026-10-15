@@ -3,6 +3,7 @@ import { BESPOKE } from './bosses.js';
 import { KitBoss } from './kit.js';
 import { makeBox } from '../core/collide.js';
 import { bossById } from '../data/bossdata.js';
+import { Architect } from './architect.js';
 
 // Owns the active boss (bespoke, kit-built, or the final boss) and boss barriers.
 export class Bosses {
@@ -10,12 +11,11 @@ export class Bosses {
     this.game = game;
     this.active = null;
     this.barriers = [];
-    this.finalClass = null; // injected to avoid an import cycle
   }
 
   spawn(id, room, tier, opts = {}) {
     const g = this.game;
-    if (id === 'architect' && this.finalClass) this.active = new this.finalClass(g, room, tier, opts);
+    if (id === 'architect') this.active = new Architect(g, room, tier, opts);
     else if (BESPOKE[id]) {
       this.active = new BESPOKE[id](g, room, tier);
       const d = bossById(id);
@@ -26,6 +26,8 @@ export class Bosses {
       this.active = new KitBoss(g, room, def, tier, opts);
     }
     if (opts.hpScale) { this.active.maxHp *= opts.hpScale; this.active.hp = this.active.maxHp; }
+    if (opts.dmgScale) this.active.dmgMul *= opts.dmgScale;
+    if (g.profile && id !== 'architect') g.profile.sawBoss(id);
     return this.active;
   }
 

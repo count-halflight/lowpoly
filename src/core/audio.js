@@ -223,6 +223,8 @@ const SFX = {
   rankUp(a, o, t) { a.tone(o, t, 0.15, 'square', 880, 1320, 0.15); },
   ui(a, o, t) { a.tone(o, t, 0.05, 'square', 1000, 1000, 0.12); },
   uiBack(a, o, t) { a.tone(o, t, 0.05, 'square', 600, 600, 0.12); },
+  uiHover(a, o, t) { a.tone(o, t, 0.02, 'square', 1800, 1800, 0.05); },
+  swing(a, o, t) { a.noise(o, t, 0.5, 'bandpass', 500, 1.5, 0.05, 1.0, 1400); a.tone(o, t, 0.5, 'sawtooth', 90, 50, 0.4); },
   bossRoar(a, o, t) {
     a.tone(o, t, 1.4, 'sawtooth', 110, 45, 0.7, 0.05);
     a.tone(o, t, 1.4, 'sawtooth', 113, 47, 0.6, 0.05);

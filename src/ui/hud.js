@@ -233,7 +233,8 @@ export class HUD {
     if (room) {
       if (room.state === 'combat' && !g.bosses.active) obj = 'HOSTILES ' + g.director.remaining();
       else if (room.state === 'cleared') obj = room.chosenExit < 0 && room.exitDoors.length > 1 ? 'CHOOSE A ROUTE ^' : 'PROCEED ^';
-      if (g.tutorial && g.tutorial.objective) obj = g.tutorial.objective;
+      const o = g.currentObjective ? g.currentObjective() : '';
+      if (o) obj = o;
     }
     if (obj) this.text(obj, this.W / 2, 16 + s.t, 9, WHITE, 'center', { kind: 'mono', weight: 400 });
   }

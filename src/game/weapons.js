@@ -584,7 +584,7 @@ export class Weapons {
     g.fx.tracer(from, best.pt, 0xffe060, 0.2);
     g.fx.beam(from, best.pt, 0xffd040, 0.05, 0.15);
     if (best.e) g.combat.damageEnemy(best.e, dmg * mul, { source: 'hitscan', part: 'head', headMul: 1.25, point: best.pt, dir: best.pt.clone().sub(from).normalize(), knock: 4, stagger: 0.5, ricoshot: true });
-    else g.combat.damageBoss(boss, dmg * mul, { source: 'hitscan', part: best.hb, point: best.pt });
+    else g.combat.damageBoss(boss, dmg * mul, { source: 'hitscan', part: best.hb, point: best.pt, ricochet: true });
     g.style.add(chain > 0 ? 'RICOSHOT x' + (chain + 1) : 'RICOSHOT', 35 + chain * 25);
     g.emit('ricoshot', chain + 1);
   }

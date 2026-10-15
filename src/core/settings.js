@@ -24,6 +24,7 @@ const DEFAULTS = {
   aimAssist: true,
   showFps: false,
   hints: true,
+  cutscenes: true,
 };
 
 function load(key) {

@@ -277,9 +277,9 @@ export class Enemy {
   syncVisual(dt) {
     this.group.position.copy(this.pos);
     this.group.rotation.y = this.yaw;
-    this.shadow.position.set(this.pos.x, this.groundY() + 0.03, this.pos.z);
+    this.shadow.position.set(this.pos.x, this.gy() + 0.03, this.pos.z);
     if (this.eliteRing) {
-      this.eliteRing.position.set(this.pos.x, this.groundY() + 0.05, this.pos.z);
+      this.eliteRing.position.set(this.pos.x, this.gy() + 0.05, this.pos.z);
       this.eliteRing.rotation.y += dt * 2;
       this.eliteRing.material.opacity = 0.5 + 0.3 * Math.sin(this.game.time * 6);
     }
@@ -300,6 +300,8 @@ export class Enemy {
   }
 
   groundY() { return this.flying ? this.groundLevel || 0 : this.pos.y; }
+  // works whether a subclass exposes groundY as a method or a getter
+  gy() { const v = this.groundY; return typeof v === 'function' ? v.call(this) : v; }
 
   animate(dt) {
     const P = this.parts;

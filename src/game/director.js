@@ -424,6 +424,7 @@ export class Director {
     if (!this.active || !room || room.state !== 'combat') return;
     this.combatT += dt;
     if (g.bosses.active) {
+      if (g.bosses.active.final) return; // the ending sequence owns the final room
       // boss room clears when the boss is dead and its escorts are gone
       if (!g.bosses.active.alive && g.enemies.aliveCount === 0) { this.clearT += dt; if (this.clearT > 2.2) { this.active = false; g.onRoomCleared(room); } }
       return;

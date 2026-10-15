@@ -557,19 +557,23 @@ export class Room {
     if (door.sign) { this.group.remove(door.sign); door.sign.material.map.dispose(); door.sign.material.dispose(); door.sign.geometry.dispose(); door.sign = null; }
     if (!lines) return;
     const c = document.createElement('canvas');
-    c.width = 256; c.height = 96;
+    c.width = 128; c.height = 48;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, 256, 96);
-    ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.strokeRect(3, 3, 250, 90);
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, 128, 48);
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(2, 2, 124, 44);
     ctx.fillStyle = color;
-    ctx.font = 'bold 34px Oswald, Impact, sans-serif';
+    let size = 19;
+    ctx.font = `700 ${size}px "Libre Caslon Condensed", Times, serif`;
+    while (ctx.measureText(lines[0]).width > 116 && size > 10) { size--; ctx.font = `700 ${size}px "Libre Caslon Condensed", Times, serif`; }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(lines[0], 128, 34);
-    ctx.font = '20px "Share Tech Mono", monospace';
+    ctx.fillText(lines[0], 64, 18);
+    let s2 = 14;
+    ctx.font = `${s2}px VT323, monospace`;
+    while (ctx.measureText(lines[1] || '').width > 118 && s2 > 8) { s2--; ctx.font = `${s2}px VT323, monospace`; }
     ctx.fillStyle = '#d8d8d8';
-    ctx.fillText(lines[1] || '', 128, 70);
+    ctx.fillText(lines[1] || '', 64, 36);
     const tex = new THREE.CanvasTexture(c);
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.9), new THREE.MeshBasicMaterial({ map: tex }));
     mesh.position.set(door.x, DOOR_H + 0.88, door.z + 0.6);
     this.group.add(mesh);
@@ -774,18 +778,21 @@ export class Level {
     return room;
   }
 
-  startLobby() {
-    const room = this.createRoom(0, 'lobby', (spec) => new THREE.Vector3(0, 0, 0), {}, false);
+  startLobby(ctx = {}) {
+    const room = this.createRoom(0, ctx.arch || 'lobby', () => new THREE.Vector3(0, 0, 0), ctx, false);
     this.current = room;
     this.activate(room);
+    room.route = { type: 'entry' };
+    if (ctx.locked) { room.setDoor(room.exitDoors[0], 'locked'); room.state = 'idle'; room.routes = []; return room; }
     room.setDoor(room.exitDoors[0], 'choose');
     room.state = 'cleared';
-    room.routes = [{ type: 'combat', label: ['ROOM 01', 'ENTER THE MACHINE'], color: '#3ef0d0' }];
-    room.setSign(room.exitDoors[0], room.routes[0].label, room.routes[0].color);
+    room.routes = ctx.routes || [{ type: 'combat', label: 'ROOM 01', sub: 'ENTER THE MACHINE', color: '#3ef0d0' }];
+    room.setSign(room.exitDoors[0], [room.routes[0].label, room.routes[0].sub], room.routes[0].color);
     return room;
   }
 
-  pickArch(index, route) {
+  pickArch(index, route, ctx = {}) {
+    if (ctx.arch) return ctx.arch;
     if (route === 'boss') return 'boss';
     if (route === 'cache') return 'cache';
     if (route === 'elite') return 'elite';
@@ -809,7 +816,7 @@ export class Level {
   buildNext(route, ctx) {
     const cur = this.current;
     const index = cur.index + 1;
-    const arch = this.pickArch(index, route.type);
+    const arch = this.pickArch(index, route.type, ctx);
     this.recentArches.push(arch);
     if (this.recentArches.length > 8) this.recentArches.shift();
     const exitX = cur.spec.exits[cur.chosenExit];

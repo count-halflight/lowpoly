@@ -160,8 +160,9 @@ export class Combat {
     // close-range kills heal (aggression is rewarded)
     const pp = g.player.body.pos;
     const d = Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z);
-    if (d < 6) { g.player.heal(5 + g.player.stats.healOnKill); g.fx.sparksBurst(e.centerPos(), 0xff3050, 8, 3, 0.4); }
-    else if (g.player.stats.healOnKill) g.player.heal(g.player.stats.healOnKill);
+    const bf = g.level.current && g.level.current.cond === 'bloodfuel' ? 2 : 1;
+    if (d < 6) { g.player.heal((5 + g.player.stats.healOnKill) * bf); g.fx.sparksBurst(e.centerPos(), 0xff3050, 8, 3, 0.4); }
+    else if (g.player.stats.healOnKill || bf > 1) g.player.heal((g.player.stats.healOnKill + (bf > 1 ? 4 : 0)) * bf);
     g.run.kills++;
     g.audio.play('kill', e.pos, 0.9);
     g.addShake(e.elite || e.heavy ? 0.2 : 0.07);
