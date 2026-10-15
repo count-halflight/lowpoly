@@ -1,8 +1,27 @@
 # VOLTGRAVE
 
-**An endless, low-poly, first-person roguelite shooter for the browser.** Fight room to room through a procedurally generated machine: chain kills for style, parry orbs back at their owners, pick builds from reward caches, and take down a boss every fifth room, forever.
+**A low-poly, PS1-style first-person shooter for the browser.** Descend through ten strata of a city-sized machine, fight 30 bosses and 60 minibosses, read the logs the dead left behind, and pull the breaker on THE ARCHITECT. Then do it again, inside out.
 
-Runs on desktop (keyboard + mouse), phones and iPads (multi-touch). No accounts, no network services, no paid assets. All art, textures and audio are generated in code.
+Runs on desktop (keyboard + mouse), phones and iPads (multi-touch). No accounts, no network services, no paid assets. All art, textures and audio are generated in code; fonts are bundled.
+
+## Modes
+
+- **The Descent (campaign).** 10 strata × 5 levels = 50 hand-named levels; each playthrough picks 3 per stratum (30 levels) in a seeded order, then the final level. Every level has its own briefing, a mechanical condition (low gravity, ice, blackout, conveyors, launch pads, smog, blood fuel, glass jaw…) and its own mix of room archetypes dressed in the stratum's kit. Each level hides two minibosses, a boss at the end and a lore terminal. Levels are ranked D, C, B, A, S and P on time, style and damage. Progress saves at the start of every level.
+- **NG+.** After the ending, the next cycle climbs back up: strata run in reverse, every room is mirrored, killed machines sometimes rise again, THE WARDEN hunts anyone who lingers, every boss gains a third phase, and new logs explain what happened. Weapons and upgrades carry over.
+- **Training deck.** Ten short rooms that each teach one verb (move, shoot, swap and coin-flip, jump-dash, slide, wall-jump, bunny hop, parry, launch pad and hook, live fire). Exits only open once you have really done it.
+- **Endless.** The original roguelite: room after room, a boss every fifth door, random or custom seed, and a daily seed.
+- **Level select.** Replay any level you have reached for a better rank.
+
+## What's in the game
+
+- **Bosses:** 30, each with its own name, title, intro lines and lore, built from a chassis (brute, knight, spider, tank, hover, orb, serpent, crystal, mantis, totem…) plus attack modules and a gimmick: pylons to destroy, armor to strip, servants that halve damage, a shield only a parry breaks, a weak point that opens while it vents, darkness, live floors, rising slag, pillars to charge it into. Four are fully bespoke (GRINDHAMMER, VESPER, THE CRUCIBLE, SCYTHEWRIGHT).
+- **THE ARCHITECT:** three acts. Colossal hands slam and sweep (break one to expose the core), then it summons echoes of bosses you killed while the floor goes live, then the lights die and its core only cracks under parries, coin shots and explosions. Then you walk up and pull the breaker yourself.
+- **Minibosses:** 60, six native to each stratum, randomized across levels, each with its own moves and an enrage set at half health.
+- **Cutscenes:** in-engine letterboxed shots with typewriter dialogue and name cards for every boss and miniboss, phase changes and the ending. Hold SPACE (or hold a finger anywhere) to skip; they can be turned off in Settings.
+- **Movement:** bunny hopping (jump on landing to keep speed, Quake-style air strafing), slide boosts, dash-jumps, slide-jumps, slam-jumps, wall-jumps, a grapple hook, launch pads and conveyors.
+- **Weapons and alt-fires:** Hammer revolver (flip coins and shoot them to ricochet into heads), Ripsaw rifle (bouncing sawblade), Breacher shotgun (eject a core and shoot it), Lumen Lance (scope), Thumper (sticky mines), Arc Caster (EMP). Six weapon finishes unlock through medals.
+- **Lore:** 61 logs on terminals, graffiti on the walls, a codex of bosses, minibosses, machines, weapons and strata.
+- **Medals:** 30 mastery goals. There are no timers, streaks or randomized purchases.
 
 ## Play locally
 
@@ -27,13 +46,18 @@ npm run preview      # serve the production build locally
 
 ## Tests
 
+All tests serve the production build with `vite preview` and drive a headless Chromium.
+
 ```bash
 npm run build
-npm test                    # headless Chromium plays ~26 rooms: all archetypes, all 4 bosses,
-                            # rewards, pause, death/restart, multi-touch, memory bounds
-ROOMS=60 VW=640 npm test    # longer endless soak
-node tests/visual.mjs 10    # screenshots of combat in each room -> tests/shots/visual
-node tests/gallery.mjs      # close-ups of every weapon and enemy -> tests/shots/gallery
+npm test                         # endless: ~26 rooms, all archetypes, bespoke bosses, rewards,
+                                 # pause, death/restart, multi-touch, memory bounds
+node tests/campaign.mjs          # training -> 3 levels -> THE ARCHITECT -> ending -> credits -> NG+
+node tests/roster.mjs            # all 30 bosses, THE ARCHITECT and 60 minibosses fight and clear
+node tests/tutorial-input.mjs    # movement stations solved with injected key input only
+node tests/menus.mjs             # every menu at desktop and phone size
+node tests/visual.mjs 10         # combat screenshots -> tests/shots/visual
+node tests/gallery.mjs           # weapon and enemy close-ups -> tests/shots/gallery
 ```
 
 ## Controls
@@ -42,38 +66,33 @@ node tests/gallery.mjs      # close-ups of every weapon and enemy -> tests/shots
 |---|---|---|
 | Move | WASD | Drag anywhere on the left half (push to the edge to sprint) |
 | Look / aim | Mouse (pointer lock) | Drag on the right half, or drag while holding FIRE |
-| Fire | Left mouse (hold to charge the Lance) | FIRE |
-| Aim down sights | Right mouse / E | AIM (toggle) |
-| Jump / wall jump | Space | JUMP |
+| Fire | Left mouse | FIRE |
+| Alt-fire (coin, saw, core, scope, mine, EMP) | Right mouse | ALT |
+| Jump / wall jump / hold to bunny hop | Space | JUMP |
 | Dash (hold = sprint) | Shift | DASH |
 | Slide / ground slam (in the air) | Ctrl / C | SLIDE |
 | Punch / parry | F / V | PARRY |
+| Grapple hook | G | HOOK |
+| Read terminals, pull breakers | E | USE |
 | Reload | R | RLD |
-| Weapons | 1–6, mouse wheel, Q = last weapon | SWAP, or tap a weapon name |
+| Weapons | 1–6, mouse wheel, Q = last weapon | SWAP, or tap a weapon chip |
+| Zoom | Z | — |
 | Pause | Esc / P | II |
 
-Settings include mouse and touch sensitivity, invert Y, FOV, render resolution, retro vertex wobble, screen-shake strength, reduced flashes, volumes, left-handed touch layout, button size and touch aim assist.
-
-## What's in the game
-
-- **6 weapons:** Hammer (heavy pistol), Ripsaw (assault rifle), Breacher (pump shotgun), Lumen Lance (charge beam that pierces enemies and shields), Thumper (grenade launcher, rocket-jumpable), Arc Caster (chain lightning).
-- **7 enemy types:** Husk (ranged trooper), Ripper (lunging melee), Gunner (telegraphed bursts), Lancer (laser-sighted sniper), Bulwark (front-shielded heavy with slams and mortars), Signaller (calls in backup unless killed first), Wisp (kamikaze drone). Plus four **elite modifiers** that change behaviour: Shielded, Frenzied, Volatile and Blinking.
-- **13 room archetypes:** gauntlet corridors, open arenas, warehouses, multi-level mezzanines, hazard grids, long firing galleries, close-quarters cells, moving-obstacle press lines, survival killboxes, elite vaults, supply rooms, reactor rings and boss arenas. Rooms are generated from a seed, validated for connectivity, and disposed after you leave, so memory stays flat no matter how long a run lasts.
-- **4 bosses, endlessly escalating:** GRINDHAMMER (charges you bait into pillars, shockwave slams), VESPER (projectile fans, parryable seekers, barriers, a sweeping laser you slide under), THE CRUCIBLE (a shielded core fed by four pylons), SCYTHEWRIGHT (lunges, spinning sweeps, thrown scythes, overheat windows). After the first cycle they return as MK-II, MK-III and so on, with faster patterns and escorts.
-- **Route choice:** after each room you pick a door, such as Combat, Hazard, Elite, Supply or Survival, each with different risk and reward.
-- **30 upgrades** (common, rare, legendary, trade-offs and weapon-specific ones) that combine into builds.
-- **Style meter** (D → X), with score multipliers for aggressive, varied play. Close-range kills heal you.
-- 6 regions with their own palettes and hazards. Procedural synth soundtrack and sound effects.
+Settings include mouse and touch sensitivity, invert Y, FOV, render resolution, retro vertex wobble, screen shake, reduced flashes, cutscenes on/off, volumes, left-handed touch layout, button size and touch aim assist.
 
 ## Project layout
 
 ```
 src/
-  main.js            game state machine + loop
+  main.js            game state machine, modes, room flow, ending
   core/              rng, collision, input (keyboard/mouse/multi-touch), audio synth, settings
   render/            low-res PSX-style pipeline, procedural textures, materials
-  world/             room archetypes, room builder, nav grid, level manager
-  game/              player, weapons, enemies, bosses, projectiles, fx, director, upgrades, style, pickups
-  ui/                HUD + menus
-tests/               Playwright smoke/soak test and screenshot tools
+  world/             room archetypes, stratum kits, room builder (pads, conveyors, barrels,
+                     terminals, graffiti), nav grid, level manager
+  game/              player, weapons, enemies, director, campaign, tutorial, cutscenes,
+                     bosses (bespoke + data-driven chassis/abilities), THE ARCHITECT, meta profile
+  data/              bosses, minibosses, levels/strata/conditions, lore
+  ui/                pixel canvas HUD, menus, pixel text helpers
+tests/               Playwright tests and screenshot tools
 ```
