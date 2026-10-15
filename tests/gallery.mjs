@@ -17,7 +17,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForFunction(() => window.__vg && window.__vg.debug);
-  await page.click('[data-a="start"]');
+  await page.click('[data-a="endless"]'); await page.click('[data-a="endlessRandom"]');
   await page.waitForTimeout(400);
   await page.evaluate(() => { const g = window.__vg; g.debug.god(true); g.hud.hint(''); for (const id of ['breacher', 'lance', 'thumper', 'arc']) g.weapons.owned.push(id); });
   for (const w of ['hammer', 'ripsaw', 'breacher', 'lance', 'thumper', 'arc']) {

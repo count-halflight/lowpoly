@@ -22,7 +22,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://localhost:${PORT}/`);
 await page.waitForFunction(() => window.__vg && window.__vg.debug);
 await page.fill('#m-seed', SEED);
-await page.click('[data-a="start"]');
+await page.click('[data-a="endless"]'); await page.click('[data-a="endlessRandom"]');
 await page.waitForTimeout(500);
 await page.evaluate(() => window.__vg.debug.god(true));
 const aim = () => page.evaluate(() => {

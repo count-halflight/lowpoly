@@ -9,6 +9,7 @@ import { getTexture } from '../render/textures.js';
 import { buildKit, graffitiCanvas, terminalCanvas } from './kits.js';
 import { GRAFFITI } from '../data/lore.js';
 
+const KIT_BY_THEME = { service: 'service', foundry: 'foundry', cryo: 'cryo', reactor: 'reactor', research: 'archive', slaughter: 'slaughter', orbital: 'orbital', choir: 'choir', breach: 'breach', core: 'core' };
 const DOOR_W = 3, DOOR_H = 3.6, WALL_T = 1, CORR_L = 8, CORR_HW = 2, CORR_H = 4.4;
 
 // --------------------------------------------------------------------------------------
@@ -429,7 +430,7 @@ export class Room {
       const glow = new THREE.Mesh(lv.padGlowGeo, lv.padGlowMat);
       glow.position.set(pd.x, 0.14, pd.z);
       const beam = new THREE.Mesh(lv.padBeamGeo, lv.padBeamMat);
-      beam.position.set(pd.x, 1.4, pd.z);
+      beam.position.set(pd.x, 1.7, pd.z);
       this.group.add(glow, beam);
       this.pads.push({ ...pd, wx: this.wx(pd.x), wz: this.wz(pd.z), cd: 0, beam });
     }
@@ -718,8 +719,8 @@ export class Level {
     // shared feature resources
     this.padGlowGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.03, 8);
     this.padGlowMat = new THREE.MeshBasicMaterial({ color: 0x3ef0d0 });
-    this.padBeamGeo = new THREE.CylinderGeometry(0.8, 1.0, 2.6, 8, 1, true);
-    this.padBeamMat = new THREE.MeshBasicMaterial({ color: 0x3ef0d0, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    this.padBeamGeo = new THREE.CylinderGeometry(0.55, 0.95, 3.2, 8, 1, true);
+    this.padBeamMat = new THREE.MeshBasicMaterial({ color: 0x1a8a78, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     this.barrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 8);
     this.barrelBandGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.22, 8);
     this.barrelMat = psxify(new THREE.MeshLambertMaterial({ map: getTexture('panel'), color: 0xc02818 }));
@@ -754,6 +755,7 @@ export class Level {
   // Create a room, validating that entrance, exits and cache spot are mutually reachable.
   createRoom(index, arch, origin, ctx, hasCorridor) {
     const theme = ctx.themeObj || this.themeFor(index);
+    if (ctx.kit === undefined) ctx = { ...ctx, kit: KIT_BY_THEME[theme.id] || null };
     let room = null;
     for (let attempt = 0; attempt < 6; attempt++) {
       const rng = new RNG(hashSeed(this.seed, index, arch, attempt));
@@ -837,6 +839,7 @@ export class Level {
     if (!scene.fog) scene.fog = new THREE.Fog(t.fog, t.fogNear, t.fogFar);
     scene.fog.color.setHex(t.fog);
     scene.fog.near = t.fogNear; scene.fog.far = t.fogFar + (room.spec.D > 40 ? 15 : 0);
+    if (room.spec.bossType === 'architect') { scene.fog.color.setHex(0x0a0c14); scene.fog.far = 95; this.hemi.intensity = t.hemi * 1.5; }
     if (room.cond === 'fog') { scene.fog.near = 2; scene.fog.far = 26; scene.fog.color.lerp(new THREE.Color(0x8890a0), 0.35); }
     this.hemi.color.setHex(t.sky);
     this.hemi.groundColor.setHex(t.ground);
@@ -864,7 +867,7 @@ export class Level {
       l.position.set(room.wx(s.x), room.spec.H - 1.2, room.wz(s.z));
       l.color.setHex(i === 0 && room.spec.redLight ? 0xff3040 : t.light);
       l.distance = reach;
-      l.userData.base = room.spec.redLight && i === 0 ? 26 : 20;
+      l.userData.base = (room.spec.redLight && i === 0 ? 26 : 20) * (room.spec.bossType === 'architect' ? 1.6 : 1);
       l.intensity = 0;
     });
     this.lightFlicker = 0.6; // lights flicker on when entering
@@ -891,7 +894,7 @@ export class Level {
       this.darkK += ((wantDark ? 1 : 0) - this.darkK) * Math.min(1, dt * 2);
       this.playerLight.intensity = this.darkK * 22;
       if (this.darkK > 0.01) { const cam = g.camera; this.playerLight.position.set(cam.position.x, cam.position.y + 0.2, cam.position.z); }
-      this.hemi.intensity = this.current.theme.hemi * (1 - this.darkK * 0.65);
+      this.hemi.intensity = this.current.theme.hemi * (this.current.spec.bossType === 'architect' ? 1.5 : 1) * (1 - this.darkK * 0.65);
     }
     // delayed disposal
     for (let i = this.disposeQueue.length - 1; i >= 0; i--) {

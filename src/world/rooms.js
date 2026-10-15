@@ -463,20 +463,20 @@ const GEN = {
     s.exits = [0];
     s.station = st;
     if (st === 3) s.hazards.push({ type: 'molten', x0: -W / 2, z0: -2.5, x1: W / 2, z1: 2.5, dps: 12 });
-    if (st === 4) prop(s, -W / 2, 1.05, -1.5, W / 2, H, -0.5, 'wall', 'metal', { tint: 0.7, slideGate: true, noNav: true });
+    if (st === 4) prop(s, -W / 2, 1.05, -1.5, W / 2, H, -0.5, 'wall', 'metal', { tint: 0.7, slideGate: true, noNav: true, keep: true });
     if (st === 5) {
-      // a 4.2m wall across the room; climb the chimney on the east side by wall-jumping
-      prop(s, -W / 2, 0, -1.6, W / 2, 4.2, -0.4, 'wall', 'metal', { tint: 0.75, noNav: true, trimTop: true });
-      prop(s, W / 2 - 3.1, 0, -0.4, W / 2 - 2.7, 4.2, 4.5, 'wall', 'metal', { tint: 0.6, noNav: true });
+      // a 3.6m wall across the room; climb the chimney on the east side by wall-jumping
+      prop(s, -W / 2, 0, -1.6, W / 2, 3.6, -0.4, 'wall', 'metal', { tint: 0.75, noNav: true, trimTop: true, keep: true });
+      prop(s, W / 2 - 3.1, 0, -0.4, W / 2 - 2.7, 3.6, 4.5, 'wall', 'metal', { tint: 0.6, noNav: true, keep: true });
     }
     if (st === 6) { for (let z = D / 2 - 8; z > -D / 2 + 6; z -= 6) s.rugs.push({ x: 0, z, w: 3, d: 0.5 }); }
     if (st === 8) {
       s.pads = [{ x: 0, z: 3, power: 17.5 }];
-      prop(s, -W / 2, 0, -3, W / 2, 5.2, -1, 'trim', 'metal', { tint: 0.75, noNav: true, trimTop: true });
+      prop(s, -W / 2, 0, -3, W / 2, 5.2, -1, 'trim', 'metal', { tint: 0.75, noNav: true, trimTop: true, keep: true });
     }
     if (st === 9) { pillar(s, -4, -2, 1.6, H); pillar(s, 4, -2, 1.6, H); barrier(s, rng, 0, 3, 4, 'x'); }
     lightGrid(s, rng, 1, Math.round(D / 7));
-    s.cachePos = { x: 0, z: 0 };
+    s.cachePos = { x: -W / 2 + 3, z: D / 2 - 5 };
     s.calm = true;
     return s;
   },
@@ -532,7 +532,7 @@ export function generateSpec(arch, rng, ctx) {
     const cz = Math.max(p.z0, Math.min(k.z, p.z1));
     return Math.hypot(cx - k.x, cz - k.z) < k.r;
   });
-  s.props = s.props.filter((p) => !clear(p));
+  s.props = s.props.filter((p) => p.keep || !clear(p));
   s.cyl = s.cyl.filter((c) => c.core || !clear({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r }));
   // clamp props inside the room
   for (const p of s.props) {

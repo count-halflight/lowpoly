@@ -108,6 +108,17 @@ export class HUD {
     c.globalAlpha = 1;
     return c.measureText(str).width;
   }
+  // draw text shrunk (then truncated) to fit a width
+  fitText(str, x, y, size, maxW, color, opts) {
+    const c = this.ctx;
+    let sz = size;
+    c.font = font(sz, opts.kind || 'serif', opts.weight || 700);
+    while (sz > 7 && c.measureText(str).width > maxW) { sz--; c.font = font(sz, opts.kind || 'serif', opts.weight || 700); }
+    let t = str;
+    while (t.length > 3 && c.measureText(t).width > maxW) t = t.slice(0, -2);
+    if (t !== str) t = t.slice(0, -1) + '.';
+    return this.text(t, x, y, sz, color, 'left', opts);
+  }
   rect(x, y, w, h, color) { this.ctx.fillStyle = color; this.ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
   frame(x, y, w, h, color) {
     const c = this.ctx;
@@ -186,9 +197,11 @@ export class HUD {
       this.drawPrompt();
       this.drawHint();
     }
-    this.drawBanner();
-    this.drawToasts();
-    this.drawLevelCard();
+    if (!cut) {
+      this.drawBanner();
+      this.drawToasts();
+      if (!(g.bosses.active && g.bosses.active.alive)) this.drawLevelCard();
+    }
     if (cut) this.drawCutscene();
     this.drawNameCard();
     if (this.healT > 0) { c.globalAlpha = this.healT; c.strokeStyle = 'rgba(90,255,150,0.6)'; c.lineWidth = 6; c.strokeRect(3, 3, this.W - 6, this.V - 6); c.globalAlpha = 1; }
@@ -216,10 +229,10 @@ export class HUD {
     c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 1;
     c.beginPath(); c.moveTo(x + 10.5, y); c.lineTo(x + 0.5, y + h); c.stroke();
     const combat = g.level.current && g.level.current.state === 'combat';
-    this.text(this.room.main, x + 14, y + 17, 17, WHITE, 'left', { ca: 0.6 });
-    this.text(this.room.sub, x + 14, y + 28, 8, '#d8d8d8', 'left');
     const score = String(Math.floor(g.style.score)).padStart(6, '0');
-    this.text(score, x + w - 6, y + 18, 18, CYAN, 'right', { ca: 0.5 });
+    const sw = this.text(score, x + w - 6, y + 18, 18, CYAN, 'right', { ca: 0.5 });
+    this.fitText(this.room.main, x + 14, y + 17, 17, w - 30 - sw, WHITE, { ca: 0.6 });
+    this.fitText(this.room.sub, x + 14, y + 28, 8, w - 120, '#d8d8d8', {});
     // status bars + label
     const bx = x + w - 96;
     for (let i = 0; i < 5; i++) this.rect(bx + i * 10, y + 24, 8, 2, i < (g.style.rankIndex + 1) ? (combat ? RED : '#bbbbbb') : 'rgba(255,255,255,0.2)');
@@ -401,7 +414,7 @@ export class HUD {
     const nw = this.text(String(a.mag), right - 12, y, 30, empty ? RED : WHITE, 'right', { ca: 0.7 });
     const lx = right - 16 - nw;
     this.text(d.name, lx, y - 14, 9, d.color, 'right');
-    this.text(isFinite(a.reserve) ? 'RES ' + a.reserve : 'RES INF', lx, y - 4, 7, '#ccc', 'right');
+    this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES INF', lx, y - 4, 7, '#ccc', 'right');
     if (w.reloading) this.segBar(lx - 60, y - 24, 60, 2, 1 - w.reloadT / w.reloadTotal, d.color, 10, 1);
     if (w.altInfo) this.text(w.altInfo(), lx, y - 27, 7, '#ffd060', 'right', { kind: 'mono', weight: 400 });
   }

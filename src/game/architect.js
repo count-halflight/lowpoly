@@ -35,7 +35,7 @@ export class Architect extends Boss {
     this.moveStyle = 'hover'; this.moveSpeed = 4; this.prefDist = 20;
     this.speedMul = 1; this.cdMul = ng ? 0.8 : 1; this.dmgMul = ng ? 1.25 : 1;
     this.anim = { wind: false, act: false, moving: false };
-    this.hoverH = 8.5;
+    this.hoverH = 10.5;
     this.pos.set(room.wx(0), this.hoverH, room.wz(-room.D / 2 + 9));
     this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 3, h: 6, grounded: false, step: 0 };
     this.brain = new Brain(this,
@@ -56,7 +56,7 @@ export class Architect extends Boss {
 
   // ---------------------------------------------------------------- visuals
   buildBody() {
-    const bone = lam('panel', 0xd8d2c0, 0.05), dark = lam('gun', 0x1a1a22), gold = basic(0xffd27a);
+    const bone = lam('panel', 0xd8d2c0, 0.32), dark = lam('gun', 0x2a2a34, 0.08), gold = basic(0xffd27a);
     this.coreMat = basic(0xffffff);
     const g = this.group;
     const head = new THREE.Group();
@@ -91,10 +91,11 @@ export class Architect extends Boss {
     this.shield = mesh(new THREE.IcosahedronGeometry(4.6, 1), basic(0x9fd8ff, { transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: true }));
     this.shield.visible = false;
     g.add(this.shield);
+    g.scale.setScalar(1.7);
   }
 
   buildHand(side) {
-    const bone = lam('panel', 0xcac4b2, 0.06), dark = lam('gun', 0x222230);
+    const bone = lam('panel', 0xcac4b2, 0.3), dark = lam('gun', 0x2a2a38, 0.08);
     const grp = new THREE.Group();
     grp.add(mesh(new THREE.BoxGeometry(2.6, 0.9, 3.0), bone));
     for (let i = 0; i < 4; i++) {
@@ -107,7 +108,7 @@ export class Architect extends Boss {
     grp.add(mesh(new THREE.BoxGeometry(0.5, 0.5, 1.4), dark, side * -1.55, 0, 0.6));
     const gem = mesh(new THREE.OctahedronGeometry(0.45, 0), basic(0xffd27a), 0, 0.6, -0.2);
     grp.add(gem);
-    grp.scale.setScalar(1.25);
+    grp.scale.setScalar(1.7);
     this.game.scene.add(grp);
     const room = this.room;
     const home = new THREE.Vector3(room.wx(side * 9), 6, room.wz(-room.D / 2 + 12));
@@ -144,10 +145,10 @@ export class Architect extends Boss {
     let coreMul = 1;
     if (this.phase === 1) coreMul = this.hands.some((h) => h.alive) && this.staggerT <= 0 ? 0.2 : 2.2;
     if (this.phase === 3) coreMul = this.staggerT > 0 ? 1.6 : 0.4;
-    hb.push({ x: c.x, y: c.y, z: c.z, r: 1.3, weak: true, mul: coreMul, shielded, core: true });
+    hb.push({ x: c.x, y: c.y, z: c.z, r: 2.0, weak: true, mul: coreMul, shielded, core: true });
     const p = this.pos;
-    hb.push({ x: p.x, y: p.y + 0.4, z: p.z - 0.2, r: 3.0, mul: 0.08, shielded });
-    for (const h of this.hands) if (h.alive) hb.push({ x: h.pos.x, y: h.pos.y, z: h.pos.z, r: 2.2, mul: 1, hand: h });
+    hb.push({ x: p.x, y: p.y + 0.6, z: p.z - 0.3, r: 5.0, mul: 0.08, shielded });
+    for (const h of this.hands) if (h.alive) hb.push({ x: h.pos.x, y: h.pos.y, z: h.pos.z, r: 2.8, mul: 1, hand: h });
     return hb;
   }
 
@@ -218,7 +219,7 @@ export class Architect extends Boss {
       cs.play([
         { dur: 2.4, cam: { from: c.clone().add(new THREE.Vector3(-6, -3, 9)), to: c.clone().add(new THREE.Vector3(-3, -2, 6)), look: c, fov: 56 }, sfx: 'bossPhase', flash: 0xffffff, say: { speaker: this.name, text: 'Then let us see how you do in the dark. Everyone else was afraid of it.', color: '#f4f0e0' }, fn: () => g.level.setDarkness(true), must: true },
         { dur: 2.0, cam: { from: c.clone().add(new THREE.Vector3(0, -5, 12)), to: c.clone().add(new THREE.Vector3(0, -6, 8)), look: c, fov: 64 }, say: { speaker: 'MARA VOSS', text: 'Its core only cracks from its own power. Parry it back. Flip a coin. Blow it up.', color: '#7fe0b8' } },
-      ], () => { this.state = 'idle'; this.invuln = 0.5; this.hoverH = 5.5; this.moveSpeed = 6; for (const h of this.hands) { h.alive = false; h.grp.visible = false; } });
+      ], () => { this.state = 'idle'; this.invuln = 0.5; this.hoverH = 8.6; this.moveSpeed = 6; for (const h of this.hands) { h.alive = false; h.grp.visible = false; } });
     }
   }
 
@@ -280,11 +281,11 @@ export class Architect extends Boss {
         h.pos.y = 8.5 + Math.sin(h.t * 30) * 0.08 + h.t * 1.5;
         if (h.t > 0.75) { h.state = 'slam'; h.t = 0; }
       } else if (h.state === 'slam') {
-        h.pos.y = Math.max(h.slamAt.y + 0.7, h.pos.y - dt * 70);
-        if (h.pos.y <= h.slamAt.y + 0.71) {
+        h.pos.y = Math.max(h.slamAt.y + 0.8, h.pos.y - dt * 70);
+        if (h.pos.y <= h.slamAt.y + 0.81) {
           h.state = 'rest'; h.t = 0;
           const d = Math.hypot(pp.x - h.pos.x, pp.z - h.pos.z);
-          if (d < 4.2 && pp.y < h.slamAt.y + 2.2) g.player.damage(32 * this.dmgMul, h.pos, 'THE ARCHITECT\'S HAND', 'Leave the gold circle before the hand comes down, then punish it while it rests.');
+          if (d < 4.4 && pp.y < h.slamAt.y + 2.2) g.player.damage(32 * this.dmgMul, h.pos, 'THE ARCHITECT\'S HAND', 'Leave the gold circle before the hand comes down, then punish it while it rests.');
           g.enemies.shockwave(h.slamAt.clone(), 14, 16, 16 * this.dmgMul, 0xffd27a, 'HAND SHOCKWAVE', 'Jump the ring that spreads from each slam.');
           g.fx.explosion(h.slamAt.clone().setY(h.slamAt.y + 0.5), 3, 0xffd27a);
           g.audio.play('slam', h.pos, 1);
@@ -293,15 +294,15 @@ export class Architect extends Boss {
       } else if (h.state === 'rest') {
         if (h.t > 1.6) { h.state = 'idle'; h.t = 0; }
       } else if (h.state === 'sweepwind') {
-        h.target.set(room.wx(h.side * (room.W / 2 - 3)), 1.3, h.sweepZ);
+        h.target.set(room.wx(h.side * (room.W / 2 - 3)), 0.6, h.sweepZ);
         h.pos.lerp(h.target, Math.min(1, dt * 6));
         h.grp.rotation.set(0, -h.side * Math.PI / 2, 0);
         if (h.t > 1.0) { h.state = 'sweep'; h.t = 0; g.audio.play('swing', h.pos, 1); }
       } else if (h.state === 'sweep') {
         const k = Math.min(1, h.t / 1.3);
         h.pos.x = room.wx(h.side * (room.W / 2 - 3) * (1 - 2 * k));
-        h.pos.y = 1.3;
-        if (Math.abs(pp.x - h.pos.x) < 2.2 && Math.abs(pp.z - h.sweepZ) < 2.6 && pp.y < 1.9 && !h.hitDone) {
+        h.pos.y = 0.6;
+        if (Math.abs(pp.x - h.pos.x) < 2.4 && Math.abs(pp.z - h.sweepZ) < 2.8 && pp.y < 0.9 && !h.hitDone) {
           h.hitDone = true;
           g.player.damage(26 * this.dmgMul, h.pos, 'THE ARCHITECT\'S SWEEP', 'The gold beam on the floor marks the sweep. Jump over the hand.');
           g.player.knock(-h.side * 14, 6, 0);
@@ -344,7 +345,7 @@ export class Architect extends Boss {
     } else if (this.state === 'idle') {
       if (this.staggerT > 0) {
         this.staggerT -= dt;
-        this.pos.y += (this.groundY + 3.5 - this.pos.y) * Math.min(1, dt * 2);
+        this.pos.y += (this.groundY + 7.5 - this.pos.y) * Math.min(1, dt * 2);
         if (Math.random() < 0.4) g.fx.sparks.spawn(this.pos.x + (Math.random() - 0.5) * 4, this.pos.y, this.pos.z, (Math.random() - 0.5) * 3, 3, (Math.random() - 0.5) * 3, 1, 0.9, 0.6, 1, 0.12, 0.5, 9, 0);
       } else {
         this.brain.update(dt);
@@ -391,7 +392,7 @@ export class Architect extends Boss {
     const g = this.game;
     this.deathT += dt;
     const floor = this.groundY;
-    this.pos.y += (floor + 2.2 - this.pos.y) * Math.min(1, dt * 0.8);
+    this.pos.y += (floor + 6.5 - this.pos.y) * Math.min(1, dt * 0.8);
     this.head.rotation.x = Math.min(1.1, this.deathT * 0.35);
     this.halo.rotation.z += dt * (3 - Math.min(2.9, this.deathT));
     if (Math.random() < 0.25 && this.deathT < 4) {

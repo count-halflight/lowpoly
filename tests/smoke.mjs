@@ -40,7 +40,7 @@ try {
   await sleep(800);
   await page.screenshot({ path: SHOTS + '01-title.png' });
 
-  await page.click('[data-a="start"]');
+  await page.click('[data-a="endless"]'); await page.click('[data-a="endlessRandom"]');
   await sleep(600);
   let i = await info();
   if (i.state !== 'playing') fail('run did not start: ' + JSON.stringify(i));
@@ -191,7 +191,7 @@ try {
   mp.on('pageerror', (e) => errors.push('mobile pageerror: ' + e.message));
   await mp.goto(`http://localhost:${PORT}/`);
   await mp.waitForFunction(() => window.__vg && window.__vg.debug);
-  await mp.tap('[data-a="start"]');
+  await mp.tap('[data-a="endless"]'); await mp.waitForTimeout(200); await mp.tap('[data-a="endlessRandom"]');
   await mp.waitForFunction(() => window.__vg.state === 'playing', null, { timeout: 10000 });
   await mp.waitForTimeout(800);
   await mp.screenshot({ path: SHOTS + '81-mobile-lobby.png' });

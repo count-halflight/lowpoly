@@ -179,9 +179,9 @@ export function miniIntro(g, minis) {
     const c = e.centerPos().clone();
     const f = fwdOf(e.yaw);
     const side = V(f.z, 0, -f.x).multiplyScalar(i % 2 ? -1 : 1);
-    const size = Math.max(1.5, e.height || 2);
-    const from = c.clone().addScaledVector(f, 5 + size).addScaledVector(side, 2).setY(c.y + 0.4);
-    const to = c.clone().addScaledVector(f, 3.4 + size * 0.6).addScaledVector(side, 1).setY(c.y + 0.2);
+    const size = Math.max(1.5, e.height || 2, (e.radius || 1) * 2);
+    const from = c.clone().addScaledVector(f, 6 + size * 1.4).addScaledVector(side, 2.5).setY(c.y + 0.6);
+    const to = c.clone().addScaledVector(f, 4.5 + size * 1.0).addScaledVector(side, 1.2).setY(c.y + 0.3);
     steps.push({
       dur: 2.3, cam: { from, to, look: c, fov: 60 }, sfx: i === 0 ? 'miniSting' : null,
       name: { name: e.name, title: e.title, color: e.colorHex, dur: 2.3 },

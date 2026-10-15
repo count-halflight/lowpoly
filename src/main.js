@@ -31,6 +31,7 @@ import { Menus } from './ui/menus.js';
 import { STRATA, CONDITIONS } from './data/world.js';
 import { ENDING, LOGS } from './data/lore.js';
 import { bossById } from './data/bossdata.js';
+import { miniById } from './data/minidata.js';
 import { terminalCanvas } from './world/kits.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -400,6 +401,7 @@ class Game {
     this.state = s;
     this.input.enabled = s === 'playing';
     document.body.classList.toggle('playing', s === 'playing');
+    if (this.hud && this.mode !== 'menu') this.hud.show(!['menu', 'results', 'credits', 'menu-over', 'terminal'].includes(s));
   }
 
   pause() {
@@ -1080,7 +1082,7 @@ function boot() {
         station: game.tutorial.active ? game.tutorial.station : null, objective: game.currentObjective(), cutscene: game.cutscene.active, menu: game.menus.current,
         breaker: !!game.breaker, error: game.lastError || null,
       }),
-      DEFS, ENEMY_INFO,
+      DEFS, ENEMY_INFO, bossById, miniById,
     };
   } catch (e) {
     const b = document.getElementById('boot');

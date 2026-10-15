@@ -23,7 +23,7 @@ await page.addInitScript(() => { try { localStorage.setItem('voltgrave.settings.
 await page.goto(`http://localhost:${PORT}/`);
 await page.waitForFunction(() => window.__vg && window.__vg.debug);
 await page.fill('#m-seed', SEED);
-await page.click('[data-a="start"]');
+await page.click('[data-a="endless"]'); await page.click('[data-a="endlessRandom"]');
 await page.waitForTimeout(300);
 
 // install the bot
