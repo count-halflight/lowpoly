@@ -14,7 +14,7 @@ let chromium;
 try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
 
 const LEVELS = parseInt(process.env.LEVELS || '3', 10);
-const PORT = 4174;
+const PORT = parseInt(process.env.PORT || '4174', 10);
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 mkdirSync(SHOTS, { recursive: true });
 

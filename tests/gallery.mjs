@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 let chromium;
 try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
-const PORT = 4175;
+const PORT = parseInt(process.env.PORT || '4175', 10);
 const OUT = new URL('./shots/gallery/', import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
 const server = spawn(process.execPath, [new URL('../node_modules/vite/bin/vite.js', import.meta.url).pathname, 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });

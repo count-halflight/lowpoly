@@ -386,6 +386,22 @@ export class Director {
   // NG+: corrupted enemies sometimes rise again as wisps
   onKill(e) {
     const g = this.game;
+    // the last miniboss in a containment room takes its escorts and summons down with it
+    if (e.mini && this.minis.includes(e) && !this.minis.some((m) => m.alive)) {
+      this.waveIdx = this.waves.length;
+      this.pendingBackup = 0;
+      const room = g.level.current;
+      g.hud.toast('LINK SEVERED · ESCORTS SHUT DOWN', '#ffd060');
+      g.enemies.delayed(0.45, () => {
+        if (room !== g.level.current) return;
+        for (const o of g.enemies.list) {
+          if (!o.alive || o.mini) continue;
+          g.fx.sparksBurst(o.centerPos().clone(), 0xffd060, 10, 5, 0.35);
+          g.combat.damageEnemy(o, 1e6, { source: 'explosion', fromPlayer: false, quiet: true });
+        }
+      });
+      return;
+    }
     if (!e.corrupt || e.type === 'wisp' || Math.random() > 0.3) return;
     const room = g.level.current;
     const p = e.pos.clone();

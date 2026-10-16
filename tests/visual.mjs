@@ -10,7 +10,7 @@ try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require(
 const MAX = parseInt(process.argv[2] || '10', 10);
 const SEED = process.argv[3] || '1234';
 const W = parseInt(process.env.W || '1280', 10), H = parseInt(process.env.H || '720', 10);
-const PORT = 4174;
+const PORT = parseInt(process.env.PORT || '4174', 10);
 const OUT = new URL('./shots/visual/', import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
 const server = spawn(process.execPath, [new URL('../node_modules/vite/bin/vite.js', import.meta.url).pathname, 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });

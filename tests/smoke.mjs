@@ -12,7 +12,7 @@ let chromium;
 try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('/opt/node-tools/node_modules/playwright')); }
 
 const ROOMS = parseInt(process.env.ROOMS || '26', 10);
-const PORT = 4173;
+const PORT = parseInt(process.env.PORT || '4173', 10);
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 mkdirSync(SHOTS, { recursive: true });
 
