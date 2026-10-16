@@ -209,12 +209,17 @@ function buildViewmodel(id, M) {
     rightHand([0, -0.02, 0.07], [0.4, 0, 0]);
     anim.leftHand = leftHand([-0.005, -0.03, -0.42]);
     // CORE EJECT: live core window on the receiver
-    V('core', (gb) => { B(gb, -0.014, 0.06, -0.15, 0.014, 0.074, -0.05, acc); B(gb, -0.018, 0.058, -0.155, 0.018, 0.062, -0.045, M.dark); });
+    V('core', (gb) => {
+      B(gb, -0.014, 0.06, -0.15, 0.014, 0.074, -0.05, acc); B(gb, -0.018, 0.058, -0.155, 0.018, 0.062, -0.045, M.dark);
+      C(gb, -0.055, 0.0, -0.06, 0.024, 0.12, 'z', 8, M.dark); C(gb, -0.055, 0.0, -0.06, 0.026, 0.035, 'z', 8, acc);
+    });
     // PUMP CHARGE: three charge lamps + a hot stripe
     anim.pumpMats = [0, 1, 2].map(() => new THREE.MeshBasicMaterial({ color: 0x401018 }));
     V('pump', (gb) => {
       for (let i = 0; i < 3; i++) B(gb, -0.012, 0.06, -0.17 + i * 0.04, 0.012, 0.076, -0.145 + i * 0.04, anim.pumpMats[i]);
       B(gb, 0.04, 0.0, -0.19, 0.043, 0.04, 0.07, acc);
+      B(gb, -0.03, 0.03, -0.68, 0.03, 0.068, -0.52, M.dark);
+      for (let z = -0.66; z < -0.53; z += 0.035) B(gb, -0.032, 0.048, z, 0.032, 0.07, z + 0.014, acc);
     });
     muzzle = new THREE.Vector3(0, 0.045, -0.76);
   } else if (id === 'lance') {
@@ -233,9 +238,9 @@ function buildViewmodel(id, M) {
     leftHand([-0.01, -0.03, -0.3]);
     // SCOPE: rail scope with a lit lens
     V('scope', (gb) => {
-      C(gb, 0, 0.145, -0.1, 0.028, 0.2, 'z', 8, M.dark);
-      B(gb, -0.01, 0.1, -0.13, 0.01, 0.12, -0.11, M.dark); B(gb, -0.01, 0.1, -0.03, 0.01, 0.12, -0.01, M.dark);
-      C(gb, 0, 0.145, -0.205, 0.022, 0.01, 'z', 8, acc);
+      C(gb, 0, 0.135, -0.08, 0.021, 0.17, 'z', 8, M.dark);
+      B(gb, -0.008, 0.1, -0.13, 0.008, 0.118, -0.11, M.dark); B(gb, -0.008, 0.1, -0.05, 0.008, 0.118, -0.03, M.dark);
+      C(gb, 0, 0.135, -0.17, 0.017, 0.01, 'z', 8, acc);
     });
     // SPLITTER: prism at the muzzle and side fins
     V('splitter', (gb) => { B(gb, -0.07, 0.0, -0.7, -0.055, 0.05, -0.5, acc); B(gb, 0.055, 0.0, -0.7, 0.07, 0.05, -0.5, acc); });
