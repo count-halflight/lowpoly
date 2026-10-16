@@ -69,9 +69,14 @@ export class Audio {
   }
 
   // 0 = healthy, 1 = hurt, 2 = critical: the world sounds duller the closer you are to death.
+  // Called every gameplay frame; the muffle lifts on its own once gameplay stops calling it
+  // (menus, results, pause), see Music.tick.
   setLowHp(bucket) {
     if (!this.ok) return;
-    this.baseCut = [20000, 7000, 2400][bucket] || 20000;
+    this.lowHpAt = this.ctx.currentTime;
+    const cut = [20000, 7000, 2400][bucket] || 20000;
+    if (cut === this.baseCut) return;
+    this.baseCut = cut;
     const t = this.ctx.currentTime, f = this.lp.frequency;
     f.cancelScheduledValues(t);
     f.setValueAtTime(Math.max(200, f.value), t);
@@ -392,6 +397,7 @@ class Music {
   setHeat(rank, rush) { this.heat = rank; this.rush = !!rush; }
   tick() {
     const a = this.a;
+    if (a.ok && a.baseCut < 20000 && a.ctx.currentTime - (a.lowHpAt || 0) > 0.4) a.setLowHp(0);
     if (!a.ok || a.ctx.state !== 'running' || !this.enabled) return;
     const c = a.ctx;
     if (this.nextTime < c.currentTime) this.nextTime = c.currentTime + 0.05;

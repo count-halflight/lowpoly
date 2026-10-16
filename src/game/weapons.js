@@ -583,7 +583,10 @@ export class Weapons {
         this.models[this.current].visible = true;
         this.cooldown = Math.max(this.cooldown, 0.12);
       }
-      if (this.switchT <= 0) this.switchTo = null;
+      if (this.switchT <= 0) {
+        this.switchTo = null;
+        if (p.tipOnce && this.owned.length > 1) p.tipOnce('variant', 'Every weapon has two VARIANTS. Press the number of the weapon you are holding again to swap.', 'Every weapon has two VARIANTS. Tap the icon of the weapon you are holding to swap.');
+      }
     }
 
     const id = this.current, d = DEFS[id], a = this.ammo[id];

@@ -15,7 +15,8 @@ const MAX_BHOP = 27;
 const HOOK_RANGE = 40;
 const RUSH_TIME = 6;
 // damage that should never count as a dodged attack (damage-over-time ticks, hazards, self)
-const NO_DODGE = /VORTEX|SURGE|ORBITAL|LIVE FLOOR|MOLTEN|COOLANT|VOID|YOUR OWN|OVERPUMP/;
+const TIPS = { key: 'vg-mech-tips', seen: null };
+const NO_DODGE = /VORTEX|SURGE|ORBITAL|SINGULARITY| TETHER|LEECH|LIVE FLOOR|MOLTEN|COOLANT|VOID|YOUR OWN|OVERPUMP/;
 
 export function defaultStats() {
   return {
@@ -71,7 +72,7 @@ export class Player {
     this.dashStart = -9; this.dodgeArmed = false; this.dodgeCd = 0; this.counterT = 0;
     this.finisherTarget = null; this.cueT = 0;
     this.kickP = 0; this.kickPV = 0; this.kickR = 0; this.kickRV = 0;
-    this.stepT = 0; this.fxT = 0; this.lastHpBucket = -1;
+    this.stepT = 0; this.fxT = 0;
   }
 
   spawnAt(x, y, z, yaw) {
@@ -236,6 +237,7 @@ export class Player {
         b.vel.y = JUMP_V * 1.75; this.jumpBuffer = 0; this.coyote = 0; this.slamJumpWindow = 0;
         g.audio.play('jump', null, 0.9);
         g.style.add('SLAM JUMP', 15, true);
+        this.camPunch(-0.7, 0);
         this.emit('slamjump');
       } else if (this.dashT > 0 && this.coyote > 0) {
         // dash-jump: carry the dash speed into a long jump
@@ -244,6 +246,7 @@ export class Player {
         b.vel.y = JUMP_V * 0.92; this.jumpBuffer = 0; this.coyote = 0;
         g.audio.play('jump', null, 0.8);
         g.style.add('DASH JUMP', 8, true);
+        this.camPunch(-0.3, this.dashDir.dot(this.right) * -0.4);
         this.emit('dashjump');
       } else if (this.coyote > 0) {
         const bhop = this.groundT < BHOP_WINDOW && this.landT < 0.3 && hv > speed * 0.95;
@@ -265,6 +268,10 @@ export class Player {
         this.jumpBuffer = 0;
         g.audio.play('jump', null, 0.7);
         g.style.add('WALL JUMP', 4, true);
+        // lean away from the wall and kick some grit off it
+        this.camPunch(-0.25, (this.wallNX * this.right.x + this.wallNZ * this.right.z) * -0.7);
+        const wp = b.pos;
+        for (let i = 0; i < (g.lowPower ? 3 : 6); i++) g.fx.dust.spawn(wp.x - this.wallNX * 0.4, wp.y + 0.4 + Math.random(), wp.z - this.wallNZ * 0.4, this.wallNX * 2 + (Math.random() - 0.5), 0.5, this.wallNZ * 2 + (Math.random() - 0.5), 0.45, 0.42, 0.38, 0.7, 0.18, 0.4, -0.3, 3);
         this.emit('walljump');
       }
     }
@@ -317,7 +324,7 @@ export class Player {
     this.updateFinisherCue(dt);
     if (g.touch && g.touch.setRushReady) g.touch.setRushReady(this.rush >= 1 && this.rushT <= 0);
     const hpB = this.hp < st.maxHp * 0.25 ? 2 : this.hp < st.maxHp * 0.45 ? 1 : 0;
-    if (hpB !== this.lastHpBucket) { this.lastHpBucket = hpB; if (g.audio.setLowHp) g.audio.setLowHp(hpB); }
+    if (g.audio.setLowHp) g.audio.setLowHp(hpB);
 
     // ---- level props (jump pads, conveyors handled via level)
     g.level.applyPlayerProps(this, dt);
@@ -624,8 +631,21 @@ export class Player {
       if (Math.abs(e.pos.x - p.x) > 16 || Math.abs(e.pos.z - p.z) > 16) continue;
       const h = e.headPos();
       const hot = e === this.finisherTarget;
+      if (!e.mini) this.tipOnce('exec', 'Red marker: that enemy is broken. PUNCH it (F) to EXECUTE it for health, ammo and style.', 'Red marker: that enemy is broken. Hit PARRY next to it to EXECUTE it for health and ammo.');
       g.fx.sparks.spawn(h.x, h.y + 0.45 + (e.mini ? 1.2 : 0), h.z, 0, 0.6, 0, 1, hot ? 1 : 0.2, hot ? 1 : 0.25, 1, hot ? 0.22 : 0.15, 0.16, 0, 0);
     }
+  }
+
+  // One-line pointers to the newer mechanics: shown in combat, at most twice per browser,
+  // never in the training deck (it teaches them itself or keeps them out of the way).
+  tipOnce(key, kb, touch) {
+    const g = this.game;
+    if (g.mode === 'tutorial' || g.state !== 'playing' || !g.onceHint) return;
+    if (!TIPS.seen) { try { TIPS.seen = JSON.parse(localStorage.getItem(TIPS.key) || '{}') || {}; } catch { TIPS.seen = {}; } }
+    if ((TIPS.seen[key] | 0) >= 2 || (g.shownHints && g.shownHints.has('m-' + key))) return;
+    TIPS.seen[key] = (TIPS.seen[key] | 0) + 1;
+    try { localStorage.setItem(TIPS.key, JSON.stringify(TIPS.seen)); } catch { /* storage blocked */ }
+    g.onceHint('m-' + key, g.input.usingTouch ? touch : kb, 5);
   }
 
   // ---------------------------------------------------------------- RUSH overdrive
@@ -637,6 +657,7 @@ export class Player {
       const g = this.game;
       g.audio.play('rushReady', null, 0.8);
       g.hud.toast(g.input.usingTouch ? 'RUSH READY · TAP RUSH' : 'RUSH READY · PRESS X', '#ff3df0');
+      this.tipOnce('rush', 'RUSH is full. Press X for a few seconds of faster fire, harder hits and lifesteal.', 'RUSH is full. Tap the pink RUSH button for faster fire, harder hits and lifesteal.');
     }
   }
 
