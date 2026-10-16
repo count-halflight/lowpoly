@@ -225,7 +225,7 @@ class Game {
     if (this.settings.get('hints')) {
       this.hint(this.input.usingTouch
         ? 'LEFT THUMB: MOVE  ·  RIGHT THUMB: LOOK  ·  FIRE / DASH / PARRY on the right'
-        : 'WASD MOVE  ·  MOUSE AIM  ·  LMB FIRE  ·  RMB ALT  ·  SHIFT DASH  ·  CTRL SLIDE/SLAM  ·  F PARRY', 7);
+        : 'WASD MOVE  ·  MOUSE AIM  ·  LMB FIRE  ·  RMB ALT  ·  SHIFT DASH  ·  CTRL SLIDE/SLAM  ·  F PARRY  ·  X RUSH', 7);
     }
     if (this.audio.music) this.audio.music.set(0);
   }
@@ -1117,6 +1117,7 @@ class Game {
     u.uTime.value = this.time;
     u.uAlert.value = this.level.current && this.level.current.state === 'combat' ? 1 : 0;
     u.uSlowmo.value = this.slowT > 0 ? Math.min(1, this.slowT) : 0;
+    if (u.uRush) { const pl = this.player; u.uRush.value = pl.rushT > 0 ? Math.min(1, pl.rushT * 2, 0.35 + (pl.rushMax - pl.rushT) * 3) : 0; }
   }
 
   render() {
@@ -1124,6 +1125,7 @@ class Game {
       const u = this.renderer.postMat.uniforms;
       this.flashV = Math.max(0, this.flashV - 0.02);
       u.uFlash.value = this.flashV; u.uDamage.value = 0; u.uLowHp.value = 0; u.uAlert.value = 0; u.uTime.value = this.time;
+      if (u.uRush) u.uRush.value = 0;
     }
     const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state);
     this.renderer.render(this.scene, this.camera, showVm ? this.weapons.scene : null, this.weapons.camera);
