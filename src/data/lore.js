@@ -101,6 +101,14 @@ export const ENEMY_LORE = {
   bulwark: 'Riot-control heavies with frontal shields. Bullets bounce; explosions, lances, punches and flanks do not.',
   signaller: 'Radio operators. Their uplink calls reinforcements. Killing them first earns a NO BACKUP bonus.',
   wisp: 'Smoke-detector drones turned kamikaze. They beep before diving. Their wrecks still explode.',
+  swarmer: 'Vermin-control units from the Slaughterworks drains. One is a nuisance. They are never one. They crouch before every hop, like they were taught to.',
+  leech: 'Feeding tubes from the cold-storage racks that learned to crawl. They drink charge the way they once fed the sleepers. A firm punch reminds them who is on the menu.',
+  sentry: 'Perimeter turrets bolted down by Core security. The sight line is a courtesy; the sweep is not. They were built to cut ankles, so jump.',
+  charger: 'Ram-plows from the Foundry yards, fitted with horns and a furnace heart. They cannot turn mid-charge. The walls of Voltgrave are full of their dents.',
+  stalker: 'Prototype infiltration frames stitched from sleeper sinew and refractive film. Nobody remembers commissioning them. They hiss when they walk.',
+  bomber: 'Crop-dusters from the hydroponic decks, repurposed for crowd dispersal. Every bomb is marked on the floor beforehand. Again, liability.',
+  cantor: 'Choir priests of the current. Their hymn shields and mends the machines they bless. They never bless themselves; that would be vanity.',
+  mirror: 'Ceremonial guards of the Reliquary, armored in polished mirror. They return whatever you give them. Explosions, lances and fists are harder to return.',
 };
 
 export const WEAPON_LORE = {
