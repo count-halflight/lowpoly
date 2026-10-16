@@ -37,6 +37,13 @@ export const ROUTES = {
   exit: { label: 'EXTRACTION', sub: 'LEVEL COMPLETE', color: '#7aff7a', reward: 'none' },
 };
 
+export const DIFFICULTY = {
+  steady: { taken: 0.55, ehp: 0.8, aggr: 1.35, budget: 0.75, boss: 0.75 },
+  normal: { taken: 0.8, ehp: 0.92, aggr: 1.12, budget: 0.9, boss: 0.88 },
+  hard: { taken: 1, ehp: 1, aggr: 1, budget: 1, boss: 1 },
+  brutal: { taken: 1.3, ehp: 1.15, aggr: 0.85, budget: 1.15, boss: 1.2 },
+};
+
 export const MODIFIERS = {
   blackout: { name: 'BLACKOUT', desc: 'Lights are failing', scoreMul: 1.2 },
   overcharged: { name: 'OVERCHARGED', desc: 'Enemies move and attack faster', scoreMul: 1.25 },
@@ -96,10 +103,13 @@ export class Director {
   }
 
   // ---- difficulty curves (gentle HP growth; variety does the heavy lifting)
-  hpMul(i) { return 1 + Math.min(i, 30) * 0.04 + Math.max(0, i - 30) * 0.02; }
-  dmgMul(i) { return Math.min(1.9, 1 + i * 0.022) * (this.cond === 'glass' ? 1.5 : 1); }
-  aggr(i) { return Math.max(0.68, 1 - i * 0.011) * (this.cond === 'haste' ? 0.8 : 1); }
-  playerDamageMul() { return this.cond === 'glass' ? 1.5 : 1; }
+  // difficulty (Settings): scales damage taken, enemy health and pace, encounter size, boss health
+  get diff() { return DIFFICULTY[this.game.settings.get('difficulty')] || DIFFICULTY.normal; }
+  hpMul(i) { return (1 + Math.min(i, 30) * 0.04 + Math.max(0, i - 30) * 0.02) * this.diff.ehp; }
+  // (glass jaw is applied once, in playerDamageMul, to everything that hurts the player)
+  dmgMul(i) { return Math.min(1.9, 1 + i * 0.022); }
+  aggr(i) { return Math.max(0.68, 1 - i * 0.011) * (this.cond === 'haste' ? 0.8 : 1) * this.diff.aggr; }
+  playerDamageMul() { return (this.cond === 'glass' ? 1.5 : 1) * this.diff.taken; }
   maxAlive() { return this.game.lowPower ? 10 : 13; }
   get cond() { const r = this.game.level.current; return r ? r.cond : 'none'; }
   heatOf(room) { return room.ctx && room.ctx.heat !== undefined ? room.ctx.heat : room.index; }
@@ -115,7 +125,7 @@ export class Director {
     // breather rooms: occasionally a lighter encounter
     const rng = new RNG(hashSeed(this.seed, 'breather', i, this.game.level.current ? this.game.level.current.index : 0));
     if (i > 3 && rng.chance(0.18)) b *= 0.6;
-    return b;
+    return b * this.diff.budget;
   }
 
   bossFor(n) {
@@ -261,12 +271,12 @@ export class Director {
     if (arch === 'boss') {
       this.active = true;
       if (room.ctx.bossId) {
-        g.bosses.spawn(room.ctx.bossId, room, room.ctx.bossTier || 0, { ngPlus: this.ngPlus, hpScale: room.ctx.bossHpScale || 1 });
+        g.bosses.spawn(room.ctx.bossId, room, room.ctx.bossTier || 0, { ngPlus: this.ngPlus, hpScale: (room.ctx.bossHpScale || 1) * this.diff.boss });
       } else {
         const n = Math.floor(room.index / 5) - 1;
         const b = this.bossFor(n);
         this.bossCount = n + 1;
-        g.bosses.spawn(b.type, room, b.tier);
+        g.bosses.spawn(b.type, room, b.tier, { hpScale: this.diff.boss });
       }
       return 'boss';
     }
@@ -329,7 +339,7 @@ export class Director {
       const pos = new THREE.Vector3(x, 0.05, z);
       void pp;
       const e = new Miniboss(g, pos, {
-        def, hpMul: (room.ctx.miniHpMul || 1) * (1 + Math.min(heat, 40) * 0.035) * (this.ngPlus ? 1.3 : 1),
+        def, hpMul: (room.ctx.miniHpMul || 1) * (1 + Math.min(heat, 40) * 0.035) * (this.ngPlus ? 1.3 : 1) * this.diff.boss,
         dmgMul: this.dmgMul(heat), aggr: this.aggr(heat),
       });
       e.introHold = true;

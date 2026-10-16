@@ -103,7 +103,7 @@ export class Tutorial {
         break;
       case 9:
         g.weapons.give('ripsaw');
-        for (const [x, z, type] of [[-5, -6, 'husk'], [5, -6, 'husk'], [0, -9, 'gunner'], [-3, -3, 'ripper'], [3, -3, 'ripper']]) this.dummies.push(dummy(x, z, { type, hpMul: 0.8, dmg: 0.45, aggr: 1.2, live: true }));
+        for (const [x, z, type] of [[-5, -6, 'husk'], [5, -6, 'husk'], [0, -9, 'gunner'], [-2, -5, 'ripper'], [2, -5, 'ripper']]) this.dummies.push(dummy(x, z, { type, hpMul: 0.8, dmg: 0.45, aggr: 1.2, live: true }));
         g.hint(this.t('Everything at once. Slide in mid-air to SLAM the ground.', 'Everything at once. Press CTRL in mid-air to ground-slam. Kills up close heal you.'), 8);
         break;
       default: break;

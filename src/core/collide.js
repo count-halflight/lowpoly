@@ -42,6 +42,7 @@ export function moveBody(body, dx, dy, dz, boxes) {
   body.wallNormalX = 0; body.wallNormalZ = 0;
   let wasGrounded = body.grounded;
   body.grounded = false;
+  depenetrate(body, boxes);
   for (let s = 0; s < steps; s++) {
     hit |= moveAxis(body, 0, sx, boxes, wasGrounded);
     hit |= moveAxis(body, 2, sz, boxes, wasGrounded);
@@ -70,8 +71,17 @@ function moveAxis(body, axis, d, boxes, wasGrounded) {
     if (!b.active || !b.solid) continue;
     if (!overlaps(p.x, p.y, p.z, body.r, body.h, b)) continue;
     if (axis === 1) {
-      if (d < 0) { p.y = b.maxY; body.grounded = true; body.groundBox = b; if (body.vel.y < 0) body.vel.y = 0; hit |= 2; }
-      else { p.y = b.minY - body.h - EPS; if (body.vel.y > 0) body.vel.y = 0; hit |= 4; }
+      // Only land on / bump under a box we were actually above / below before this step.
+      // A body that starts inside a tall box (spawned or shoved into a pillar) used to be
+      // snapped to its top every frame and ride it up onto the roof, out of reach.
+      const prevY = p.y - d;
+      if (d < 0) {
+        if (prevY < b.maxY - 0.5) continue;
+        p.y = b.maxY; body.grounded = true; body.groundBox = b; if (body.vel.y < 0) body.vel.y = 0; hit |= 2;
+      } else {
+        if (prevY + body.h > b.minY + 0.5) continue;
+        p.y = b.minY - body.h - EPS; if (body.vel.y > 0) body.vel.y = 0; hit |= 4;
+      }
       continue;
     }
     // try stepping up small ledges
@@ -98,6 +108,30 @@ function moveAxis(body, axis, d, boxes, wasGrounded) {
     hit |= 1;
   }
   return hit;
+}
+
+// Push a body out of any box it already overlaps: up onto low ledges, otherwise sideways
+// along the shallowest axis. Deep overlaps with huge boxes (floor/ceiling slabs) are left to
+// the normal axis sweep.
+function depenetrate(body, boxes) {
+  const p = body.pos, r = body.r;
+  for (let iter = 0; iter < 3; iter++) {
+    let moved = false;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (!b.active || !b.solid) continue;
+      if (!overlaps(p.x, p.y, p.z, r, body.h, b)) continue;
+      const up = b.maxY - p.y;
+      if (up <= Math.max(body.step || 0, 0.12)) { p.y = b.maxY + EPS; moved = true; continue; }
+      const nx = (p.x + r) - b.minX, px = b.maxX - (p.x - r);
+      const nz = (p.z + r) - b.minZ, pz = b.maxZ - (p.z - r);
+      const m = Math.min(nx, px, nz, pz);
+      if (m > 2.5) continue;
+      if (m === nx) p.x -= nx + EPS; else if (m === px) p.x += px + EPS; else if (m === nz) p.z -= nz + EPS; else p.z += pz + EPS;
+      moved = true;
+    }
+    if (!moved) break;
+  }
 }
 
 export function bodyOverlapsAny(body, boxes) {

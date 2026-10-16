@@ -454,6 +454,12 @@ export class Enemy {
       this.pos.x = clamp(this.pos.x, room.origin.x - room.W / 2 + 0.6, room.origin.x + room.W / 2 - 0.6);
       this.pos.z = clamp(this.pos.z, room.origin.z - room.D / 2 + 0.6, room.origin.z + room.D / 2 - 0.6);
     }
+    // never on the roof or inside the ceiling: a ground enemy up there can never be reached
+    if (room && !this.flying && this.pos.y > room.spec.H - 1.2) {
+      const k = room.nav.nearestFree(this.pos.x, this.pos.z, 10);
+      if (k >= 0) { room.nav.center(k, this.wp); this.pos.set(this.wp.x, room.floorAt(this.wp.x, this.wp.z) + 0.05, this.wp.z); b.vel.set(0, 0, 0); }
+    }
+    if (room && this.flying && this.pos.y > room.spec.H - 0.6) { this.pos.y = room.spec.H - 0.6; if (b.vel.y > 0) b.vel.y = 0; }
     if (this.pos.y < -10 && room) {
       const k = room.nav.nearestFree(room.origin.x, room.origin.z, 8);
       if (k >= 0) { room.nav.center(k, this.wp); this.pos.set(this.wp.x, 0.2, this.wp.z); b.vel.set(0, 0, 0); }

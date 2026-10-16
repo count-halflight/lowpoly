@@ -10,6 +10,8 @@ import { MEDALS, SKINS, RANK_COLOR } from '../game/meta.js';
 import { NG_TWIST, ROMAN } from '../game/campaign.js';
 
 const SETTINGS_SPEC = [
+  { group: 'GAME' },
+  { k: 'difficulty', label: 'Difficulty (applies from the next room)', type: 'select', str: true, options: [['steady', 'STEADY  (learning the ropes)'], ['normal', 'NORMAL'], ['hard', 'HARD  (the original balance)'], ['brutal', 'BRUTAL']] },
   { group: 'CONTROLS' },
   { k: 'mouseSens', label: 'Mouse sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05 },
   { k: 'touchSens', label: 'Touch look sensitivity', type: 'range', min: 0.3, max: 3, step: 0.05 },
@@ -357,7 +359,7 @@ export class Menus {
         input = document.createElement('select');
         for (const [v, l] of spec.options) { const o = document.createElement('option'); o.value = v; o.textContent = l; input.appendChild(o); }
         input.value = s.get(spec.k);
-        input.addEventListener('change', () => s.set(spec.k, parseInt(input.value, 10)));
+        input.addEventListener('change', () => s.set(spec.k, spec.str ? input.value : parseInt(input.value, 10)));
         row.appendChild(input);
       }
       list.appendChild(row);

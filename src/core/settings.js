@@ -25,6 +25,7 @@ const DEFAULTS = {
   showFps: false,
   hints: true,
   cutscenes: true,
+  difficulty: 'normal',
 };
 
 function load(key) {
