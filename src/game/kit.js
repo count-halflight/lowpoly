@@ -510,6 +510,7 @@ export class KitBoss extends Boss {
     this.cdMul = Math.max(0.5, this.cdMul * 0.85);
     this.phaseName = this.def.phaseNames ? this.def.phaseNames[1] || 'PHASE III' : 'PHASE III';
     if (this.def.move3) this.moveStyle = this.def.move3;
+    if (this.def.speed3) this.moveSpeed = this.def.speed3;
     g.audio.play('bossPhase', this.pos, 1);
     g.flash(0xff3050, 0.4);
     g.addShake(0.7);
