@@ -4,6 +4,7 @@ import { getTexture } from '../render/textures.js';
 import { psxify } from '../render/renderer.js';
 import { sharedMaterials } from '../render/materials.js';
 import { makeBox } from '../core/collide.js';
+import { MODULES, slideBody } from './abilities.js';
 
 export const BOSS_INFO = {
   grindhammer: { name: 'GRINDHAMMER', title: 'FURNACE BULL OF THE LOWER WORKS', color: '#ff8a1a' },
@@ -60,8 +61,79 @@ export class Boss {
     this.attackCount = 0;
     this.escortT = 14;
     this.tmp = new THREE.Vector3();
+    // actor interface shared with the attack modules (kit bosses override most of it)
+    this.colorHex = this.info.color || '#ff3050';
+    this.color = parseInt(String(this.colorHex).replace('#', ''), 16);
+    this.anim = { wind: false, act: false, moving: false, mod: null };
+    this.radius = 1.6; this.height = 4; this.size = 2;
+    this.stunT = 0;
+    this.modRun = null;
+    this.modStunT = 0;
+    this.sig = null; // bespoke signature: { name, id, p, over }
+    this.sigT = 8;
+    this.sigUses = 0;
   }
   setHp(base) { this.maxHp = base * this.hpMul; this.hp = this.maxHp; }
+
+  // ---------------------------------------------------------------- module adapter
+  get groundY() { return this.flying ? this.room.floorAt(this.pos.x, this.pos.z) : this.pos.y; }
+  muzzle() { const c = this.center(); return new THREE.Vector3(c.x + Math.sin(this.yaw) * this.radius, c.y, c.z + Math.cos(this.yaw) * this.radius); }
+  faceTarget(dt, rate) { const p = this.game.player.body.pos; this.face(p.x, p.z, dt, rate); }
+  slide(dx, dz) { if (!this.body) { this.pos.x += dx; this.pos.z += dz; this.clampArena(2); return false; } const b = slideBody(this.body, dx, dz, this.game.level.colliders); this.clampArena(this.radius); return b; }
+  teleport(v) { this.pos.x = v.x; this.pos.z = v.z; if (!this.flying) this.pos.y = v.y; }
+  stun(t) { this.modStunT = Math.max(this.modStunT, t); }
+  // run one attack module as a bespoke state; returns to idle (or a stagger) when it ends
+  runModule(id, params, label, big = false) {
+    const mod = MODULES[id];
+    if (!mod) return false;
+    const p = { ...mod.def, ...(params || {}) };
+    const s = { t: 0 };
+    this.modRun = { mod, s, p, id };
+    this.state = 'module';
+    this.anim.mod = id;
+    if (label) { this.game.hud.toast(label, this.colorHex, !big); if (big) this.game.audio.play('alert', null, 0.5); }
+    try { mod.start(this, s, p); } catch (e) { this.game.lastError = String(e && e.stack || e); this.modRun = null; this.state = 'idle'; this.stateT = 0.5; return false; }
+    return true;
+  }
+  abortModule() {
+    const r = this.modRun;
+    if (r && r.mod.end) { try { r.mod.end(this, r.s, r.p); } catch (e) { /* ignore */ } }
+    this.modRun = null;
+    this.anim.wind = false; this.anim.act = false; this.anim.mod = null;
+  }
+  // states every bespoke boss shares; returns true when it consumed the frame
+  sharedThink(dt) {
+    if (this.state === 'module' && this.modRun) {
+      const r = this.modRun;
+      r.s.t += dt;
+      let done = false;
+      try { done = r.mod.update(this, r.s, r.p, dt); } catch (e) { done = true; this.game.lastError = String(e && e.stack || e); }
+      if (done) {
+        this.abortModule();
+        if (this.modStunT > 0) { this.state = 'modstun'; this.stateT = this.modStunT; this.modStunT = 0; this.game.hud.toast(this.info.name + ' IS STAGGERED - HIT THE WEAK POINT', '#ffd060', true); }
+        else { this.state = 'idle'; this.stateT = (0.9 + Math.random() * 0.5) * this.cdMul; }
+      }
+      return true;
+    }
+    if (this.state === 'module') { this.state = 'idle'; this.stateT = 0.5; return true; }
+    if (this.state === 'modstun') {
+      if (Math.random() < 0.3) this.game.fx.sparks.spawn(this.pos.x + (Math.random() - 0.5) * 2, this.pos.y + this.height * 0.8, this.pos.z + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, 2, (Math.random() - 0.5) * 2, 1, 0.9, 0.3, 1, 0.1, 0.4, 6, 0);
+      if (this.stateT <= 0) { this.state = 'idle'; this.stateT = 0.6; }
+      return true;
+    }
+    return false;
+  }
+  // bespoke signature: announced loudly the first time, OVERDRIVE variant in phase III
+  trySignature() {
+    if (!this.sig || this.sigT > 0) return false;
+    const over = this.phase >= 3 && this.sig.over;
+    const name = over ? 'OVERDRIVE · ' + this.sig.name : this.sig.name;
+    const first = this.sigUses === 0;
+    this.sigUses++;
+    this.sigT = (this.sig.cd || 16) * this.cdMul * (over ? 0.75 : 1);
+    if (this.game.emit) this.game.emit('bossSignature', { name: this.sig.name, actor: this.type });
+    return this.runModule(this.sig.id, over ? { ...this.sig.p, ...this.sig.over } : this.sig.p, name, first || !!over);
+  }
   finish() {
     this.group.traverse((o) => { if (o.isMesh) { if (!o.userData.mat) o.userData.mat = o.material; this.meshes.push(o); } });
     this.game.scene.add(this.group);
@@ -84,6 +156,7 @@ export class Boss {
 
   enterPhase2() {
     const g = this.game;
+    this.abortModule();
     this.phase = 2;
     this.invuln = 1.4;
     this.state = 'phase'; this.stateT = 1.4;
@@ -93,6 +166,27 @@ export class Boss {
     g.hitstop(0.15);
     g.hud.banner('PHASE II', this.info.name + ' IS ENRAGED', this.info.color);
     g.fx.sparksBurst(this.center(), 0xffffff, 40, 14, 0.8, 0.15);
+    this.sigT = Math.min(this.sigT, 3);
+  }
+
+  // bespoke bosses get a third phase in NG+ and on overclocked tiers (kit bosses override)
+  enterPhase3() {
+    const g = this.game;
+    this.abortModule();
+    this.phase = 3;
+    this.invuln = 1.4;
+    this.state = 'phase'; this.stateT = 1.4;
+    this.speedMul *= 1.1;
+    this.cdMul = Math.max(0.5, this.cdMul * 0.85);
+    this.phaseName = 'PHASE III';
+    g.audio.play('bossPhase', this.pos, 1);
+    g.flash(0xff3050, 0.4);
+    g.addShake(0.7);
+    g.hitstop(0.15);
+    g.hud.banner('PHASE III', this.info.name + ' OVERLOADS', this.info.color);
+    g.fx.sparksBurst(this.center(), 0xff3050, 40, 14, 0.8, 0.15);
+    g.fx.ring(this.pos.x, this.groundY + 0.2, this.pos.z, 12, 0xff3050, 0.6, 0.05);
+    this.sigT = Math.min(this.sigT, 1.5);
   }
 
   center() { return this.tmp.set(this.pos.x, this.pos.y + 2, this.pos.z); }
@@ -101,33 +195,86 @@ export class Boss {
     if (!this.alive) return;
     const g = this.game;
     this.alive = false;
+    this.abortModule();
+    if (this.brain && this.brain.abort) this.brain.abort();
     if (this.onDefeatExtra) this.onDefeatExtra();
     g.bosses.onDefeated(this);
-    const c = this.center().clone();
-    let i = 0;
-    const boom = () => {
-      if (i >= 6) {
-        g.fx.explosion(c, 8, 0xffffff);
-        g.fx.chunks(c, 0x666666, 30, 14, 0.4);
-        g.audio.play('explosion', c, 1);
-        g.addShake(0.8);
-        this.remove();
-        return;
-      }
-      const p = c.clone().add(new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 4));
-      g.fx.explosion(p, 2.5 + Math.random() * 2, 0xff8a30);
-      g.audio.play('explosion', p, 0.7);
-      i++;
-      g.enemies.delayed(0.22, boom);
-    };
-    boom();
+    g.bosses.field.clearOwner(this);
+    // staged collapse: popping explosions speed up while the body buckles, then one big blast
+    this.dying = true;
+    this.deathT = 0;
+    this.deathPop = 0.05;
+    this.deathTilt = Math.random() < 0.5 ? -1 : 1;
+    this.deathY0 = this.pos.y;
+    this.flashT = 0;
+    g.audio.play('bossPhase', this.pos, 0.9);
+    g.addShake(0.6);
+    g.fx.sparksBurst(this.center().clone(), 0xffffff, 30, 12, 0.6);
+  }
+
+  // a random point on the body for death explosions (kit bosses use their hitboxes)
+  deathPoint(out) {
+    const c = this.center();
+    return out.set(c.x + (Math.random() - 0.5) * this.size * 1.6, c.y + (Math.random() - 0.4) * this.height * 0.6, c.z + (Math.random() - 0.5) * this.size * 1.6);
+  }
+
+  updateDeath(dt) {
+    if (!this.dying || this.removed) return;
+    const g = this.game;
+    this.deathT += dt;
+    const T = 2.6;
+    const k = Math.min(1, this.deathT / T);
+    // buckle: tilt, sink (fliers fall out of the air), shudder
+    const floor = this.room.floorAt(this.pos.x, this.pos.z);
+    const drop = this.flying ? Math.max(0, this.deathY0 - floor - 0.6) : this.height * 0.18;
+    this.group.position.set(this.pos.x + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5), this.deathY0 - drop * k * k - (this.sinkY || 0), this.pos.z + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5));
+    this.group.rotation.set(0, this.yaw, 0);
+    this.group.rotateZ(this.deathTilt * k * k * 0.45);
+    this.group.rotateX(-k * 0.2);
+    if (this.flashing) { this.flashing = false; for (const m of this.meshes) m.material = m.userData.mat; }
+    if (this.onDeathTick) this.onDeathTick(k);
+    this.deathPop -= dt;
+    if (this.deathPop <= 0 && k < 1) {
+      this.deathPop = 0.3 - 0.2 * k;
+      const p = this.deathPoint(new THREE.Vector3());
+      const big = Math.random() < 0.3;
+      g.fx.explosion(p, (big ? 2.4 : 1.4) + Math.random() * 1.2 + this.size * 0.2, Math.random() < 0.5 ? this.color : 0xffa040);
+      g.fx.chunks(p, 0x5a5650, big ? 6 : 3, 7, 0.18 + this.size * 0.04);
+      g.audio.play('explosion', p, big ? 0.8 : 0.5);
+      g.addShake(big ? 0.35 : 0.15);
+      if (big) g.fx.sparksBurst(p, 0xffe0a0, 16, 10, 0.5);
+    }
+    if (Math.random() < 0.5) {
+      const p = this.deathPoint(new THREE.Vector3());
+      g.fx.dust.spawn(p.x, p.y, p.z, (Math.random() - 0.5), 1.5 + Math.random(), (Math.random() - 0.5), 0.12, 0.11, 0.1, 0.8, 0.7, 1.4, -0.6, 1);
+    }
+    if (k >= 1) {
+      const c = this.center().clone();
+      g.fx.explosion(c, 6 + this.size * 1.5, 0xffffff);
+      g.fx.explosion(c.clone().add(new THREE.Vector3(0, 1.5, 0)), 4 + this.size, this.color);
+      g.fx.chunks(c, 0x6a6660, 30, 15, 0.3 + this.size * 0.05);
+      g.fx.ring(c.x, floor + 0.15, c.z, 16 + this.size * 2, this.color, 0.7, 0.05);
+      g.fx.ring(c.x, floor + 0.6, c.z, 11 + this.size * 2, 0xffffff, 0.5, 0.05);
+      g.fx.spawnColumn(c.x, floor, c.z, this.color, 1.0, 14);
+      g.fx.sparksBurst(c, 0xffffff, 50, 18, 0.9, 0.16);
+      g.audio.play('explosion', c, 1);
+      g.audio.play('slam', c, 1);
+      g.addShake(1.0);
+      g.flash(0xffffff, 0.3);
+      g.hitstop(0.12);
+      this.dying = false;
+      this.remove();
+    }
   }
 
   remove() {
     if (this.removed) return;
     this.removed = true;
+    this.dying = false;
+    this.abortModule();
     this.game.scene.remove(this.group);
-    this.group.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
+    // chassis geometry is cached and shared between actors: only dispose what is ours
+    this.group.traverse((o) => { if (o.isMesh && o.geometry && !o.userData.shared) o.geometry.dispose(); });
     if (this.extraRemove) this.extraRemove();
   }
 
@@ -174,6 +321,7 @@ export class Boss {
     this.flashT -= dt;
     this.invuln -= dt;
     this.stateT -= dt;
+    if (this.state !== 'intro') this.sigT -= dt;
     if (this.state === 'intro') {
       this.intro -= dt;
       const { p } = this.playerVec();
@@ -224,12 +372,22 @@ class Grindhammer extends Boss {
     }
     this.group.add(this.chassis);
     this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 1.7, h: 3.5, grounded: true, step: 0.3 };
+    this.radius = 2.0; this.height = 3.6; this.size = 2.6;
+    // signature: three chained charges that leave a molten wake behind them
+    this.sig = { name: 'FURNACE STAMPEDE', id: 'charge', p: { count: 3, speed: 27, wind: 0.85, wake: 16, stun: 2.6, maxT: 2.2, dmg: 30 }, over: { count: 4, speed: 30, wake: 20 }, cd: 18 };
+    this.sigT = 9;
     this.finish();
+  }
+  onWallImpact() {
+    for (const br of this.room.breakables) {
+      if (br.broken) continue;
+      if (Math.hypot(this.room.wx(br.x) - this.pos.x, this.room.wz(br.z) - this.pos.z) < 4.2) { this.room.breakPillar(br); this.brokePillar = true; }
+    }
   }
   hitboxes() {
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     const p = this.pos;
-    const stunned = this.state === 'stunned';
+    const stunned = this.state === 'stunned' || this.state === 'modstun';
     this.hbs = [
       { x: p.x + s * 0.8, y: p.y + 2.2, z: p.z + c * 0.8, r: 1.8, mul: 0.8 },
       { x: p.x - s * 1.2, y: p.y + 2.2, z: p.z - c * 1.2, r: 1.6, mul: 1 },
@@ -243,14 +401,23 @@ class Grindhammer extends Boss {
     const { dx, dz, d, p } = this.playerVec();
     const sp = this.speedMul;
     this.body.vel.set(0, 0, 0);
+    if (this.sharedThink(dt)) {
+      if (this.state === 'modstun') { this.vent.scale.setScalar(1 + Math.sin(g.time * 12) * 0.15); this.chassis.rotation.z = Math.sin(g.time * 30) * 0.03; }
+      this.pushPlayer(2.2); this.clampArena(2.2);
+      return;
+    }
+    this.chassis.rotation.z = 0;
     switch (this.state) {
       case 'idle':
         this.face(p.x, p.z, dt, 3);
         this.walk(dt, dx, dz, d, 3.2 * sp);
         if (this.stateT <= 0) {
           this.attackCount++;
-          if (this.phase === 2 && this.attackCount % 3 === 0) { this.state = 'spewWind'; this.stateT = 0.6 * this.cdMul; this.volleys = 3; }
-          else if (d > 7.5 || Math.random() < 0.35) { this.state = 'chargeWind'; this.stateT = 0.95 * this.cdMul; this.charges = this.phase === 2 ? 2 : 1; g.audio.play('bossCharge', this.pos, 1); }
+          if (this.trySignature()) break;
+          // phase III (NG+): the furnace boils over into meteor rain and star fissures
+          if (this.phase >= 3 && this.attackCount % 3 === 1) { this.runModule(this.attackCount % 2 ? 'meteor' : 'fissure', this.attackCount % 2 ? { n: 7, radius: 2.4, dmg: 22 } : { mode: 'star', n: 8, speed: 16, dmg: 20 }, this.attackCount % 2 ? 'SLAG RAIN' : 'FAULT LINES'); break; }
+          if (this.phase >= 2 && this.attackCount % 3 === 0) { this.state = 'spewWind'; this.stateT = 0.6 * this.cdMul; this.volleys = 3; }
+          else if (d > 7.5 || Math.random() < 0.35) { this.state = 'chargeWind'; this.stateT = 0.95 * this.cdMul; this.charges = this.phase >= 2 ? 2 : 1; g.audio.play('bossCharge', this.pos, 1); }
           else { this.state = 'slamWind'; this.stateT = 0.85 * this.cdMul; g.audio.play('windup', this.pos, 1); }
         }
         break;
@@ -307,7 +474,7 @@ class Grindhammer extends Boss {
         if (this.stateT <= 0) {
           this.chassis.rotation.x = 0; this.chassis.position.y = 0;
           g.enemies.shockwave(this.pos.clone(), 18, 11 * sp, 22 * this.dmgMul, 0xff7a10, 'GRINDHAMMER SHOCKWAVE', 'Jump over the expanding shockwave rings.');
-          if (this.phase === 2) g.enemies.delayed(0.55, () => g.enemies.shockwave(this.pos.clone(), 18, 11 * sp, 22 * this.dmgMul, 0xff7a10, 'GRINDHAMMER SHOCKWAVE', 'Phase two slams send two rings. Jump twice.'));
+          if (this.phase >= 2) g.enemies.delayed(0.55, () => g.enemies.shockwave(this.pos.clone(), 18, 11 * sp, 22 * this.dmgMul, 0xff7a10, 'GRINDHAMMER SHOCKWAVE', 'Phase two slams send two rings. Jump twice.'));
           g.audio.play('slam', this.pos, 1);
           g.addShake(0.5);
           this.state = 'recover'; this.stateT = 1.1;
@@ -344,8 +511,11 @@ class Grindhammer extends Boss {
   }
   animate() {
     const s = this.stride || 0;
-    this.legs.forEach((l, i) => { l.rotation.x = Math.sin(s + (i % 2) * Math.PI) * (this.state === 'charging' ? 0.8 : 0.35); });
-    if (this.state === 'charging') this.stride = (this.stride || 0) + 0.6;
+    const running = this.state === 'charging' || (this.state === 'module' && this.anim.moving);
+    this.legs.forEach((l, i) => { l.rotation.x = Math.sin(s + (i % 2) * Math.PI) * (running ? 0.8 : 0.35); });
+    if (running) this.stride = (this.stride || 0) + 0.6;
+    if (this.state === 'module') this.chassis.rotation.x = this.anim.wind ? -0.1 : 0;
+    this.mouth.scale.y = this.anim.wind ? 1 + Math.random() : this.state === 'spewWind' ? this.mouth.scale.y : 1;
   }
 }
 
@@ -381,8 +551,15 @@ class Vesper extends Boss {
     this.pos.y = 3;
     this.hoverY = 3;
     this.strafe = 1; this.strafeT = 2;
+    this.flying = true;
+    this.radius = 1.2; this.height = 2.6; this.size = 1.6;
+    this.decoyLook = { chassis: 'hover', colors: [0x404a6a, 0x1a1c28, 0x40c8ff], scale: 1.4 };
+    // signature: a climbing salvo of missiles that dive in from above
+    this.sig = { name: 'TALON SALVO', id: 'missiles', p: { n: 8, speed: 18, turn: 1.3, dmg: 12, color: 0x40c8ff, size: 0.26 }, over: { n: 12, turn: 1.5 }, cd: 15 };
+    this.sigT = 7;
     this.finish();
   }
+  center() { return this.tmp.set(this.pos.x, this.pos.y + 0.6, this.pos.z); }
   hitboxes() {
     const p = this.pos;
     this.hbs = [
@@ -397,6 +574,7 @@ class Vesper extends Boss {
     const { dx, dz, d, p } = this.playerVec();
     this.face(p.x, p.z, dt, 5);
     const sp = this.speedMul;
+    if (this.sharedThink(dt)) { this.pos.y += (this.hoverY + Math.sin(g.time * 1.7) * 0.4 - this.pos.y) * Math.min(1, dt * 3); this.clampArena(3); return; }
     // movement: orbit-strafe at 12-18 m, hovering
     if (this.state !== 'sweep' && this.state !== 'sweepWind') {
       this.strafeT -= dt;
@@ -414,17 +592,21 @@ class Vesper extends Boss {
         if (this.stateT <= 0) {
           this.attackCount++;
           const r = Math.random();
-          if (this.phase === 2 && this.attackCount % 4 === 0) { this.state = 'blinkWind'; this.stateT = 0.6; this.pickBlink(); }
-          else if (this.phase === 2 && this.attackCount % 4 === 2) { this.state = 'sweepWind'; this.stateT = 1.1; g.audio.play('laser', this.pos, 1); }
+          if (this.trySignature()) break;
+          // phase II: she splits into hologram decoys; phase III: shard dives from the rafters
+          if (this.phase >= 2 && this.attackCount % 5 === 3 && this.runModule('decoys', { n: 2, hp: 40, life: 9, dmg: 7 }, 'MIRAGE')) break;
+          if (this.phase >= 3 && this.attackCount % 4 === 1 && this.runModule('swarmdive', { n: 6, dmg: 15 }, 'SKYFALL')) break;
+          if (this.phase >= 2 && this.attackCount % 4 === 0) { this.state = 'blinkWind'; this.stateT = 0.6; this.pickBlink(); }
+          else if (this.phase >= 2 && this.attackCount % 4 === 2) { this.state = 'sweepWind'; this.stateT = 1.1; g.audio.play('laser', this.pos, 1); }
           else if (r < 0.3 && g.bosses.barriers.length === 0) this.deployBarrier();
-          else if (r < 0.62) { this.state = 'fanWind'; this.stateT = 0.55 * this.cdMul; this.volleys = this.phase === 2 ? 3 : 2; }
+          else if (r < 0.62) { this.state = 'fanWind'; this.stateT = 0.55 * this.cdMul; this.volleys = this.phase >= 2 ? 3 : 2; }
           else { this.state = 'seekWind'; this.stateT = 0.6 * this.cdMul; }
         }
         break;
       case 'fanWind':
         this.armL.rotation.z = -1.2; this.armR.rotation.z = 1.2;
         if (this.stateT <= 0) {
-          const n = this.phase === 2 ? 7 : 5;
+          const n = this.phase >= 2 ? 7 : 5;
           const from = this.pos.clone().add(new THREE.Vector3(0, 0.6, 0));
           const to = g.camera.position.clone().add(new THREE.Vector3(0, -0.4, 0));
           const base = Math.atan2(to.x - from.x, to.z - from.z);
@@ -443,7 +625,7 @@ class Vesper extends Boss {
       case 'seekWind':
         this.armR.rotation.x = -1.4;
         if (this.stateT <= 0) {
-          const n = this.phase === 2 ? 4 : 3;
+          const n = this.phase >= 2 ? 4 : 3;
           for (let i = 0; i < n; i++) {
             const a = this.yaw + (i - (n - 1) / 2) * 0.7;
             g.projectiles.spawnEnemy(this.pos.clone().add(new THREE.Vector3(0, 1, 0)), new THREE.Vector3(Math.sin(a) * 8, 4, Math.cos(a) * 8), 14 * this.dmgMul, { color: 0xffe23a, radius: 0.3, size: 0.3, homing: 1.5, life: 6, cause: 'VESPER SEEKER', tip: 'Seekers are slow and parryable: punch them back at Vesper for huge damage.' });
@@ -491,7 +673,7 @@ class Vesper extends Boss {
       }
     }
   }
-  sweepDirSign() { return this.phase === 2 && this.attackCount % 8 === 2 ? -1 : 1; }
+  sweepDirSign() { return this.phase >= 2 && this.attackCount % 8 === 2 ? -1 : 1; }
   pickBlink() {
     const p = this.game.player.body.pos;
     const a = Math.random() * Math.PI * 2;
@@ -524,6 +706,7 @@ class Vesper extends Boss {
     const t = this.game.time;
     this.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (0.2 + Math.sin(t * 3) * 0.15); });
     this.rig.rotation.x = this.state === 'sweep' ? 0.3 : 0.1;
+    if (this.state === 'module') { this.armL.rotation.z = this.anim.wind ? -1.2 : 0; this.armR.rotation.z = this.anim.wind ? 1.2 : 0; this.armR.rotation.x = this.anim.act ? -1.4 : 0; }
   }
   extraRemove() {
     for (const b of this.game.bosses.barriers) { this.game.scene.remove(b.mesh); b.mesh.geometry.dispose(); }
@@ -571,7 +754,24 @@ class Crucible extends Boss {
     this.summonT = 10;
     this.spokesA = 0;
     this.spokeHitCd = 0;
+    this.radius = 2.4; this.height = 7; this.size = 3;
+    // signature: lightning closes the circuit between neighbouring pylons
+    this.sig = { name: 'SOUL CIRCUIT', cd: 17 };
+    this.sigT = 8;
     this.finish();
+  }
+  trySignature() {
+    if (this.sigT > 0 || this.pylons.filter((q) => q.alive).length < 2) return false;
+    const first = this.sigUses === 0;
+    this.sigUses++;
+    this.sigT = 17 * this.cdMul;
+    const over = this.phase >= 3;
+    this.game.hud.toast(over ? 'OVERDRIVE · SOUL CIRCUIT' : 'SOUL CIRCUIT', '#6aff5a', !(first || over));
+    if (first) this.game.audio.play('alert', null, 0.5);
+    if (this.game.emit) this.game.emit('bossSignature', { name: 'SOUL CIRCUIT', actor: this.type });
+    this.game.bosses.field.push(soulCircuit(this, over ? 6 : 4.5));
+    this.game.audio.play('zap', this.pos, 1);
+    return true;
   }
   get shielded() { return this.pylons.some((p) => p.alive); }
   hitboxes() {
@@ -623,11 +823,15 @@ class Crucible extends Boss {
       g.director.spawnEscort(this.tier + 1, true);
       g.hud.toast('THE CRUCIBLE SUMMONS DEFENDERS', '#6aff5a');
     }
+    if (this.sharedThink(dt)) { this.pushPlayer(2.4); return; }
     switch (this.state) {
       case 'idle':
         if (this.stateT <= 0) {
           this.attackCount++;
           const r = Math.random();
+          this.trySignature();
+          // phase III (NG+): the core blooms into petals of current
+          if (this.phase >= 3 && this.attackCount % 3 === 0 && this.runModule('pattern', { shape: 'flower', n: 26, bursts: 4, speed: 9, dmg: 9, petals: 6 }, 'BLOOM')) break;
           if (r < 0.45) { this.state = 'spiral'; this.stateT = 3.2; this.spiralT = 0; }
           else if (r < 0.75) { this.state = 'pulseWind'; this.stateT = 0.9; g.audio.play('windup', this.pos, 1); }
           else { this.state = 'volley'; this.stateT = 0.4; this.volleys = 4; }
@@ -636,8 +840,8 @@ class Crucible extends Boss {
       case 'spiral':
         this.spiralT -= dt;
         if (this.spiralT <= 0) {
-          this.spiralT = (this.phase === 2 ? 0.11 : 0.15) / sp;
-          const arms = this.phase === 2 ? 4 : 3;
+          this.spiralT = (this.phase >= 2 ? 0.11 : 0.15) / sp;
+          const arms = this.phase >= 2 ? 4 : 3;
           for (let k = 0; k < arms; k++) {
             const a = this.spiralA + (k / arms) * Math.PI * 2;
             g.projectiles.spawnEnemy(new THREE.Vector3(this.pos.x, Math.min(this.coreY, 3) - 1.4, this.pos.z), new THREE.Vector3(Math.sin(a) * 11, 0, Math.cos(a) * 11), 9 * this.dmgMul, { color: 0x6aff5a, radius: 0.24, size: 0.24, life: 4, cause: 'CRUCIBLE SPIRAL', tip: 'Spiral orbs fly at chest height in rotating arms: move with the rotation and slip through the gaps.', trail: false });
@@ -667,8 +871,8 @@ class Crucible extends Boss {
         }
         break;
     }
-    // phase 2: rotating floor spokes (jump them)
-    if (this.phase === 2) {
+    // phase 2+: rotating floor spokes (jump them)
+    if (this.phase >= 2) {
       this.spokesA += dt * 0.55 * sp;
       const n = 3;
       const pp = g.player.body.pos;
@@ -749,11 +953,15 @@ class Scythewright extends Boss {
     this.group.add(this.rig);
     this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 1.1, h: 4.3, grounded: true, step: 0.4 };
     this.combo = 0;
+    this.radius = 1.2; this.height = 4.5; this.size = 1.8;
+    // signature: it steps through space behind you and reaps, three times
+    this.sig = { name: 'REAPING STEP', id: 'blinkstrike', p: { n: 3, radius: 3.6, dmg: 24, wind: 0.62 }, over: { n: 5, wind: 0.52 }, cd: 14 };
+    this.sigT = 8;
     this.finish();
   }
   hitboxes() {
     const p = this.pos, s = Math.sin(this.yaw), c = Math.cos(this.yaw);
-    const hot = this.state === 'overheat' || this.state === 'stuck';
+    const hot = this.state === 'overheat' || this.state === 'stuck' || this.state === 'modstun';
     this.hbs = [
       { x: p.x, y: p.y + 3.0, z: p.z, r: 1.1, mul: 1 },
       { x: p.x + s * 0.4, y: p.y + 3.0, z: p.z + c * 0.4, r: 0.52, mul: hot ? 3 : 1.4, weak: hot },
@@ -765,18 +973,22 @@ class Scythewright extends Boss {
   think(dt) {
     const g = this.game;
     const { dx, dz, d, p } = this.playerVec();
-    const sp = this.speedMul * (this.phase === 2 ? 1.2 : 1);
+    const sp = this.speedMul * (this.phase >= 2 ? 1.2 : 1);
+    if (this.sharedThink(dt)) { this.pushPlayer(1.7); this.clampArena(1.8); return; }
     switch (this.state) {
       case 'idle': {
         this.face(p.x, p.z, dt, 6);
         if (d > 3) moveBody(this.body, dx / d * 6.5 * sp * dt, 0, dz / d * 6.5 * sp * dt, g.level.colliders);
         this.stride = (this.stride || 0) + dt * 8;
         if (this.stateT <= 0) {
+          if (this.trySignature()) break;
+          // phase III (NG+): harvest lines split the floor in eight directions
+          if (this.phase >= 3 && this.combo === 2 && this.runModule('fissure', { mode: 'star', n: 8, speed: 17, dmg: 20 }, 'HARVEST LINES')) { this.combo++; break; }
           this.combo++;
           if (this.combo > 3) { this.combo = 0; this.state = 'overheat'; this.stateT = 2.6; g.hud.toast('OVERHEATED - SHOOT THE CORE', '#ff3df0'); g.audio.play('sizzle', this.pos, 1); break; }
           if (d < 5) { this.state = 'sweepWind'; this.stateT = 0.65 * this.cdMul; g.fx.telegraphDisc(this.pos.x, 0, this.pos.z, 4.8, 0xff3df0, 0.65 * this.cdMul); g.audio.play('windup', this.pos, 1); }
           else if (d > 14 || Math.random() < 0.35) { this.state = 'throwWind'; this.stateT = 0.5 * this.cdMul; }
-          else { this.state = 'lungeWind'; this.stateT = 0.55 * this.cdMul; this.lunges = this.phase === 2 ? 2 : 1; g.audio.play('windup', this.pos, 1); }
+          else { this.state = 'lungeWind'; this.stateT = 0.55 * this.cdMul; this.lunges = this.phase >= 2 ? 2 : 1; g.audio.play('windup', this.pos, 1); }
         }
         break;
       }
@@ -827,7 +1039,7 @@ class Scythewright extends Boss {
         this.face(p.x, p.z, dt, 6);
         this.arms[1].rotation.x = -2.5;
         if (this.stateT <= 0) {
-          const n = this.phase === 2 ? 2 : 1;
+          const n = this.phase >= 2 ? 2 : 1;
           for (let i = 0; i < n; i++) {
             const a = this.yaw + (i - (n - 1) / 2) * 0.6;
             g.projectiles.spawnEnemy(this.pos.clone().add(new THREE.Vector3(0, 1.4, 0)), new THREE.Vector3(Math.sin(a) * 13, 0, Math.cos(a) * 13), 18 * this.dmgMul, { color: 0xff3df0, radius: 0.5, size: 0.55, homing: 0.9, life: 3.5, cause: 'THROWN SCYTHE', tip: 'Thrown scythes home slowly. Dash sideways at the last moment or parry them.' });
@@ -854,7 +1066,52 @@ class Scythewright extends Boss {
     const s = this.stride || 0;
     this.legs.forEach((l, i) => { l.rotation.x = Math.sin(s + i * Math.PI) * 0.5; });
     if (this.state === 'idle') this.arms.forEach((a, i) => { a.rotation.x = -0.6 + Math.sin(s + i) * 0.2; });
+    if (this.state === 'module') this.arms.forEach((a) => { a.rotation.x = this.anim.wind ? -2.3 : this.anim.act ? 0.5 : -0.6; });
+    if (this.state === 'modstun') this.coreMesh.scale.setScalar(1.3 + Math.sin(this.game.time * 14) * 0.3);
   }
+}
+
+// Crucible signature: arcs close between neighbouring live pylons. Breaking a pylon opens
+// the two links it anchors.
+function soulCircuit(boss, dur) {
+  const g = boss.game;
+  const warn = 1.3;
+  let t = 0, cd = 0;
+  const seg = (F, ax, ay, az, bx, by, bz, live) => {
+    if (!live) { F.beam(ax, ay, az, bx, by, bz, 0.06, 0x6aff5a, 0.35 + 0.3 * Math.sin(t * 40)); return; }
+    let px = ax, py = ay, pz = az;
+    for (let i = 1; i <= 4; i++) {
+      const k = i / 4, j = i < 4 ? 0.6 : 0;
+      const nx = ax + (bx - ax) * k + (Math.random() - 0.5) * j, ny = ay + (by - ay) * k + (Math.random() - 0.5) * j, nz = az + (bz - az) * k + (Math.random() - 0.5) * j;
+      F.beam(px, py, pz, nx, ny, nz, 0.26, 0x6aff5a, 0.9);
+      F.beam(px, py, pz, nx, ny, nz, 0.09, 0xffffff, 1);
+      px = nx; py = ny; pz = nz;
+    }
+  };
+  return {
+    owner: boss,
+    update(dt, F) {
+      t += dt; cd -= dt;
+      const live = t > warn;
+      const pp = g.player.body;
+      const P = boss.pylons;
+      let links = 0;
+      for (let i = 0; i < P.length; i++) {
+        const A = P[i], B = P[(i + 1) % P.length];
+        if (!A.alive || !B.alive) continue;
+        links++;
+        const ax = boss.pos.x + A.x, az = boss.pos.z + A.z, bx = boss.pos.x + B.x, bz = boss.pos.z + B.z;
+        const y = 1.3;
+        seg(F, ax, y, az, bx, y, bz, live);
+        if (live && cd <= 0 && segPointDist2(ax, 0, az, bx, 0, bz, pp.pos.x, 0, pp.pos.z) < 0.55 * 0.55 && pp.pos.y < y + 0.6 && pp.pos.y + pp.h > y - 0.6) {
+          cd = 0.6;
+          if (g.player.damage(18 * boss.dmgMul, new THREE.Vector3(pp.pos.x, y, pp.pos.z), 'SOUL CIRCUIT', 'Lightning links neighbouring pylons. Do not cross a live link: break one of its pylons to open it.')) g.audio.play('zap', null, 0.6);
+        }
+      }
+      if (live && Math.random() < 0.12) g.audio.play('zap', boss.pos, 0.3);
+      return t > warn + dur || links === 0;
+    },
+  };
 }
 
 export const BESPOKE = { grindhammer: Grindhammer, vesper: Vesper, crucible: Crucible, scythewright: Scythewright };

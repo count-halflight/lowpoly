@@ -4,22 +4,29 @@ import { KitBoss } from './kit.js';
 import { makeBox } from '../core/collide.js';
 import { bossById } from '../data/bossdata.js';
 import { Architect } from './architect.js';
+import { HazardField } from './abilities.js';
 
-// Owns the active boss (bespoke, kit-built, or the final boss) and boss barriers.
+// Owns the active boss (bespoke, kit-built, or the final boss), boss barriers and the
+// hazard field that long-lived attack hazards (bosses' and minibosses') live in.
 export class Bosses {
   constructor(game) {
     this.game = game;
     this.active = null;
     this.barriers = [];
+    this.field = new HazardField(game);
   }
 
   spawn(id, room, tier, opts = {}) {
     const g = this.game;
+    this.field.clear();
     if (id === 'architect') this.active = new Architect(g, room, tier, opts);
     else if (BESPOKE[id]) {
       this.active = new BESPOKE[id](g, room, tier);
       const d = bossById(id);
       this.active.def = d;
+      // bespoke bosses get a third phase under the same rule as kit bosses
+      this.active.maxPhase = opts.ngPlus || tier >= 2 ? 3 : 2;
+      this.active.hpSegments = this.active.maxPhase >= 3 ? [0.22, 0.5] : [0.5];
       if (opts.ngPlus) { this.active.hpMul *= 1.2; this.active.maxHp *= 1.2; this.active.hp = this.active.maxHp; }
     } else {
       const def = bossById(id);
@@ -50,7 +57,9 @@ export class Bosses {
   }
 
   update(dt) {
-    if (this.active && this.active.alive) this.active.update(dt);
+    const a = this.active;
+    if (a && a.alive) a.update(dt);
+    else if (a && a.dying && a.updateDeath) a.updateDeath(dt);
     if (this.barriers.length) {
       for (const b of this.barriers) b.t -= dt;
       this.barriers = this.barriers.filter((b) => {
@@ -58,6 +67,7 @@ export class Bosses {
         return true;
       });
     }
+    this.field.update(dt);
   }
 
   onDefeated(boss) { this.game.onBossDefeated(boss); }
@@ -66,5 +76,6 @@ export class Bosses {
     if (this.active) { this.active.remove(); this.active = null; }
     for (const b of this.barriers) { this.game.scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }
     this.barriers = [];
+    this.field.clear();
   }
 }
