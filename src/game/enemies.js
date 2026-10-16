@@ -2334,7 +2334,7 @@ class Leech extends Enemy {
     const amt = Math.min(1, v / 3);
     const w = this.walk * 2;
     let hx = 0, t1x = 0, my = 0.22, mx = 0;
-    if (st === 'rear') { hx = -0.9; mx = -0.5; t1x = 0.4; my = 0.32; }
+    if (st === 'rear') { hx = 0.35; mx = -0.75; t1x = 0.6; my = 0.34; }
     else if (st === 'leap') { hx = -0.2; mx = -0.3; }
     else if (st === 'latched') { hx = Math.sin(t * 20) * 0.15; mx = -0.2 + Math.sin(t * 14) * 0.2; }
     const k = Math.min(1, dt * 14);
@@ -2405,7 +2405,7 @@ class Bomber extends Enemy {
     let ux = p.x - this.pos.x, uz = p.z - this.pos.z;
     const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
     this.runDir.set(ux, 0, uz);
-    this.runStart.set(p.x - ux * 8, this.hoverH, p.z - uz * 8);
+    this.runStart.set(p.x - ux * 12, this.hoverH, p.z - uz * 12);
     if (room) {
       this.runStart.x = clamp(this.runStart.x, room.origin.x - room.W / 2 + 2, room.origin.x + room.W / 2 - 2);
       this.runStart.z = clamp(this.runStart.z, room.origin.z - room.D / 2 + 2, room.origin.z + room.D / 2 - 2);
@@ -2425,7 +2425,7 @@ class Bomber extends Enemy {
       this.faceToward(this.pos.x + b.vel.x, this.pos.z + b.vel.z, dt, 4);
       if (l < 1.6 || this.stateT <= 0) {
         this.planRunDirFromHere();
-        this.state = 'run'; this.stateT = 3.2; this.bombs = 6 + (this.elite ? 2 : 0); this.bombT = 0.45 * this.windMul;
+        this.state = 'run'; this.stateT = 3.4; this.bombs = 6 + (this.elite ? 2 : 0); this.bombT = 0.3 * this.windMul; this.dropping = false;
         this.eyeFlare = 1.5;
         g.audio.play('alert', this.pos, 0.9);
       }
@@ -2436,7 +2436,13 @@ class Bomber extends Enemy {
       b.vel.x += (this.runDir.x * sp - b.vel.x) * Math.min(1, dt * 6);
       b.vel.z += (this.runDir.z * sp - b.vel.z) * Math.min(1, dt * 6);
       this.faceToward(this.pos.x + this.runDir.x, this.pos.z + this.runDir.z, dt, 8);
-      this.bombT -= dt;
+      // bombs keep the drone's forward speed: open the bay once the first one would land just
+      // short of the player, so the carpet straddles them instead of overshooting
+      if (!this.dropping) {
+        const ax = this.pos.x + b.vel.x * 0.85 - p.x, az = this.pos.z + b.vel.z * 0.85 - p.z;
+        if (ax * this.runDir.x + az * this.runDir.z > -5.5 || this.stateT < 1.9) this.dropping = true;
+      }
+      if (this.dropping) this.bombT -= dt;
       if (this.bombT <= 0 && this.bombs > 0) {
         this.bombT = 0.3; this.bombs--;
         const room = g.level.current;
@@ -2489,7 +2495,7 @@ class Bomber extends Enemy {
     g.audio.play('explosion', p, 0.8);
     g.combat.radialDamage(p, 2.6, 14, { source: 'explosion', friendly: true, cause: 'BOMBER WRECK', tip: 'Downed Bombers explode where they fall.' });
   }
-  forceAttack() { this.state = 'run'; this.stateT = 9; this.bombs = 1; this.bombT = 9; this.eyeFlare = 1.5; this.runDir.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
+  forceAttack() { this.state = 'run'; this.stateT = 9; this.bombs = 1; this.bombT = 9; this.dropping = true; this.eyeFlare = 1.5; this.runDir.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
 }
 
 // ---------------------------------------------------------------------------------------
