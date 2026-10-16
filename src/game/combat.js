@@ -113,6 +113,8 @@ export class Combat {
     const head = info.part === 'head';
     if (head) mul *= (info.headMul || 2) * g.player.stats.headMul;
     if (e.elite) mul *= g.player.stats.elitesMul;
+    // juggling: ground enemies caught in the air (launched or mid-leap) take extra player damage
+    if (!e.flying && !e.mini && !e.anchored && e.airTime > 0.15 && !e.body.grounded && this.playerSource(info)) mul *= 1.15 + 0.2 * (g.player.stats.juggle || 0);
     // type-specific armour (e.g. Bulwark front shield)
     const armor = info.finisher ? 1 : e.armorFactor ? e.armorFactor(info) : 1;
     let amount = dmg * mul * armor;

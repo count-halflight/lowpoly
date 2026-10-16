@@ -493,7 +493,9 @@ export class Weapons {
     return best;
   }
 
-  onPunch() { this.punchAnim = 0.28; }
+  onPunch() { this.punchAnim = 0.28; this.kickAnim = false; }
+  // slide kick: same timing as a punch, but the strike comes in low from below the frame
+  onKick() { this.kickAnim = true; }
 
   // Finisher reward: a full magazine now, a little reserve for everything else.
   onFinisher() {
@@ -1568,8 +1570,13 @@ export class Weapons {
     if (this.punchAnim > 0) {
       const ext = Math.sin((1 - this.punchAnim / 0.28) * Math.PI);
       this.fist.visible = true;
-      this.fist.position.set(-0.18 + ext * 0.08, -0.2 + ext * 0.08, -0.25 - ext * 0.35);
-      this.fist.rotation.z = ext * 0.3;
+      if (this.kickAnim) {
+        this.fist.position.set(-0.06 + ext * 0.04, -0.46 + ext * 0.22, -0.3 - ext * 0.3);
+        this.fist.rotation.set(-ext * 0.7, 0, ext * 0.5);
+      } else {
+        this.fist.position.set(-0.18 + ext * 0.08, -0.2 + ext * 0.08, -0.25 - ext * 0.35);
+        this.fist.rotation.set(0, 0, ext * 0.3);
+      }
     } else this.fist.visible = false;
   }
 

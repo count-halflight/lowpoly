@@ -30,6 +30,7 @@ export const UPGRADES = [
   { id: 'ghoststep', name: 'GHOST STEP', rarity: 'common', max: 2, desc: 'Longer dash i-frames: perfect dodges are easier and their slow-motion lasts longer.', apply: (s) => { s.dodgeWindow += 0.05; s.dodgeSlow += 0.15; } },
   { id: 'overdrive', name: 'OVERDRIVE', rarity: 'common', max: 2, desc: 'RUSH fills 30% faster and lasts 2s longer.', apply: (s) => { s.rushRate *= 1.3; s.rushDur += 2; } },
   { id: 'executioner', name: 'EXECUTIONER', rarity: 'rare', max: 2, desc: 'Finishers work on tougher enemies (+50% threshold), heal 15 more and stagger everything within 5m.', apply: (s) => { s.execMul *= 1.5; s.execHeal += 15; s.execBlast += 1; } },
+  { id: 'juggler', name: 'JUGGLER', rarity: 'rare', max: 2, desc: 'Airborne enemies take +20% more damage, and slide kicks (punch while sliding) launch them higher.', apply: (s) => { s.juggle += 1; } },
   { id: 'counter', name: 'COUNTERSTRIKE', rarity: 'rare', max: 1, desc: 'After a perfect dodge, your next shot within 2s deals double damage.', apply: (s) => { s.counter = 1; } },
   // ---- weapon specific
   { id: 'buckshot', name: 'BUCKSHOT+', rarity: 'common', max: 2, weapon: 'breacher', desc: 'Breacher fires 4 extra pellets.', apply: (s) => { s.shotgunPellets += 4; } },

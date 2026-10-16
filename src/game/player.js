@@ -27,7 +27,7 @@ export function defaultStats() {
     deadeye: 0, arcJumps: 0, riflePierce: 0, rifleDmg: 1, vampiric: 0, chainReaction: 0, phoenix: 0, elitesMul: 1,
     coinMax: 4, hookCd: 1.0, bhopMul: 1, slideMul: 1, airDash: 0, momentumDmg: 0,
     // new-mechanic modifiers (rush / finisher / perfect dodge / projectile boost)
-    rushRate: 1, rushDur: 0, rushExtend: 0, execMul: 1, execHeal: 0, execBlast: 0, counter: 0, dodgeWindow: 0, dodgeSlow: 0, boostMul: 1,
+    rushRate: 1, rushDur: 0, rushExtend: 0, execMul: 1, execHeal: 0, execBlast: 0, counter: 0, dodgeWindow: 0, dodgeSlow: 0, boostMul: 1, juggle: 0,
   };
 }
 
@@ -535,19 +535,25 @@ export class Player {
     // finisher: staggered or nearly dead enemies in reach get executed
     const ft = this.findFinisher(eye, dir, 4.6);
     if (ft) { this.execute(ft); return; }
-    let hitAny = false;
+    // punching out of a fast slide is a SLIDE KICK: a wide, low sweep that launches light enemies
+    const kick = this.sliding && this.body.grounded && this.speedNow > 8;
+    if (kick && g.weapons.onKick) g.weapons.onKick();
+    let hitAny = false, kicked = 0;
     for (const e of g.enemies.list) {
       if (!e.alive) continue;
       const c = e.centerPos();
       const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z;
       const d = Math.hypot(dx, dy, dz);
-      if (d > 2.6 + e.radius) continue;
-      if ((dx * dir.x + dy * dir.y + dz * dir.z) / d < 0.55) continue;
+      if (d > (kick ? 3.1 : 2.6) + e.radius) continue;
+      if (kick) { const hd = Math.hypot(dx, dz) || 1; if ((dx * dir.x + dz * dir.z) / hd / Math.max(0.2, Math.hypot(dir.x, dir.z)) < 0.3) continue; }
+      else if ((dx * dir.x + dy * dir.y + dz * dir.z) / d < 0.55) continue;
       const momentum = this.speedNow > 14 ? 1 + (this.speedNow - 14) * 0.08 : 1;
-      g.combat.damageEnemy(e, 22 * this.stats.dmgMul * momentum, { source: 'punch', dir, knock: 12 * momentum, stagger: 0.5, point: c });
+      g.combat.damageEnemy(e, (kick ? 26 : 22) * this.stats.dmgMul * momentum, { source: 'punch', dir, knock: 12 * momentum, stagger: kick ? 0.8 : 0.5, point: c });
+      if (kick && e.alive && !e.heavy && !e.flying && !e.anchored && !e.mini) { e.body.vel.y = Math.max(e.body.vel.y, 9 + 2.5 * this.stats.juggle); kicked++; }
       if (momentum > 1.3) g.style.add('MOMENTUM', 15);
       hitAny = true;
     }
+    if (kicked) { g.style.add(kicked > 1 ? 'SLIDE KICK x' + kicked : 'SLIDE KICK', 15 + 10 * kicked); this.camPunch(-0.35, 0); }
     if (g.bosses.active) {
       const boss = g.bosses.active;
       for (const hb of boss.hitboxes()) {
