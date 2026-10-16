@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RNG, hashSeed } from '../core/rng.js';
-import { ELITE_MODS } from './enemies.js';
+import { ELITE_MODS, FLYING_TYPES } from './enemies.js';
 import { Miniboss } from './kit.js';
 import { BOSS_ORDER, BOSS_INFO } from './bosses.js';
 
@@ -9,8 +9,22 @@ import { BOSS_ORDER, BOSS_INFO } from './bosses.js';
 // "heat" is the difficulty index: the room number in endless mode, or a value derived
 // from campaign depth (and NG+ cycle) in the campaign.
 
-const COST = { husk: 1, ripper: 1.1, wisp: 0.8, signaller: 1.4, gunner: 2, lancer: 2, bulwark: 3.5 };
-const UNLOCK = { husk: 1, ripper: 2, wisp: 3, signaller: 3, gunner: 4, lancer: 6, bulwark: 7 };
+const COST = {
+  husk: 1, ripper: 1.1, wisp: 0.8, signaller: 1.4, gunner: 2, lancer: 2, bulwark: 3.5,
+  swarmer: 0.45, leech: 0.9, sentry: 1.8, charger: 3, stalker: 1.8, bomber: 1.7, cantor: 1.6, mirror: 3.2,
+};
+// heat at which each type joins the pool (endless room index, or campaign depth heat)
+const UNLOCK = {
+  husk: 1, ripper: 2, wisp: 3, signaller: 3, gunner: 4, lancer: 6, bulwark: 7,
+  swarmer: 3, leech: 5, sentry: 5, charger: 8, stalker: 9, bomber: 10, cantor: 11, mirror: 13,
+};
+// pack hunters arrive together; small fry count less toward the alive cap
+const PACK = { swarmer: 3 };
+const LOAD = { swarmer: 0.5, leech: 0.75 };
+const NO_ELITE = new Set(['signaller', 'swarmer']);
+const NO_BLINK = new Set(['sentry', 'leech']);
+// corrupted dead rise again as wisps (not the small fry or the drones)
+const NO_RISE = new Set(['wisp', 'swarmer', 'leech', 'bomber']);
 
 export const ROUTES = {
   combat: { label: 'COMBAT', sub: 'STANDARD CACHE', color: '#3ef0d0', reward: 'standard' },
@@ -32,11 +46,25 @@ export const MODIFIERS = {
 
 // level-condition composition biases
 const COND_BIAS = {
-  swarm: { wisp: 3, ripper: 1.3 },
-  snipers: { lancer: 3, husk: 1.3 },
-  heavies: { bulwark: 2.6, gunner: 2 },
-  haste: { ripper: 1.5 },
-  fog: { ripper: 1.6, wisp: 1.4, lancer: 0.3 },
+  swarm: { wisp: 3, ripper: 1.3, swarmer: 3, leech: 1.6 },
+  snipers: { lancer: 3, husk: 1.3, sentry: 2.2 },
+  heavies: { bulwark: 2.6, gunner: 2, charger: 2, mirror: 1.8 },
+  haste: { ripper: 1.5, swarmer: 1.4, charger: 1.3 },
+  fog: { ripper: 1.6, wisp: 1.4, lancer: 0.3, stalker: 3, leech: 1.5, sentry: 0.3, bomber: 0.6 },
+  dark: { stalker: 2, leech: 1.3 },
+  lowgrav: { bomber: 1.5, swarmer: 1.3 },
+  hazards: { sentry: 1.4, charger: 1.3 },
+};
+
+// archetype flavour
+const ARCH_BIAS = {
+  gallery: { lancer: 2, husk: 1.5, ripper: 0.5, sentry: 1.6 }, cells: { ripper: 2, husk: 1.2, lancer: 0.3, stalker: 1.5, leech: 1.4, bomber: 0.4 },
+  gauntlet: { gunner: 1.5, ripper: 1.3, charger: 1.5, sentry: 1.2 }, mezzanine: { husk: 1.5, lancer: 1.5, sentry: 1.3, bomber: 1.2 },
+  warehouse: { ripper: 1.4, wisp: 1.3, stalker: 1.4, swarmer: 1.4 }, arena: { wisp: 1.4, bulwark: 1.3, charger: 1.4, bomber: 1.3, mirror: 1.2 },
+  movers: { wisp: 1.5, swarmer: 1.3 }, reactor: { gunner: 1.3, husk: 1.2, sentry: 1.3, cantor: 1.3 },
+  survival: { ripper: 1.5, wisp: 1.4, swarmer: 1.6, leech: 1.3 }, elite: { gunner: 1.5, bulwark: 1.5, mirror: 1.6, charger: 1.4, cantor: 1.3 },
+  tower: { wisp: 1.6, lancer: 1.4, bomber: 1.6 }, bridges: { husk: 1.4, gunner: 1.3, ripper: 0.6, bomber: 1.4, sentry: 1.3 },
+  pit: { wisp: 1.5, husk: 1.2, leech: 1.4, bomber: 1.3 }, hall: { gunner: 1.4, ripper: 1.3, charger: 1.6, mirror: 1.3 },
 };
 
 export class Director {
@@ -63,6 +91,8 @@ export class Director {
     this.warden = null;
     this.minis = [];
     this.miniPending = 0;
+    this.minisDown = false;
+    this.lateT = 0;
   }
 
   // ---- difficulty curves (gentle HP growth; variety does the heavy lifting)
@@ -129,45 +159,68 @@ export class Director {
     return out;
   }
 
+  // Flat list of enemy types for an encounter (packs stay adjacent).
   composition(index, arch, budget, rng, opts = {}) {
+    return this.compositionUnits(index, arch, budget, rng, opts).flat();
+  }
+
+  // Encounter as units: a single type, or an array for a pack that must spawn together.
+  compositionUnits(index, arch, budget, rng, opts = {}) {
     const types = Object.keys(COST).filter((t) => UNLOCK[t] <= index);
     const cond = this.cond;
-    if (cond === 'swarm' && !types.includes('wisp')) types.push('wisp');
-    if (cond === 'snipers' && !types.includes('lancer') && index >= 3) types.push('lancer');
-    if (cond === 'heavies' && !types.includes('bulwark') && index >= 4) types.push('bulwark');
+    const force = (t, min) => { if (!types.includes(t) && index >= min) types.push(t); };
+    if (cond === 'swarm') { force('wisp', 0); force('swarmer', 2); }
+    if (cond === 'snipers') { force('lancer', 3); force('sentry', 4); }
+    if (cond === 'heavies') { force('bulwark', 4); force('charger', 5); }
+    if (cond === 'fog') force('stalker', 5);
     const limit = {
       lancer: 1 + Math.floor(index / 10) + (cond === 'snipers' ? 2 : 0), bulwark: 1 + Math.floor(index / 9) + (cond === 'heavies' ? 1 : 0),
       signaller: index >= 15 ? 2 : 1, gunner: 2 + Math.floor(index / 8), wisp: cond === 'swarm' ? 9 : 4, ripper: 6, husk: 8,
+      swarmer: (cond === 'swarm' ? 12 : 7) + Math.floor(index / 12), leech: 2 + (index >= 18 ? 1 : 0) + (cond === 'swarm' ? 1 : 0),
+      sentry: 1 + Math.floor(index / 14) + (cond === 'snipers' ? 1 : 0), charger: 1 + Math.floor(index / 16) + (cond === 'heavies' ? 1 : 0),
+      stalker: 2 + (cond === 'fog' || cond === 'dark' ? 1 : 0), bomber: 1 + Math.floor(index / 18), cantor: 1 + (index >= 20 ? 1 : 0),
+      mirror: 1 + Math.floor(index / 18) + (cond === 'heavies' ? 1 : 0),
     };
     const counts = {};
-    const list = [];
+    const units = [];
+    let n = 0;
     let b = budget;
-    // archetype flavour
-    const bias = {
-      gallery: { lancer: 2, husk: 1.5, ripper: 0.5 }, cells: { ripper: 2, husk: 1.2, lancer: 0.3 }, gauntlet: { gunner: 1.5, ripper: 1.3 },
-      mezzanine: { husk: 1.5, lancer: 1.5 }, warehouse: { ripper: 1.4, wisp: 1.3 }, arena: { wisp: 1.4, bulwark: 1.3 }, movers: { wisp: 1.5 },
-      reactor: { gunner: 1.3, husk: 1.2 }, survival: { ripper: 1.5, wisp: 1.4 }, elite: { gunner: 1.5, bulwark: 1.5 },
-      tower: { wisp: 1.6, lancer: 1.4 }, bridges: { husk: 1.4, gunner: 1.3, ripper: 0.6 }, pit: { wisp: 1.5, husk: 1.2 }, hall: { gunner: 1.4, ripper: 1.3 },
-    }[arch] || {};
+    const bias = ARCH_BIAS[arch] || {};
     const cb = COND_BIAS[cond] || {};
     let guard = 0;
     while (b > 0.7 && guard++ < 60) {
-      const avail = types.filter((t) => COST[t] <= b + 0.3 && (counts[t] || 0) < limit[t]);
+      const avail = types.filter((t) => COST[t] * (PACK[t] ? 2 : 1) <= b + 0.3 && (counts[t] || 0) < limit[t]
+        && !(t === 'signaller' && opts.noSignaller) && !(opts.exclude && opts.exclude.includes(t))
+        // a priest needs a flock: only once there are two others to ward
+        && !(t === 'cantor' && n - (counts.cantor || 0) < 2));
       if (!avail.length) break;
       const t = rng.weighted(avail, (x) => {
         let w = (bias[x] || 1) * (cb[x] || 1) * (x === 'husk' ? 1.4 : 1);
-        const share = (counts[x] || 0) / Math.max(1, list.length);
-        if (share > 0.45 && list.length > 2 && !cb[x]) w *= 0.25; // avoid monotone groups
-        if (x === 'signaller' && opts.noSignaller) w = 0;
+        const share = (counts[x] || 0) / Math.max(1, n);
+        if (share > 0.45 && n > 2 && !cb[x]) w *= 0.25; // avoid monotone groups
         return w;
       });
       if (!t) break;
-      counts[t] = (counts[t] || 0) + 1;
-      list.push(t);
-      b -= COST[t];
+      if (PACK[t]) {
+        const size = Math.min(PACK[t] + (index >= 12 ? 1 : 0) + (cond === 'swarm' ? 1 : 0), limit[t] - (counts[t] || 0), Math.floor((b + 0.3) / COST[t]));
+        const pack = [];
+        for (let k = 0; k < size; k++) pack.push(t);
+        units.push(pack);
+        counts[t] = (counts[t] || 0) + size; n += size; b -= COST[t] * size;
+      } else {
+        units.push(t);
+        counts[t] = (counts[t] || 0) + 1; n++; b -= COST[t];
+      }
     }
-    if (!list.length) list.push('husk');
-    return list;
+    if (!units.length) units.push('husk');
+    return units;
+  }
+
+  // weighted alive count: packs of small fry should not starve the room of real threats
+  load() {
+    let n = 0;
+    for (const e of this.game.enemies.list) if (e.alive) n += LOAD[e.type] || 1;
+    return n;
   }
 
   eliteChance(index, arch) {
@@ -193,6 +246,8 @@ export class Director {
     this.warden = null;
     this.minis = [];
     this.miniPending = 0;
+    this.minisDown = false;
+    this.lateT = 0;
     const route = room.route || { type: 'combat' };
     this.lastRoutes.push(route.type);
     if (this.lastRoutes.length > 3) this.lastRoutes.shift();
@@ -231,19 +286,29 @@ export class Director {
       g.style.routeMult *= MODIFIERS[this.modifier].scoreMul;
     }
     const budget = this.budget(i, arch) * (this.ngPlus ? 1.15 : 1);
-    const comp = this.composition(i, arch, budget, rng);
-    rng.shuffle(comp);
-    // split into waves
-    let nw = arch === 'survival' ? 4 : comp.length > 9 ? 3 : comp.length > 4 ? 2 : 1;
+    const units = this.compositionUnits(i, arch, budget, rng);
+    rng.shuffle(units);
+    const total = units.reduce((s, u) => s + (Array.isArray(u) ? u.length : 1), 0);
+    // split into waves at unit boundaries so packs arrive together
+    let nw = arch === 'survival' ? 4 : total > 9 ? 3 : total > 4 ? 2 : 1;
     if (i <= 1) nw = 1;
-    const per = Math.ceil(comp.length / nw);
-    for (let w = 0; w < nw; w++) this.waves.push(comp.slice(w * per, (w + 1) * per));
+    const per = Math.ceil(total / nw);
+    let cur = [];
+    for (const u of units) {
+      if (cur.length >= per && this.waves.length < nw - 1) { this.waves.push(cur); cur = []; }
+      if (Array.isArray(u)) cur.push(...u); else cur.push(u);
+    }
+    this.waves.push(cur);
     this.waves = this.waves.filter((w) => w.length);
     // elites
     const ec = this.eliteChance(i, arch);
     const mods = Object.keys(ELITE_MODS).filter((m) => i >= 6 || m !== 'blinking');
-    this.eliteFlags = this.waves.map((w) => w.map((t) => (arch === 'elite' ? (t !== 'wisp' && rng.chance(0.75)) : rng.chance(ec)) && t !== 'signaller' ? rng.pick(mods) : null));
-    if (arch === 'elite' && !this.eliteFlags.flat().some(Boolean)) this.eliteFlags[0][0] = rng.pick(mods);
+    const pickMod = (t) => rng.pick(NO_BLINK.has(t) ? mods.filter((m) => m !== 'blinking') : mods);
+    this.eliteFlags = this.waves.map((w) => w.map((t) => (arch === 'elite' ? (t !== 'wisp' && rng.chance(0.75)) : rng.chance(ec)) && !NO_ELITE.has(t) ? pickMod(t) : null));
+    if (arch === 'elite' && !this.eliteFlags.flat().some(Boolean)) {
+      const k = this.waves[0].findIndex((t) => !NO_ELITE.has(t));
+      if (k >= 0) this.eliteFlags[0][k] = pickMod(this.waves[0][k]);
+    }
     this.survival = arch === 'survival';
     this.active = true;
     if (this.modifier === 'blackout') {
@@ -281,8 +346,9 @@ export class Director {
     const pp = g.player.body.pos;
     const nav = room.nav;
     let made = 0;
+    if (this.minisDown) return;
     for (let tries = 0; tries < 60 && made < n; tries++) {
-      if (g.enemies.aliveCount >= this.maxAlive()) break;
+      if (this.load() >= this.maxAlive()) break;
       const a = rng.next() * Math.PI * 2, r = rng.range(3, 8);
       const x = nearPos.x + Math.cos(a) * r, z = nearPos.z + Math.sin(a) * r;
       const k = nav.idx(x, z);
@@ -290,7 +356,7 @@ export class Director {
       if (Math.hypot(x - pp.x, z - pp.z) < 5) continue;
       if (room.hazardAt(x, z, 0)) continue;
       const type = rng.pick(types);
-      g.enemies.spawn(type, new THREE.Vector3(x, type === 'wisp' ? 3 : 0.05, z), { hpMul: this.hpMul(heat) * 0.8, dmgMul: this.dmgMul(heat), aggr: this.aggr(heat) });
+      g.enemies.spawn(type, new THREE.Vector3(x, FLYING_TYPES.has(type) ? 3 : room.floorAt(x, z) + 0.05, z), { hpMul: this.hpMul(heat) * 0.8, dmgMul: this.dmgMul(heat), aggr: this.aggr(heat) });
       made++;
     }
   }
@@ -298,13 +364,17 @@ export class Director {
   spawnWave(list, eliteFlags) {
     const g = this.game;
     const room = g.level.current;
+    if (!room || this.minisDown) return;
     const i = this.heatOf(room);
     const rng = new RNG(hashSeed(this.seed, 'spawn', room.index, this.waveIdx, g.time | 0));
     const used = [];
+    let packAt = null;
     list.forEach((type, k) => {
-      if (g.enemies.aliveCount >= this.maxAlive()) return;
-      const spot = this.findSpawn(room, type, rng, used);
+      if (this.load() >= this.maxAlive()) return;
+      // pack members spawn around the first of their pack
+      const spot = (PACK[type] && packAt && packAt.type === type && this.findNear(room, packAt.pos, used, rng)) || this.findSpawn(room, type, rng, used);
       if (!spot) return;
+      packAt = PACK[type] ? (packAt && packAt.type === type ? packAt : { type, pos: spot.pos }) : null;
       used.push(spot.pos);
       let elite = eliteFlags ? eliteFlags[k] : null;
       if (this.modifier === 'armored' && !elite) elite = 'shielded';
@@ -319,12 +389,26 @@ export class Director {
     });
   }
 
+  findNear(room, at, used, rng) {
+    const nav = room.nav;
+    for (let tries = 0; tries < 14; tries++) {
+      const a = rng.next() * Math.PI * 2, r = 1 + rng.next() * 1.6;
+      const x = at.x + Math.cos(a) * r, z = at.z + Math.sin(a) * r;
+      const k = nav.idx(x, z);
+      if (k < 0 || !nav.free(k) || room.hazardAt(x, z, 0)) continue;
+      if (used.some((u) => Math.hypot(u.x - x, u.z - z) < 0.7)) continue;
+      return { pos: new THREE.Vector3(x, room.floorAt(x, z) + 0.05, z), perch: null };
+    }
+    return null;
+  }
+
   findSpawn(room, type, rng, used) {
     const g = this.game;
     const nav = room.nav;
     const pp = g.player.body.pos;
     // perched spawn for ranged enemies
-    if ((type === 'lancer' || type === 'husk' || type === 'gunner') && room.spec.perches.length && rng.chance(type === 'lancer' ? 0.8 : 0.35)) {
+    const perchChance = { lancer: 0.8, sentry: 0.75, husk: 0.35, gunner: 0.35 }[type] || 0;
+    if (perchChance && room.spec.perches.length && rng.chance(perchChance)) {
       const p = rng.pick(room.spec.perches);
       const perch = { x0: room.wx(p.x0), x1: room.wx(p.x1), z0: room.wz(p.z0), z1: room.wz(p.z1), y: p.y };
       perch.wx0 = perch.x0; perch.wx1 = perch.x1; perch.wz0 = perch.z0; perch.wz1 = perch.z1;
@@ -333,6 +417,9 @@ export class Director {
     }
     let best = null, bestScore = -1e9;
     const entZ = room.wz(room.D / 2), entX = room.wx(room.spec.entX);
+    const fwd = g.player.fwd;
+    const ideal = { lancer: 22, sentry: 18, ripper: 12, stalker: 11, leech: 11, swarmer: 13, charger: 16 }[type] || 15;
+    const eye = g.camera.position;
     for (let tries = 0; tries < 40; tries++) {
       const k = Math.floor(rng.next() * nav.nx * nav.nz);
       if (!nav.free(k)) continue;
@@ -343,12 +430,16 @@ export class Director {
       if (used.some((u) => Math.hypot(u.x - c.x, u.z - c.z) < 1.6)) continue;
       if (room.hazardAt(c.x, c.z, 0) || room.hazards.some((h) => c.x > h.wx0 && c.x < h.wx1 && c.z > h.wz0 && c.z < h.wz1)) continue;
       // prefer medium distance, slight preference toward the far side of the room
-      let score = -Math.abs(d - (type === 'lancer' ? 22 : type === 'ripper' ? 12 : 15)) + rng.next() * 4;
-      if (type === 'lancer') score += (entZ - c.z) * 0.2;
+      let score = -Math.abs(d - ideal) + rng.next() * 4;
+      if (type === 'lancer' || type === 'sentry') score += (entZ - c.z) * 0.2;
+      // ambushers like to start behind you
+      if (type === 'stalker' && fwd) score -= ((c.x - pp.x) * fwd.x + (c.z - pp.z) * fwd.z) / Math.max(1, d) * 5;
+      // a turret that cannot see the room is wasted
+      if (type === 'sentry' && score > bestScore && !g.combat.losClear(new THREE.Vector3(c.x, room.floorAt(c.x, c.z) + 1.0, c.z), eye)) score -= 12;
       if (score > bestScore) { bestScore = score; best = c; }
     }
     if (!best) return null;
-    const y = type === 'wisp' ? 3 : room.floorAt(best.x, best.z) + 0.05;
+    const y = type === 'wisp' ? 3 : type === 'bomber' ? Math.max(3.6, Math.min(6.5, (room.spec.H || 7) - 1.6)) : room.floorAt(best.x, best.z) + 0.05;
     return { pos: new THREE.Vector3(best.x, y, best.z), perch: null };
   }
 
@@ -361,10 +452,11 @@ export class Director {
     g.hud.toast('BACKUP INCOMING', '#ff3050');
     const rng = new RNG(hashSeed(this.seed, 'backup', room.index, g.time | 0));
     const heat = this.heatOf(room);
-    const comp = this.composition(heat, room.spec.arch, 2.5 + heat * 0.25, rng, { noSignaller: true });
+    const comp = this.composition(heat, room.spec.arch, 2.5 + heat * 0.25, rng, { noSignaller: true, exclude: ['cantor'] });
     this.pendingBackup++;
     g.enemies.delayed(1.2, () => {
-      this.pendingBackup--;
+      // never below zero: a miniboss kill may already have cleared the pending count
+      this.pendingBackup = Math.max(0, this.pendingBackup - 1);
       if (room !== g.level.current || room.state !== 'combat') return;
       this.spawnWave(comp, null);
     });
@@ -376,33 +468,42 @@ export class Director {
     const room = g.level.current;
     if (!room) return;
     const rng = new RNG(hashSeed(this.seed, 'escort', g.time * 100 | 0));
-    const pool = summon ? ['wisp', 'wisp', 'husk', 'ripper'] : ['husk', 'ripper', 'wisp', 'gunner'];
+    const pool = summon ? ['wisp', 'wisp', 'husk', 'ripper', 'swarmer'] : ['husk', 'ripper', 'wisp', 'gunner', 'swarmer'];
+    if (!summon && tier >= 1) pool.push('leech', 'stalker');
     const n = Math.min(4, 2 + Math.floor(tier / 2));
     const list = [];
-    for (let k = 0; k < n; k++) list.push(rng.pick(pool));
+    for (let k = 0; k < n; k++) {
+      const t = rng.pick(pool);
+      if (PACK[t]) list.push(t, t); // swarmers never come alone
+      list.push(t);
+    }
     this.spawnWave(list, null);
+  }
+
+  // the last miniboss in a containment room takes its escorts and summons down with it
+  shutdownEscorts(room) {
+    const g = this.game;
+    if (room !== g.level.current) return;
+    for (const o of g.enemies.list) {
+      if (!o.alive || o.mini) continue;
+      g.fx.sparksBurst(o.centerPos().clone(), 0xffd060, 10, 5, 0.35);
+      g.combat.damageEnemy(o, 1e6, { source: 'explosion', fromPlayer: false, quiet: true });
+    }
   }
 
   // NG+: corrupted enemies sometimes rise again as wisps
   onKill(e) {
     const g = this.game;
-    // the last miniboss in a containment room takes its escorts and summons down with it
     if (e.mini && this.minis.includes(e) && !this.minis.some((m) => m.alive)) {
       this.waveIdx = this.waves.length;
       this.pendingBackup = 0;
+      this.minisDown = true; // no more waves, backups or summons in this room
       const room = g.level.current;
       g.hud.toast('LINK SEVERED · ESCORTS SHUT DOWN', '#ffd060');
-      g.enemies.delayed(0.45, () => {
-        if (room !== g.level.current) return;
-        for (const o of g.enemies.list) {
-          if (!o.alive || o.mini) continue;
-          g.fx.sparksBurst(o.centerPos().clone(), 0xffd060, 10, 5, 0.35);
-          g.combat.damageEnemy(o, 1e6, { source: 'explosion', fromPlayer: false, quiet: true });
-        }
-      });
+      g.enemies.delayed(0.45, () => this.shutdownEscorts(room));
       return;
     }
-    if (!e.corrupt || e.type === 'wisp' || Math.random() > 0.3) return;
+    if (!e.corrupt || NO_RISE.has(e.type) || Math.random() > 0.3) return;
     const room = g.level.current;
     const p = e.pos.clone();
     g.enemies.delayed(0.7, () => {
@@ -461,9 +562,13 @@ export class Director {
         this.waveT = this.survival ? 13 : 0;
         if (this.waveIdx > 1 || this.minis.length) g.hud.toast(this.survival ? 'WAVE ' + this.waveIdx + ' / ' + this.waves.length : 'REINFORCEMENTS', '#ff8a3a', true);
       } else if (this.minis.length && !minisAlive) this.waveIdx = this.waves.length;
-    } else if (alive === 0 && this.pendingBackup === 0) {
+    } else if (alive === 0 && this.pendingBackup <= 0) {
       this.clearT += dt;
       if (this.clearT > (this.minis.length ? 1.2 : 0.4)) { this.active = false; g.onRoomCleared(room); }
+    } else if (this.minisDown && alive > 0) {
+      // stragglers that slipped in after the shutdown (late summons, delayed spawns) go too
+      this.lateT += dt;
+      if (this.lateT > 1.5) { this.lateT = 0; this.shutdownEscorts(room); }
     }
   }
 
