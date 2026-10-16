@@ -38,10 +38,20 @@ export class Architect extends Boss {
     this.hoverH = 10.5;
     this.pos.set(room.wx(0), this.hoverH, room.wz(-room.D / 2 + 9));
     this.body = { pos: this.pos, vel: new THREE.Vector3(), r: 3, h: 6, grounded: false, step: 0 };
+    // Act I: volleys and falling masonry. Act II adds petals of current and missile choirs.
+    // Act III (in the dark): rotating floor grids, shard dives and the checkerboard judgement.
     this.brain = new Brain(this,
-      [['fan', { n: 7, volleys: 3, speed: 22, dmg: 11, cd: 3 }], ['homing', { n: 3, cd: 6 }], ['orbital', { cd: 9 }]],
-      [['spiral', { cd: 5 }], ['rain', { n: 9, cd: 6 }], ['ring', { n: 20, cd: 5 }]],
-      [['laser', { cd: 5 }], ['spokes', { n: 4, cd: 8 }], ['homing', { n: 5, cd: 4 }], ['bounce', { n: 6, cd: 6 }]]);
+      [['fan', { n: 7, volleys: 3, speed: 22, dmg: 11, cd: 3 }], ['homing', { n: 3, cd: 6 }], ['orbital', { cd: 9 }], ['meteor', { n: 6, dur: 2.2, dmg: 20, cd: 10 }]],
+      [['spiral', { cd: 5 }], ['rain', { n: 9, cd: 6 }], ['ring', { n: 20, cd: 5 }], ['pattern', { shape: 'flower', n: 24, petals: 6, bursts: 3, speed: 9, cd: 9 }], ['missiles', { n: 6, dmg: 12, color: 0xffd27a, cd: 10 }]],
+      [['laser', { cd: 5 }], ['spokes', { n: 4, cd: 8 }], ['homing', { n: 5, cd: 4 }], ['bounce', { n: 6, cd: 6 }], ['beamgrid', { mode: 'rotate', n: 4, gap: 7, turn: 0.3, dur: 5, cd: 12 }], ['swarmdive', { n: 6, dmg: 16, cd: 10 }]],
+      {
+        signature: { name: 'FINAL JUDGEMENT', phase: 3, seq: [['quake', { mode: 'checker', cell: 7, warn: 1.8, dmg: 26 }]], cd: 18 },
+        combos: [
+          { name: 'GOSPEL OF LIGHT', phase: 2, seq: [['pattern', { shape: 'flower', n: 22, petals: 5, bursts: 2, speed: 9 }], ['missiles', { n: 5, dmg: 12, color: 0xffd27a }]], cd: 16 },
+          { name: 'LIGHTS OUT', phase: 3, seq: [['beamgrid', { mode: 'rotate', n: 3, gap: 8, turn: 0.35, dur: 3.5 }], ['swarmdive', { n: 5, dmg: 15 }]], cd: 16 },
+        ],
+        sigDelay: 4,
+      });
     this.brain.idleT = 2.5;
     this.buildBody();
     this.hands = [this.buildHand(-1), this.buildHand(1)];
@@ -193,7 +203,7 @@ export class Architect extends Boss {
     g.addShake(0.6);
     g.style.add('HAND SEVERED', 120);
     this.staggerT = 5;
-    this.brain.cur = null;
+    this.brain.abort();
     g.hud.toast('THE CORE IS EXPOSED', '#ffffff');
     g.emit('architectHand');
   }
@@ -203,8 +213,9 @@ export class Architect extends Boss {
     const g = this.game;
     this.phase = n;
     this.state = 'transition';
-    this.brain.cur = null;
+    this.brain.abort();
     g.projectiles.clear();
+    g.bosses.field.clear();
     const cs = g.cutscene;
     const room = this.room;
     const c = this.coreWorld();
@@ -233,7 +244,7 @@ export class Architect extends Boss {
     picks.forEach((b, i) => {
       const def = {
         ...b, id: 'echo-' + b.id, name: 'ECHO OF ' + b.name, title: 'A COPY THE ARCHITECT KEPT',
-        scale: (b.scale || 2.2) * 0.7, enrage: b.phase2 || [], hp: this.ng ? 1700 : 1300, lore: b.lore,
+        scale: (b.scale || 2.2) * 0.7, enrage: b.phase2 || [], hp: this.ng ? 1700 : 1300, lore: b.lore, combos: [],
         colors: [0xe8e8f0, 0x202028, 0xffffff],
       };
       const pos = new THREE.Vector3(room.wx(i ? 12 : -12), 0.05, room.wz(2));
@@ -383,7 +394,9 @@ export class Architect extends Boss {
     this.alive = false;
     this.dying = true;
     this.deathT = 0;
+    this.brain.abort();
     g.projectiles.clear();
+    g.bosses.field.clear();
     for (const e of g.enemies.list) if (e.alive) g.combat.damageEnemy(e, 1e6, { source: 'explosion', fromPlayer: false, quiet: true });
     g.bosses.onDefeated(this);
   }

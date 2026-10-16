@@ -490,7 +490,7 @@ export class Menus {
       const b = BOSSES.find((x) => x.id === id);
       const n = p.bosses[id];
       h = n === undefined ? '<h2>??????</h2><div class="meta">NOT YET ENCOUNTERED</div>'
-        : `<h2 style="color:${b.uiColor || '#fff'}">${esc(b.name)}</h2><div class="meta">${esc(b.title)} · ${n > 0 ? 'DESTROYED x' + n : 'ENCOUNTERED'}</div><p>${esc(b.lore || '')}</p>${b.gimmick ? `<p class="meta">GIMMICK: ${esc(b.gimmick.toUpperCase())}</p>` : ''}`;
+        : `<h2 style="color:${b.uiColor || '#fff'}">${esc(b.name)}</h2><div class="meta">${esc(b.title)} · ${n > 0 ? 'DESTROYED x' + n : 'ENCOUNTERED'}</div><p>${esc(b.lore || '')}</p>${b.gimmick ? `<p class="meta">GIMMICK: ${esc(b.gimmick.toUpperCase())}</p>` : ''}${b.signatureName ? `<p class="meta">SIGNATURE: ${esc(b.signatureName)}</p>` : ''}`;
     } else if (tab === 'minis') {
       const m = MINIBOSSES.find((x) => x.id === id);
       const n = p.minis[id];
