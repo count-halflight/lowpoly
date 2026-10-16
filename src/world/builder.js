@@ -81,9 +81,28 @@ export class GeoBuilder {
       }
     }
   }
+  /** Start recording which vertex ranges the next boxes occupy (per material). */
+  begin() { this.rec = new Map(); for (const [mat, b] of this.buckets) this.rec.set(mat, b.pos.length / 3); }
+  /** Finish recording: returns [{mat, start, count}] vertex ranges added since begin(). */
+  end() {
+    const out = [];
+    for (const [mat, b] of this.buckets) {
+      const s0 = this.rec.has(mat) ? this.rec.get(mat) : 0;
+      const n = b.pos.length / 3 - s0;
+      if (n > 0) out.push({ mat, start: s0, count: n });
+    }
+    this.rec = null;
+    return out;
+  }
+  /** Single quad with explicit UVs (u0,v0)-(u1,v1): signage from a texture atlas. a..d counter-clockwise from bottom-left. */
+  quadUV(mat, a, b, c, d, n, u0, v0, u1, v1, tint = 1) {
+    const bk = this.bucket(mat);
+    this.quad(bk, a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], d[0], d[1], d[2], n[0], n[1], n[2], [u0, v0, u1, v0, u1, v1, u0, v1], tint, tint, tint);
+  }
   build() {
     const group = new THREE.Group();
     const geos = [];
+    const meshes = new Map();
     for (const [mat, b] of this.buckets) {
       if (!b.idx.length) continue;
       const g = new THREE.BufferGeometry();
@@ -97,7 +116,20 @@ export class GeoBuilder {
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
       geos.push(g);
+      meshes.set(mat, mesh);
     }
-    return { group, geos };
+    return { group, geos, meshes };
+  }
+}
+
+// Collapse recorded vertex ranges to a point (degenerate triangles): removes one piece of a
+// merged mesh (a broken crate, a cracked wall) without rebuilding or adding draw calls.
+export function hideRanges(meshes, ranges) {
+  for (const r of ranges) {
+    const m = meshes.get(r.mat);
+    if (!m) continue;
+    const a = m.geometry.attributes.position;
+    a.array.fill(0, r.start * 3, (r.start + r.count) * 3);
+    a.needsUpdate = true;
   }
 }
