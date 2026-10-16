@@ -14,6 +14,7 @@ export const ARCH_NAMES = {
   survival: ['HOLDOUT', 'KILLBOX', 'THE PIT', 'SIEGE RING'],
   elite: ['WARDEN POST', 'VAULT', 'EXECUTIVE SUITE', 'COMMAND NEST'],
   cache: ['ARMORY', 'MEDBAY', 'SUPPLY CACHE', 'WORKSHOP'],
+  checkpoint: ['RELAY SHRINE', 'WAYSTATION', 'QUIET ROOM', 'SAVE VAULT'],
   reactor: ['CORE ACCESS', 'COOLING TOWER', 'REACTOR RING', 'HEAT SINK'],
   boss: ['ARENA'],
   pit: ['THE PIT', 'SUMP', 'CAULDRON', 'DRAIN HALL'],
@@ -109,6 +110,28 @@ const GEN = {
     lightGrid(s, rng, 1, 3);
     s.screens.push({ x: -s.W / 2 + 0.05, z: 0, side: 'west' });
     s.cachePos = { x: 0, z: 3 };
+    return s;
+  },
+  // checkpoint: a calm, symmetrical relay room built around the save beacon
+  checkpoint(rng) {
+    const W = rng.int(14, 16), D = rng.int(18, 20), H = 7;
+    const s = base(rng, 'checkpoint', W, D, H);
+    s.exits = [0];
+    s.cyl.push({ x: 0, z: 0, r: 0.75, y0: 0, y1: 1.1, mat: 'trim', collide: true, core: true });
+    s.decor.push({ type: 'beacon', x: 0, z: 0 });
+    for (let i = 0; i < 4; i++) { // bollards around the beacon
+      const a = Math.PI / 4 + i * Math.PI / 2, x = Math.cos(a) * 3.6, z = Math.sin(a) * 3.6;
+      prop(s, x - 0.28, 0, z - 0.28, x + 0.28, 0.9, z + 0.28, 'trim', 'metal', { keep: true });
+    }
+    // benches along the side walls
+    prop(s, -W / 2, 0, -2.2, -W / 2 + 1.1, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
+    prop(s, W / 2 - 1.1, 0, -2.2, W / 2, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
+    crate(s, rng, -W / 2 + 1.6, -D / 2 + 2.4, 1.2, 1); crate(s, rng, W / 2 - 1.6, D / 2 - 3.2, 1.2, 2);
+    s.screens.push({ x: -s.W / 2 + 0.05, z: -5, side: 'west' });
+    lightGrid(s, rng, 1, 2);
+    s.keepClear.push({ x: 0, z: 0, r: 3.2 });
+    s.cachePos = { x: 0, z: 4.6 };
+    s.calm = true;
     return s;
   },
   gauntlet(rng) {
@@ -502,7 +525,7 @@ export function generateSpec(arch, rng, ctx) {
   const s = GEN[arch](rng, ctx);
   s.arch = arch;
   const cond = ctx.cond || 'none';
-  const combat = !['lobby', 'cache', 'boss', 'tutorial', 'miniboss'].includes(arch);
+  const combat = !['lobby', 'cache', 'checkpoint', 'boss', 'tutorial', 'miniboss'].includes(arch);
   // level conditions add features
   if (cond === 'pads' && combat && !s.pads.length) { s.pads.push({ x: rng.range(-s.W / 4, s.W / 4), z: rng.range(-s.D / 4, s.D / 4), power: 15 }); s.pads.push({ x: rng.range(-s.W / 3, s.W / 3), z: rng.range(-s.D / 4, s.D / 4), power: 13 }); }
   if (cond === 'conveyor' && combat) {

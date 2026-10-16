@@ -239,7 +239,7 @@ export class Menus {
     if (save) {
       const lv = save.plan[save.levelIdx];
       const name = lv.final ? 'THE ARCHITECT' : (LEVELS.find((l) => l.id === lv.levelId) || {}).name;
-      list.push(`<button class="mi primary" data-a="continue">CONTINUE <small>${save.cycle ? 'CYCLE ' + ROMAN[save.cycle + 1] + ' · ' : ''}${lv.final ? 'X' : esc(lv.levelId)} ${esc(name || '')}</small></button>`);
+      list.push(`<button class="mi primary" data-a="continue">CONTINUE <small>${save.cycle ? 'CYCLE ' + ROMAN[save.cycle + 1] + ' · ' : ''}${lv.final ? 'X' : esc(lv.levelId)} ${esc(name || '')}${save.atRoom ? ' · CHECKPOINT' : ''}</small></button>`);
     }
     list.push(`<button class="mi${save ? '' : ' primary'}" data-a="newGame">NEW DESCENT ${p.tutorialDone ? '' : '<span class="tag">TRAINING FIRST</span>'}</button>`);
     if (p.cyclesCleared > 0) list.push(`<button class="mi" data-a="ngplus">NEW GAME + <small>CYCLE ${ROMAN[Math.min(10, p.cyclesCleared + 1)]}</small></button>`);
@@ -291,6 +291,7 @@ export class Menus {
       case 'resume': g.resume(); break;
       case 'restart': g.restart(); break;
       case 'retryLevel': g.retryLevel(); break;
+      case 'retryCheckpoint': g.retryCheckpoint(); break;
       case 'skipTraining': g.finishTutorial(true); break;
       case 'quit': g.quitToTitle(); break;
       case 'settings': this.push('settings'); break;
@@ -367,16 +368,17 @@ export class Menus {
   }
 
   // ------------------------------------------------------------------ pause
-  showPause(title, sub, statsHtml, mode) {
+  showPause(title, sub, statsHtml, mode, opts = {}) {
     this.px(this.$('m-pauseh'), title, 30);
     this.$('m-pausesub').textContent = sub || '';
     this.$('m-pausestats').innerHTML = statsHtml;
     const items = ['<button class="mi primary" data-a="resume">RESUME</button>'];
-    if (mode === 'campaign') items.push('<button class="mi" data-a="retryLevel">RESTART LEVEL <small>FROM CHECKPOINT</small></button>');
+    if (mode === 'campaign' && opts.checkpoint) items.push(`<button class="mi" data-a="retryCheckpoint">RESTART FROM CHECKPOINT <small>ROOM ${String(opts.checkpoint).padStart(2, '0')}</small></button>`);
+    if (mode === 'campaign') items.push('<button class="mi" data-a="retryLevel">RESTART LEVEL <small>FROM THE START</small></button>');
     if (mode === 'endless') items.push('<button class="mi" data-a="restart">RESTART RUN</button>');
     if (mode === 'tutorial') items.push('<button class="mi" data-a="skipTraining">SKIP TRAINING</button>');
     items.push('<button class="mi" data-a="settings">SETTINGS</button>', '<button class="mi" data-a="controls">CONTROLS</button>', '<button class="mi" data-a="fullscreen">FULLSCREEN</button>');
-    items.push(`<button class="mi danger" data-a="quit">QUIT TO TITLE${mode === 'campaign' ? ' <small>PROGRESS SAVED AT LEVEL START</small>' : ''}</button>`);
+    items.push(`<button class="mi danger" data-a="quit">QUIT TO TITLE${mode === 'campaign' ? ` <small>PROGRESS SAVED AT ${opts.checkpoint ? 'CHECKPOINT' : 'LEVEL START'}</small>` : ''}</button>`);
     this.$('m-pauselist').innerHTML = items.join('');
     this.show('pause');
   }
@@ -403,13 +405,15 @@ export class Menus {
   }
 
   // ------------------------------------------------------------------ death
-  showDeath(cause, tip, stats, mode) {
+  showDeath(cause, tip, stats, mode, opts = {}) {
     this.$('m-cause').textContent = 'KILLED BY ' + (cause || 'THE MACHINE');
     this.$('m-tip').textContent = tip || '';
-    this.$('m-deadsub').textContent = mode === 'campaign' ? 'CHECKPOINT: START OF LEVEL' : mode === 'endless' ? 'RUN OVER' : '';
+    this.$('m-deadsub').textContent = mode === 'campaign' ? (opts.checkpoint ? 'CHECKPOINT: ROOM ' + String(opts.checkpoint).padStart(2, '0') : 'CHECKPOINT: START OF LEVEL') : mode === 'endless' ? 'RUN OVER' : '';
     this.$('m-deadstats').innerHTML = stats.map(([k, v, best]) => `<div class="${best ? 'best' : ''}"><b>${esc(v)}</b>${esc(k)}${best ? ' · NEW BEST' : ''}</div>`).join('');
     const items = mode === 'campaign'
-      ? ['<button class="mi primary" data-a="retryLevel">RETRY LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>']
+      ? (opts.checkpoint
+        ? ['<button class="mi primary" data-a="retryCheckpoint">RETRY FROM CHECKPOINT</button>', '<button class="mi" data-a="retryLevel">RESTART LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>']
+        : ['<button class="mi primary" data-a="retryLevel">RETRY LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>'])
       : mode === 'tutorial'
         ? ['<button class="mi primary" data-a="retryLevel">RETRY STATION</button>', '<button class="mi" data-a="quit">TITLE</button>']
         : ['<button class="mi primary" data-a="restart">RUN IT BACK</button>', '<button class="mi" data-a="quit">TITLE</button>'];

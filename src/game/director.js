@@ -35,6 +35,7 @@ export const ROUTES = {
   boss: { label: '!! WARNING !!', sub: 'BOSS SIGNAL', color: '#ff3050', reward: 'boss' },
   mini: { label: 'CONTAINMENT', sub: 'MINIBOSS  RARE CACHE', color: '#ff8a3a', reward: 'rare', scoreMul: 1.2 },
   exit: { label: 'EXTRACTION', sub: 'LEVEL COMPLETE', color: '#7aff7a', reward: 'none' },
+  checkpoint: { label: 'CHECKPOINT', sub: 'SAFE ROOM  ·  SAVE', color: '#7fe0b8', reward: 'none' },
 };
 
 export const DIFFICULTY = {
@@ -267,7 +268,7 @@ export class Director {
     const i = this.heatOf(room);
     const rng = new RNG(hashSeed(this.seed, 'enc', room.index, i));
     const arch = room.spec.arch;
-    if (arch === 'cache' || arch === 'lobby' || arch === 'tutorial' || room.ctx.calm) { this.active = false; return 'calm'; }
+    if (arch === 'cache' || arch === 'lobby' || arch === 'tutorial' || arch === 'checkpoint' || room.ctx.calm) { this.active = false; return 'calm'; }
     if (arch === 'boss') {
       this.active = true;
       if (room.ctx.bossId) {

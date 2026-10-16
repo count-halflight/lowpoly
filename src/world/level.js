@@ -7,6 +7,7 @@ import { RNG, hashSeed } from '../core/rng.js';
 import { psxify } from '../render/renderer.js';
 import { getTexture } from '../render/textures.js';
 import { buildKit, graffitiCanvas, terminalCanvas } from './kits.js';
+import { buildBeacon } from './beacon.js';
 import { GRAFFITI } from '../data/lore.js';
 
 const KIT_BY_THEME = { service: 'service', foundry: 'foundry', cryo: 'cryo', reactor: 'reactor', research: 'archive', slaughter: 'slaughter', orbital: 'orbital', choir: 'choir', breach: 'breach', core: 'core' };
@@ -141,6 +142,7 @@ export class Room {
     this.conveyors = [];
     this.barrels = [];
     this.terminals = [];
+    this.beacon = null;
     this.dynHazards = 0;
     this.game = level.game;
     this.index = index;
@@ -476,6 +478,7 @@ export class Room {
       this.disposables.push(geo, mat, tex);
       this.terminals.push({ id: t.id, pos: new THREE.Vector3(this.wx(side * (s.W / 2 - 1.0)), 0, this.wz(t.z)), mesh, tex, read, side });
     }
+    for (const d of s.decor) if (d.type === 'beacon') this.beacon = buildBeacon(this, d);
     for (const gf of s.graffiti) {
       const text = GRAFFITI[gf.idx % GRAFFITI.length];
       const c = graffitiCanvas(text, gf.idx);
@@ -648,6 +651,7 @@ export class Room {
 
   updateFeatures(dt) {
     for (const c of this.conveyors) c.tex.offset.x -= c.speed * dt / 2;
+    if (this.beacon) this.beacon.update(dt);
     for (const p of this.pads) { p.cd -= dt; p.beam.scale.y = 0.8 + 0.2 * Math.sin(this.time * 6 + p.x); }
     for (const b of this.barrels) {
       if (b.alive && b.fuse >= 0) { b.fuse -= dt; b.mesh.position.y = 0.6 + Math.random() * 0.04; if (b.fuse < 0) this.level.explodeBarrel(b); }
@@ -780,8 +784,10 @@ export class Level {
     return room;
   }
 
+  // The first room of a level (or of a checkpoint resume, at ctx.index so later rooms keep
+  // the same indices and seeds as on the first attempt).
   startLobby(ctx = {}) {
-    const room = this.createRoom(0, ctx.arch || 'lobby', () => new THREE.Vector3(0, 0, 0), ctx, false);
+    const room = this.createRoom(ctx.index || 0, ctx.arch || 'lobby', () => new THREE.Vector3(0, 0, 0), ctx, false);
     this.current = room;
     this.activate(room);
     room.route = { type: 'entry' };

@@ -13,9 +13,14 @@ import { RANK_ORDER } from './meta.js';
 // boss, so a full cycle meets all 30 bosses and all 60 minibosses in a randomized order.
 // NG+ cycles climb back UP through a mirrored world with corrupted enemies and a hunter.
 
-// room sequence inside a level (index = local room number)
-const SEQ = ['entry', 'combat', 'combat', 'mini', 'combat', 'mini', 'boss'];
-const CHOICE = new Set([2, 4]); // these slots offer an alternative route
+// room sequence inside a level (index = local room number). A checkpoint room follows each
+// miniboss (the second one doubles as the last stop before the boss): it heals, refills and
+// saves, and dying afterwards restarts from there instead of from the start of the level.
+const SEQ = ['entry', 'combat', 'combat', 'mini', 'checkpoint', 'combat', 'mini', 'checkpoint', 'boss'];
+const CHOICE = new Set([2, 5]); // these slots offer an alternative route
+// pacing step of each room (checkpoints don't advance the heat curve or host terminals)
+const PACE = [0, 1, 2, 3, 3, 4, 5, 5, 6];
+const FIRST_MINI = SEQ.indexOf('mini');
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
 export const NG_TWIST = [
@@ -42,6 +47,7 @@ export class Campaign {
     this.practice = false;
     this.lv = null; // per-level stats
     this.checkpoint = null;
+    this.roomCheckpoint = null;
     this.seed = 1;
   }
 
@@ -79,7 +85,7 @@ export class Campaign {
   get entry() { return this.plan[this.levelIdx]; }
   get level() { return this.levelOf(this.entry); }
   get stratum() { return STRATA[this.level.stratum - 1]; }
-  heat(local = 0) { return 2 + this.levelIdx * 1.15 + local * 0.3 + this.cycle * 14; }
+  heat(local = 0) { return 2 + this.levelIdx * 1.15 + (PACE[local] ?? local) * 0.3 + this.cycle * 14; }
   theme() {
     if (this.entry.final && this.cycle % 2 === 1) return themeById('service');
     return themeById(this.stratum.theme);
@@ -119,9 +125,11 @@ export class Campaign {
   baseCtx(local) {
     const e = this.entry;
     const st = this.stratum;
-    const heat = 2 + this.depth * 1.15 + local * 0.3 + this.cycle * 14;
+    const pace = PACE[local] ?? local;
+    const heat = 2 + this.depth * 1.15 + pace * 0.3 + this.cycle * 14;
     const ctx = { themeObj: this.theme(), cond: this.level.cond || 'none', kit: st.kit, heat, mirror: this.cycle % 2 === 1, local };
-    if (local === e.termRoom && e.log) ctx.terminal = e.log;
+    if (SEQ[local] === 'checkpoint') { /* no terminals in checkpoint rooms */ }
+    else if (pace === e.termRoom && e.log) ctx.terminal = e.log;
     else if (local === 0 && e.nlog) ctx.terminal = e.nlog;
     return ctx;
   }
@@ -143,12 +151,16 @@ export class Campaign {
       Object.assign(ctx, { arch: 'boss', bossType: 'architect', bossId: 'architect', bossDef: { arena: 'architect' }, cond: 'none', kit: null });
       return ctx;
     }
+    if (kind === 'checkpoint' || route.type === 'checkpoint') {
+      Object.assign(ctx, { arch: 'checkpoint', cond: 'none', calm: true, checkpoint: true });
+      return ctx;
+    }
     if (route.type === 'cache') { ctx.arch = 'cache'; ctx.cond = 'none'; return ctx; }
     if (route.type === 'hazard') { ctx.arch = 'hazard'; return ctx; }
     if (route.type === 'elite') { ctx.arch = 'elite'; return ctx; }
     if (route.type === 'survival') { ctx.arch = 'survival'; return ctx; }
     if (kind === 'mini') {
-      const which = local === 3 ? 0 : 1;
+      const which = local === FIRST_MINI ? 0 : 1;
       const ids = this.cycle > 0 && which === 1 ? this.entry.minis : [this.entry.minis[which]];
       ctx.arch = 'miniboss';
       ctx.miniDefs = ids.map(miniById).filter(Boolean);
@@ -175,6 +187,7 @@ export class Campaign {
     const kind = SEQ[next];
     if (kind === 'boss') return [{ type: 'boss', ...ROUTES.boss, sub: bossById(this.entry.bossId).name }];
     if (kind === 'mini') return [{ type: 'mini', ...ROUTES.mini, label: 'CONTAINMENT', sub: 'MINIBOSS SIGNAL' }];
+    if (kind === 'checkpoint') return [{ type: 'checkpoint', ...ROUTES.checkpoint, sub: SEQ[next + 1] === 'boss' ? 'LAST STOP BEFORE THE BOSS' : ROUTES.checkpoint.sub }];
     const main = { type: 'combat', ...ROUTES.combat, label: 'ROOM ' + String(next).padStart(2, '0'), sub: this.condName() || 'ADVANCE' };
     if (!CHOICE.has(next) || room.exitDoors.length < 2) return [main];
     const rng = new RNG(hashSeed(this.seed, 'routes', this.levelIdx, next, this.cycle));
@@ -188,7 +201,8 @@ export class Campaign {
   rewardFor(room) {
     const arch = room.spec.arch;
     if (arch === 'boss') return 'boss';
-    if (arch === 'miniboss') return room.index === 3 ? 'rare' : 'standard';
+    if (arch === 'checkpoint') return null;
+    if (arch === 'miniboss') return room.index === FIRST_MINI ? 'rare' : 'standard';
     const r = room.route && room.route.type;
     if (arch === 'cache' || r === 'cache') return 'supply';
     if (r === 'hazard' || r === 'elite') return 'rare';
@@ -250,6 +264,16 @@ export class Campaign {
       hp: g.player.hp, upgrades: g.upgrades.snapshot(), weapons: g.weapons.snapshot(),
       score: g.style.score, run: { kills: g.run.kills, bosses: g.run.bosses, time: g.run.time, damageTaken: g.run.damageTaken, damageDealt: g.run.damageDealt, minis: g.run.minis || 0 },
       restarts: this.lv ? this.lv.restarts : 0, practice: this.practice, practiceDepth: this.practiceDepth,
+    };
+  }
+
+  // A mid-level save taken in a checkpoint room. It remembers the level-start snapshot too, so
+  // RESTART LEVEL still works after quitting and continuing from the checkpoint.
+  roomSnapshot(room) {
+    const lv = this.lv || {};
+    return {
+      ...this.snapshot(), atRoom: room.index, levelStart: this.checkpoint,
+      lvBase: { t0: lv.t0, kills0: lv.kills0, score0: lv.score0, dmg0: lv.dmg0, secrets: lv.secrets || 0 },
     };
   }
 

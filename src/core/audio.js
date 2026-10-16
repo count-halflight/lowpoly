@@ -245,6 +245,11 @@ const SFX = {
   type(a, o, t) { a.tone(o, t, 0.02, 'square', 1400 + Math.random() * 300, 1400, 0.05); },
   sting(a, o, t) { a.tone(o, t, 1.6, 'sawtooth', 55, 52, 0.5, 0.02); a.tone(o, t, 1.6, 'sawtooth', 82, 80, 0.35, 0.02); a.noise(o, t, 1.4, 'lowpass', 400, 2, 0.02, 0.6, 80); a.tone(o, t + 0.05, 0.6, 'square', 880, 440, 0.12); },
   miniSting(a, o, t) { a.tone(o, t, 0.6, 'sawtooth', 110, 90, 0.4, 0.01); a.tone(o, t, 0.25, 'square', 660, 330, 0.15); a.noise(o, t, 0.4, 'lowpass', 900, 1, 0.01, 0.4, 100); },
+  checkpoint(a, o, t) {
+    a.tone(o, t, 1.2, 'triangle', 98, 98, 0.35, 0.05);
+    [392, 494, 587, 784].forEach((f, i) => a.tone(o, t + 0.1 + i * 0.11, 0.9, 'sine', f, f, 0.16, 0.01));
+    a.noise(o, t, 0.9, 'bandpass', 3000, 2, 0.2, 0.15, 6000);
+  },
   levelClear(a, o, t) { [523, 659, 784, 1046, 1318].forEach((f, i) => a.tone(o, t + i * 0.08, 0.6, 'square', f, f, 0.1)); a.tone(o, t, 1.0, 'triangle', 130, 130, 0.3); },
   rank(a, o, t) { a.tone(o, t, 0.5, 'square', 220, 880, 0.2); a.noise(o, t, 0.3, 'lowpass', 2000, 1, 0.001, 0.6, 200); },
   pad(a, o, t) { a.tone(o, t, 0.4, 'sine', 200, 900, 0.5); a.noise(o, t, 0.2, 'bandpass', 1500, 1, 0.001, 0.3); },
