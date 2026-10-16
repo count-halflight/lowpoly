@@ -482,7 +482,12 @@ export class Player {
   }
 
   // Short camera punch (radians/s impulses) that springs back; mostly roll so it never drags aim.
-  camPunch(pitch, roll) { this.kickPV += pitch; this.kickRV += roll; }
+  // Scaled by the screen-shake setting so motion-sensitive players can turn it off.
+  camPunch(pitch, roll) {
+    const sh = this.game.settings.get('shake');
+    const k = typeof sh === 'number' ? Math.min(1, sh) : 1;
+    this.kickPV += pitch * k; this.kickRV += roll * k;
+  }
 
   ramEnemies() {
     const g = this.game;

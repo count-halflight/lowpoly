@@ -208,10 +208,13 @@ const SFX = {
   },
   overpump(a, o, t) { a.tone(o, t, 0.15, 'square', 1800, 2400, 0.25); a.tone(o, t + 0.12, 0.15, 'square', 1800, 2600, 0.25); },
   lanceCharge(a, o, t) { a.tone(o, t, 0.6, 'sawtooth', 120, 900, 0.15, 0.05); },
-  lance(a, o, t) {
+  // p = charge 0..1: a full charge adds a sub boom and a long rolling tail
+  lance(a, o, t, p) {
     a.tone(o, t, 0.35, 'sawtooth', 1400, 80, 0.5);
     a.tone(o, t, 0.3, 'square', 300, 60, 0.35);
     a.noise(o, t, 0.3, 'highpass', 2000, 0.5, 0.001, 0.8);
+    a.tone(o, t, 0.45, 'sine', 95, 28, 0.4 + p * 0.9);
+    a.noise(o, t + 0.05, 0.4 + p * 0.5, 'lowpass', 900, 0.7, 0.02, 0.15 + p * 0.3, 110);
   },
   launcher(a, o, t) {
     a.tone(o, t, 0.2, 'sine', 90, 40, 1.4);

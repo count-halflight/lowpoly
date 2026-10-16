@@ -1170,7 +1170,7 @@ export class Weapons {
     g.addShake(d.shake);
     const sh = g.settings.get('shake');
     const feel = typeof sh === 'number' ? Math.min(1, sh) : 1;
-    if (d.punch && p.camPunch) p.camPunch(d.punch[0] * (0.8 + Math.random() * 0.4) * feel, d.punch[1] * (Math.random() < 0.5 ? -1 : 1) * feel);
+    if (d.punch && p.camPunch) p.camPunch(d.punch[0] * (0.8 + Math.random() * 0.4), d.punch[1] * (Math.random() < 0.5 ? -1 : 1));
     if (d.fovKick && feel > 0) { g.camera.fov += d.fovKick * feel; g.camera.updateProjectionMatrix(); }
     g.run.shots++;
   }
@@ -1346,7 +1346,7 @@ export class Weapons {
   fireBeam(d, a, scoped) {
     const g = this.game, p = g.player;
     a.mag = Math.max(0, a.mag - 1);
-    g.audio.play('lance', null, 1);
+    g.audio.play('lance', null, 1, this.charge);
     const ck = 0.5 + this.charge * 0.5;
     this.kick({ ...d, kick: d.kick * ck, recoil: d.recoil * ck, punch: [d.punch[0] * ck, d.punch[1] * ck], fovKick: d.fovKick * this.charge });
     g.emit('fire', 'lance');
