@@ -23,8 +23,13 @@ export class Audio {
       this.master = c.createGain();
       this.sfx = c.createGain();
       this.mus = c.createGain();
-      this.sfx.connect(this.comp);
-      this.mus.connect(this.comp);
+      // shared low-pass: muffles everything for a moment when hurt and stays dull at low health
+      this.lp = c.createBiquadFilter();
+      this.lp.type = 'lowpass'; this.lp.frequency.value = 20000; this.lp.Q.value = 0.6;
+      this.baseCut = 20000;
+      this.sfx.connect(this.lp);
+      this.mus.connect(this.lp);
+      this.lp.connect(this.comp);
       this.comp.connect(this.master);
       this.master.connect(c.destination);
       // noise buffer
@@ -52,6 +57,28 @@ export class Audio {
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); }
 
   setListener(x, y, z, yaw) { const l = this.listener; l.x = x; l.y = y; l.z = z; l.yaw = yaw; }
+
+  // Hit muffle: dip the master low-pass and let it recover (k 0..1 = hit strength).
+  hurt(k) {
+    if (!this.ok) return;
+    const t = this.ctx.currentTime, f = this.lp.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(Math.max(200, f.value), t);
+    f.exponentialRampToValueAtTime(Math.max(380, 1600 - 1200 * k), t + 0.03);
+    f.exponentialRampToValueAtTime(this.baseCut, t + 0.35 + 0.5 * k);
+  }
+
+  // 0 = healthy, 1 = hurt, 2 = critical: the world sounds duller the closer you are to death.
+  setLowHp(bucket) {
+    if (!this.ok) return;
+    this.baseCut = [20000, 7000, 2400][bucket] || 20000;
+    const t = this.ctx.currentTime, f = this.lp.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(Math.max(200, f.value), t);
+    f.exponentialRampToValueAtTime(this.baseCut, t + 0.4);
+  }
+
+  setRush(on) { this.rushOn = !!on; }
 
   throttle(key, ms) {
     const now = performance.now();
@@ -115,32 +142,66 @@ export class Audio {
     o.start(t); o.stop(t + dur + 0.05);
   }
 
-  play(name, pos = null, vol = 1) {
+  // p: optional per-sound parameter (pump level, streak count, variant...)
+  play(name, pos = null, vol = 1, p = 0) {
     if (!this.ok || this.ctx.state !== 'running') return;
     const fn = SFX[name];
     if (!fn) return;
     const o = this.out(vol, pos);
     if (!o) return;
-    fn(this, o, this.ctx.currentTime);
+    fn(this, o, this.ctx.currentTime, p);
   }
 }
 
 const SFX = {
   pistol(a, o, t) {
+    a.noise(o, t, 0.02, 'highpass', 5000, 0.7, 0.0005, 0.9);
     a.noise(o, t, 0.22, 'bandpass', 1800, 0.8, 0.001, 1.2, 500);
     a.tone(o, t, 0.16, 'sine', 160, 40, 1.1);
     a.tone(o, t, 0.05, 'square', 900, 300, 0.25);
+    a.noise(o, t + 0.03, 0.45, 'lowpass', 900, 0.7, 0.02, 0.22, 120);
+  },
+  piercerCharge(a, o, t) { a.tone(o, t, 0.55, 'sawtooth', 220, 1400, 0.12, 0.05); a.tone(o, t, 0.55, 'square', 110, 700, 0.06, 0.05); },
+  piercer(a, o, t) {
+    a.noise(o, t, 0.02, 'highpass', 6000, 0.7, 0.0005, 1.0);
+    a.tone(o, t, 0.4, 'sawtooth', 2200, 90, 0.45);
+    a.tone(o, t, 0.3, 'sine', 120, 30, 1.4);
+    a.noise(o, t, 0.5, 'bandpass', 2600, 0.6, 0.001, 1.0, 400);
+    a.noise(o, t + 0.04, 0.7, 'lowpass', 700, 0.7, 0.02, 0.3, 90);
   },
   rifle(a, o, t) {
+    a.noise(o, t, 0.012, 'highpass', 6000, 0.7, 0.0005, 0.6);
     a.noise(o, t, 0.1, 'bandpass', 2400, 0.9, 0.001, 0.9, 900);
     a.tone(o, t, 0.08, 'sine', 140, 50, 0.8);
+    a.noise(o, t + 0.05, 0.03, 'bandpass', 3500, 6, 0.001, 0.15);
+  },
+  rifleHot(a, o, t) {
+    a.noise(o, t, 0.1, 'bandpass', 1700, 0.9, 0.001, 0.9, 600);
+    a.tone(o, t, 0.08, 'sine', 120, 45, 0.85);
+    a.noise(o, t, 0.16, 'highpass', 4000, 0.5, 0.001, 0.25, 9000);
   },
   shotgun(a, o, t) {
+    a.noise(o, t, 0.02, 'highpass', 4500, 0.7, 0.0005, 1.0);
     a.noise(o, t, 0.45, 'lowpass', 3000, 0.7, 0.001, 1.5, 300);
     a.tone(o, t, 0.25, 'sine', 110, 30, 1.4);
+    a.tone(o, t, 0.12, 'square', 70, 40, 0.35);
+    a.noise(o, t + 0.04, 0.6, 'lowpass', 700, 0.7, 0.03, 0.3, 80);
     a.noise(o, t + 0.32, 0.06, 'highpass', 3000, 1, 0.001, 0.4);
     a.noise(o, t + 0.42, 0.07, 'bandpass', 1400, 2, 0.001, 0.4);
   },
+  // pumped shotgun blast: heavier and lower the more charges were packed in (p = 1..3)
+  shotgunPumped(a, o, t, p) {
+    a.noise(o, t, 0.55, 'lowpass', 2600 - p * 300, 0.7, 0.001, 1.6, 200);
+    a.tone(o, t, 0.35, 'sine', 95 - p * 10, 25, 1.6);
+    a.tone(o, t, 0.2, 'sawtooth', 160, 40, 0.3 + p * 0.1);
+    a.noise(o, t + 0.05, 0.7, 'lowpass', 600, 0.7, 0.03, 0.4, 70);
+  },
+  pump(a, o, t, p) {
+    a.noise(o, t, 0.05, 'bandpass', 1300 + p * 500, 4, 0.001, 0.7);
+    a.noise(o, t + 0.09, 0.06, 'bandpass', 2200 + p * 500, 4, 0.001, 0.6);
+    a.tone(o, t + 0.09, 0.08, 'square', 300 + p * 180, 300 + p * 180, 0.1 + p * 0.04);
+  },
+  overpump(a, o, t) { a.tone(o, t, 0.15, 'square', 1800, 2400, 0.25); a.tone(o, t + 0.12, 0.15, 'square', 1800, 2600, 0.25); },
   lanceCharge(a, o, t) { a.tone(o, t, 0.6, 'sawtooth', 120, 900, 0.15, 0.05); },
   lance(a, o, t) {
     a.tone(o, t, 0.35, 'sawtooth', 1400, 80, 0.5);
@@ -150,7 +211,59 @@ const SFX = {
   launcher(a, o, t) {
     a.tone(o, t, 0.2, 'sine', 90, 40, 1.4);
     a.noise(o, t, 0.25, 'bandpass', 600, 1, 0.003, 0.8, 200);
+    a.noise(o, t + 0.02, 0.3, 'bandpass', 1800, 1.5, 0.02, 0.2, 600);
   },
+  rocket(a, o, t) {
+    a.tone(o, t, 0.18, 'sine', 120, 50, 1.2);
+    a.noise(o, t, 0.5, 'bandpass', 900, 0.8, 0.005, 0.9, 2600);
+    a.noise(o, t, 0.06, 'highpass', 4000, 0.7, 0.001, 0.5);
+  },
+  freeze(a, o, t) { a.tone(o, t, 0.3, 'triangle', 2400, 600, 0.3); a.noise(o, t, 0.3, 'highpass', 6000, 1, 0.005, 0.3); },
+  unfreeze(a, o, t) { a.tone(o, t, 0.25, 'triangle', 500, 2200, 0.3); a.noise(o, t, 0.35, 'bandpass', 1200, 1, 0.005, 0.5, 3000); },
+  vent(a, o, t) {
+    a.noise(o, t, 0.7, 'bandpass', 700, 0.6, 0.01, 1.3, 2500);
+    a.noise(o, t, 0.5, 'lowpass', 400, 1, 0.01, 0.9, 120);
+    a.tone(o, t, 0.4, 'sawtooth', 80, 40, 0.4);
+  },
+  ignite(a, o, t) { a.noise(o, t, 0.2, 'bandpass', 1500, 1, 0.005, 0.35, 600); },
+  overheat(a, o, t) { a.tone(o, t, 0.12, 'square', 1200, 1200, 0.18); a.tone(o, t + 0.14, 0.12, 'square', 900, 900, 0.18); a.noise(o, t, 0.6, 'highpass', 5000, 1, 0.01, 0.25); },
+  scatter(a, o, t) { for (let i = 0; i < 3; i++) a.tone(o, t + i * 0.02, 0.25, 'sawtooth', 1800 - i * 300, 120, 0.25); a.noise(o, t, 0.25, 'highpass', 2500, 0.5, 0.001, 0.6); },
+  split(a, o, t) { a.tone(o, t, 0.2, 'triangle', 2600, 3600, 0.2); a.tone(o, t + 0.03, 0.2, 'triangle', 3100, 4200, 0.15); },
+  tether(a, o, t) { a.tone(o, t, 0.3, 'sawtooth', 120, 900, 0.3); a.noise(o, t, 0.3, 'highpass', 3500, 0.7, 0.001, 0.5); },
+  tetherHum(a, o, t) { a.tone(o, t, 0.12, 'square', 90 + Math.random() * 40, 70, 0.1); a.noise(o, t, 0.08, 'highpass', 5000, 0.7, 0.001, 0.12); },
+  discharge(a, o, t) { a.tone(o, t, 0.4, 'square', 1600, 80, 0.4); a.noise(o, t, 0.35, 'highpass', 3000, 0.7, 0.001, 0.7); },
+  variant(a, o, t) { a.noise(o, t, 0.05, 'bandpass', 2400, 4, 0.001, 0.6); a.tone(o, t + 0.06, 0.08, 'square', 700, 1400, 0.12); a.tone(o, t + 0.13, 0.1, 'square', 1400, 1400, 0.1); },
+  boost(a, o, t) {
+    a.tone(o, t, 0.12, 'sine', 180, 60, 1.2);
+    a.noise(o, t, 0.06, 'highpass', 3000, 0.7, 0.001, 0.8);
+    a.tone(o, t, 0.35, 'triangle', 900, 2200, 0.3);
+  },
+  finisher(a, o, t) {
+    a.tone(o, t, 0.4, 'sine', 90, 28, 1.6);
+    a.noise(o, t, 0.4, 'lowpass', 1400, 1, 0.001, 1.4, 120);
+    a.noise(o, t + 0.05, 0.35, 'lowpass', 700, 2, 0.002, 1.0, 100);
+    a.tone(o, t + 0.02, 0.5, 'triangle', 1400, 700, 0.25);
+  },
+  perfectDodge(a, o, t) {
+    a.tone(o, t, 0.5, 'triangle', 2800, 1400, 0.3);
+    a.tone(o, t + 0.04, 0.5, 'triangle', 4200, 2100, 0.15);
+    a.noise(o, t, 0.4, 'bandpass', 3000, 1, 0.01, 0.4, 600);
+  },
+  rush(a, o, t) {
+    a.tone(o, t, 0.9, 'sawtooth', 55, 220, 0.6, 0.02);
+    a.tone(o, t, 0.9, 'sawtooth', 56, 225, 0.4, 0.02);
+    [440, 554, 659, 880].forEach((f, i) => a.tone(o, t + 0.1 + i * 0.05, 0.4, 'square', f, f, 0.1));
+    a.noise(o, t, 0.8, 'lowpass', 3000, 1, 0.01, 0.8, 150);
+  },
+  rushReady(a, o, t) { [659, 880, 1318].forEach((f, i) => a.tone(o, t + i * 0.06, 0.18, 'square', f, f, 0.1)); },
+  rushEnd(a, o, t) { a.tone(o, t, 0.5, 'sawtooth', 220, 55, 0.3); },
+  // streak-stepped confirm tick layered over the kill thump (p = streak 1..6)
+  killConfirm(a, o, t, p) {
+    const f = 880 * Math.pow(1.122, Math.max(0, (p || 1) - 1));
+    a.tone(o, t + 0.01, 0.09, 'square', f, f, 0.12);
+    a.tone(o, t + 0.05, 0.14, 'triangle', f * 1.5, f * 1.5, 0.12);
+  },
+  step(a, o, t) { a.noise(o, t, 0.05, 'lowpass', 500 + Math.random() * 300, 1, 0.002, 0.35); a.tone(o, t, 0.04, 'sine', 90, 60, 0.15); },
   arc(a, o, t) {
     a.tone(o, t, 0.09, 'square', 180 + Math.random() * 300, 60, 0.35);
     a.noise(o, t, 0.08, 'highpass', 4000, 0.5, 0.001, 0.5);
@@ -271,9 +384,12 @@ class Music {
     this.prog = [0, 0, -4, -2];
     this.bar = 0;
     this.enabled = true;
+    this.heat = 0; this.rush = false;
   }
   midi(n) { return 440 * Math.pow(2, (n - 69) / 12); }
   set(intensity) { this.target = intensity; }
+  // style rank 0..6 adds layers in combat; RUSH adds a driving lead
+  setHeat(rank, rush) { this.heat = rank; this.rush = !!rush; }
   tick() {
     const a = this.a;
     if (!a.ok || a.ctx.state !== 'running' || !this.enabled) return;
@@ -316,6 +432,20 @@ class Music {
     if (I === 2 && s % 2 === 1) {
       const arp = [0, 3, 7, 12, 15, 12, 7, 3];
       a.tone(o, t, spb * 0.8, 'square', this.midi(chordRoot + 12 + arp[(s >> 1) % 8]), undefined, 0.05);
+    }
+    // style layers: ghost hats (B), chord stabs (A), arp (S), sub + fills (SS)
+    const H = this.heat;
+    if (H >= 2 && s % 2 === 1 && I !== 2) a.noise(o, t, 0.02, 'highpass', 8000, 0.7, 0.001, 0.06);
+    if (H >= 3 && (s === 0 || s === 10)) for (const iv of [0, 3, 7]) a.tone(o, t, spb * 1.6, 'square', this.midi(chordRoot + 12 + iv), undefined, 0.035, 0.004);
+    if (H >= 4 && I !== 2 && s % 2 === 1) {
+      const arp = [0, 7, 3, 10, 12, 7, 3, 0];
+      a.tone(o, t, spb * 0.7, 'square', this.midi(chordRoot + 24 + arp[(s >> 1) % 8]), undefined, 0.03);
+    }
+    if (H >= 5 && s % 4 === 0) a.tone(o, t, spb * 2, 'sine', this.midi(chordRoot - 24), undefined, 0.22, 0.004);
+    if (H >= 5 && this.bar % 4 === 3 && s >= 12) a.noise(o, t, 0.07, 'bandpass', 1900, 0.7, 0.001, 0.25 + (s - 12) * 0.06);
+    if (this.rush && s % 2 === 0) {
+      const lead = [12, 12, 15, 12, 19, 17, 15, 10];
+      a.tone(o, t, spb * 1.4, 'sawtooth', this.midi(chordRoot + lead[(s >> 1) % 8]), undefined, 0.045, 0.004);
     }
   }
 }

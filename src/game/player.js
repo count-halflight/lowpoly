@@ -13,6 +13,9 @@ const AIR_ACCEL = 70;
 const BHOP_WINDOW = 0.11;   // seconds after landing during which a jump keeps all momentum
 const MAX_BHOP = 27;
 const HOOK_RANGE = 40;
+const RUSH_TIME = 6;
+// damage that should never count as a dodged attack (damage-over-time ticks, hazards, self)
+const NO_DODGE = /VORTEX|SURGE|ORBITAL|LIVE FLOOR|MOLTEN|COOLANT|VOID|YOUR OWN|OVERPUMP/;
 
 export function defaultStats() {
   return {
@@ -22,6 +25,8 @@ export function defaultStats() {
     ramDash: 0, parryMul: 1, adrenaline: 0, slamMul: 1, shotgunPellets: 0, cluster: 0, lanceCharge: 1,
     deadeye: 0, arcJumps: 0, riflePierce: 0, rifleDmg: 1, vampiric: 0, chainReaction: 0, phoenix: 0, elitesMul: 1,
     coinMax: 4, hookCd: 1.0, bhopMul: 1, slideMul: 1, airDash: 0, momentumDmg: 0,
+    // new-mechanic modifiers (rush / finisher / perfect dodge / projectile boost)
+    rushRate: 1, rushDur: 0, rushExtend: 0, execMul: 1, execHeal: 0, execBlast: 0, counter: 0, dodgeWindow: 0, dodgeSlow: 0, boostMul: 1,
   };
 }
 
@@ -60,6 +65,13 @@ export class Player {
     this.gravityMul = 1; this.friction = 1; this.conveyor = null;
     this.body.vel.set(0, 0, 0);
     this.body.h = STAND_H;
+    // RUSH overdrive: rush 0..1 fills from style, rushT > 0 while active
+    this.rush = 0; this.rushT = 0; this.rushMax = RUSH_TIME;
+    // perfect dodge / finisher / feel state
+    this.dashStart = -9; this.dodgeArmed = false; this.dodgeCd = 0; this.counterT = 0;
+    this.finisherTarget = null; this.cueT = 0;
+    this.kickP = 0; this.kickPV = 0; this.kickR = 0; this.kickRV = 0;
+    this.stepT = 0; this.fxT = 0; this.lastHpBucket = -1;
   }
 
   spawnAt(x, y, z, yaw) {
@@ -72,6 +84,7 @@ export class Player {
   get speedMul() {
     let m = this.stats.moveMul;
     if (this.stats.adrenaline && this.game.style.rankIndex >= 3) m *= 1 + 0.25 * this.stats.adrenaline;
+    if (this.rushT > 0) m *= 1.1;
     return m;
   }
 
@@ -93,8 +106,10 @@ export class Player {
 
     // ---- timers
     this.punchCd -= dt; this.punchT -= dt; this.hurtT -= dt; this.invuln -= dt; this.hazardCd -= dt;
-    this.slamJumpWindow -= dt; this.hookCd -= dt;
-    if (this.dashCharges < st.dashCharges) this.dashCharges = Math.min(st.dashCharges, this.dashCharges + dt / st.dashRegen);
+    this.slamJumpWindow -= dt; this.hookCd -= dt; this.dodgeCd -= dt; this.counterT -= dt;
+    if (this.dashCharges < st.dashCharges) this.dashCharges = Math.min(st.dashCharges, this.dashCharges + dt / st.dashRegen * (this.rushT > 0 ? 2 : 1));
+    if (input.wasPressed('rush')) this.activateRush();
+    if (this.rushT > 0) { this.rushT -= dt; if (this.rushT <= 0) this.endRush(); }
     if (st.shieldMax > 0) {
       this.shieldDelay -= dt;
       if (this.shieldDelay <= 0) this.shield = Math.min(st.shieldMax, this.shield + dt * st.shieldMax * 0.5);
@@ -125,13 +140,18 @@ export class Player {
       this.dashCharges -= 1;
       this.dashT = DASH_TIME;
       this.dashDir.copy(wishLen > 0.1 ? wish : this.fwd);
-      this.invuln = Math.max(this.invuln, DASH_TIME + 0.05);
+      this.invuln = Math.max(this.invuln, DASH_TIME + 0.05 + st.dodgeWindow);
       this.sliding = false; this.slamming = false; this.hook = null;
       b.vel.y = Math.max(b.vel.y, 0);
       g.audio.play('dash', null, 0.7);
       g.addShake(0.08);
+      this.kickR += this.dashDir.dot(this.right) * -0.03;
       this.dashHits = new Set();
+      this.dashStart = g.time;
+      this.dodgeArmed = this.dodgeCd <= 0;
       this.emit('dash');
+      // a hostile shot about to connect counts as dodged through
+      if (this.dodgeArmed && g.projectiles.nearMiss && g.projectiles.nearMiss(b.pos.x, b.pos.y + b.h * 0.5, b.pos.z, 0.3 + st.dodgeWindow) > 0) this.perfectDodge();
     }
 
     // ---- slide / slam
@@ -286,9 +306,18 @@ export class Player {
     } else this.bobAmp = damp(this.bobAmp, 0, 8, dt);
     const strafe = input.axis().x;
     this.roll = damp(this.roll, -strafe * 0.018 + (this.sliding ? 0.04 : 0) + (this.hook && this.hook.pulling ? -strafe * 0.04 : 0), 8, dt);
+    // camera punch springs (mostly roll so recoil feel never drags the aim)
+    const sdt = Math.min(dt, 0.033);
+    this.kickPV += (-240 * this.kickP - 24 * this.kickPV) * sdt; this.kickP += this.kickPV * sdt;
+    this.kickRV += (-200 * this.kickR - 20 * this.kickRV) * sdt; this.kickR += this.kickRV * sdt;
+    this.movementFx(dt);
 
     // ---- punch / parry
     if (input.wasPressed('punch') && this.punchCd <= 0) this.punch();
+    this.updateFinisherCue(dt);
+    if (g.touch && g.touch.setRushReady) g.touch.setRushReady(this.rush >= 1 && this.rushT <= 0);
+    const hpB = this.hp < st.maxHp * 0.25 ? 2 : this.hp < st.maxHp * 0.45 ? 1 : 0;
+    if (hpB !== this.lastHpBucket) { this.lastHpBucket = hpB; if (g.audio.setLowHp) g.audio.setLowHp(hpB); }
 
     // ---- level props (jump pads, conveyors handled via level)
     g.level.applyPlayerProps(this, dt);
@@ -398,9 +427,53 @@ export class Player {
       g.audio.play('slam', null, 0.9);
       g.addShake(0.35);
       g.combat.radialDamage(p.clone().setY(p.y + 0.5), r, 22 * this.stats.slamMul, { source: 'slam', knock: 9, noSelf: true, launch: 7 });
+      this.kickPV -= 1.4;
       this.emit('slam');
-    } else if (impact > 0.3) g.audio.play('land', null, 0.6 * impact);
+    } else if (impact > 0.3) {
+      g.audio.play('land', null, 0.6 * impact);
+      this.kickPV -= 0.9 * impact;
+      // heavy landings kick up a ring of grit
+      if (impact > 0.45) {
+        const p = this.body.pos;
+        const n = g.lowPower ? 5 : 9;
+        for (let i = 0; i < n; i++) {
+          const a = i / n * Math.PI * 2;
+          g.fx.dust.spawn(p.x + Math.cos(a) * 0.3, p.y + 0.05, p.z + Math.sin(a) * 0.3, Math.cos(a) * 3 * impact, 0.6, Math.sin(a) * 3 * impact, 0.45, 0.42, 0.38, 0.7, 0.22, 0.45, -0.3, 3);
+        }
+      }
+    }
   }
+
+  // Footfalls, slide sparks and dash streaks: pure feedback, never touches movement.
+  movementFx(dt) {
+    const g = this.game, b = this.body;
+    this.fxT -= dt;
+    if (b.grounded && !this.sliding && this.speedNow > 3) {
+      this.stepT += dt * Math.min(this.speedNow, 14) * 0.2;
+      if (this.stepT >= 1) { this.stepT -= 1; g.audio.play('step', null, Math.min(0.35, 0.12 + this.speedNow * 0.012)); }
+    }
+    if (this.fxT > 0) return;
+    this.fxT = 0.03;
+    const p = b.pos;
+    if (this.sliding && b.grounded) {
+      const bx = -this.slideDir.x, bz = -this.slideDir.z;
+      g.fx.sparks.spawn(p.x + this.right.x * 0.25, p.y + 0.05, p.z + this.right.z * 0.25, bx * 4 + (Math.random() - 0.5) * 2, 1.5 + Math.random() * 2, bz * 4 + (Math.random() - 0.5) * 2, 1, 0.75, 0.35, 1, 0.06, 0.25, 12, 1, p.y);
+    }
+    if (this.dashT > 0) {
+      // speed streaks behind the dash
+      for (let i = 0; i < 2; i++) {
+        const ox = (Math.random() - 0.5) * 1.2, oy = 0.4 + Math.random() * 1.3, oz = (Math.random() - 0.5) * 1.2;
+        g.fx.sparks.spawn(p.x + ox, p.y + oy, p.z + oz, -this.dashDir.x * 14, 0, -this.dashDir.z * 14, 0.6, 0.85, 1, 0.8, 0.07, 0.12, 0, 0);
+      }
+    }
+    if (this.rushT > 0 && Math.random() < 0.5) {
+      const a = Math.random() * Math.PI * 2;
+      g.fx.sparks.spawn(p.x + Math.cos(a) * 0.6, p.y + 0.2 + Math.random() * 1.2, p.z + Math.sin(a) * 0.6, 0, 1.5, 0, 1, 0.24, 0.94, 1, 0.07, 0.3, -2, 0);
+    }
+  }
+
+  // Short camera punch (radians/s impulses) that springs back; mostly roll so it never drags aim.
+  camPunch(pitch, roll) { this.kickPV += pitch; this.kickRV += roll; }
 
   ramEnemies() {
     const g = this.game;
@@ -433,11 +506,26 @@ export class Player {
       this.heal(15 + (this.stats.parryMul > 1 ? 15 : 0), true);
       g.style.add('PARRY', 60);
       g.hud.toast('PARRY', '#ffe23a');
+      this.camPunch(0.5, 0.4);
       this.emit('parry');
+      return;
+    }
+    // punching your own fresh grenade / mine / rocket / core bats it forward
+    const boosted = g.projectiles.tryBoost ? g.projectiles.tryBoost(eye, dir, 3.4, this.stats.boostMul) : null;
+    if (boosted) {
+      g.audio.play('boost', null, 1);
+      g.hitstop(0.05);
+      g.addShake(0.18);
+      this.camPunch(0.4, -0.3);
+      g.style.add('BOOSTED', 25);
+      this.emit('projBoost', boosted);
       return;
     }
     // punching a coin launches it forward (feeds coin tricks)
     if (g.weapons.punchCoin(eye, dir)) return;
+    // finisher: staggered or nearly dead enemies in reach get executed
+    const ft = this.findFinisher(eye, dir, 4.6);
+    if (ft) { this.execute(ft); return; }
     let hitAny = false;
     for (const e of g.enemies.list) {
       if (!e.alive) continue;
@@ -463,7 +551,143 @@ export class Player {
       }
     }
     g.audio.play('punch', null, hitAny ? 1 : 0.5);
-    if (hitAny) { g.addShake(0.15); g.hitstop(0.04); this.emit('punchhit'); }
+    if (hitAny) { g.addShake(0.15); g.hitstop(0.04); this.camPunch(0.3, 0.35); this.emit('punchhit'); }
+  }
+
+  // ---------------------------------------------------------------- finisher
+  canExecute(e) {
+    if (!e.alive || !e.targetable || e.boss || !(e.maxHp > 0)) return false;
+    const m = this.stats.execMul;
+    if (e.mini) return e.hp <= e.maxHp * 0.12 * m;
+    if (e.hp <= e.maxHp * 0.2 * m) return true;
+    return (e.stagger > 0.05 || e.stun > 0) && e.hp <= e.maxHp * 0.45 * m;
+  }
+
+  findFinisher(eye, dir, reach) {
+    let best = null, bs = -1;
+    for (const e of this.game.enemies.list) {
+      if (!this.canExecute(e)) continue;
+      const c = e.centerPos();
+      const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > reach + e.radius) continue;
+      const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / Math.max(0.01, d);
+      if (dot < 0.5) continue;
+      const score = dot - d * 0.05;
+      if (score > bs) { bs = score; best = e; }
+    }
+    return best;
+  }
+
+  execute(e) {
+    const g = this.game, st = this.stats;
+    const c = e.centerPos().clone();
+    const b = this.body;
+    // short lunge so the blow lands even from the edge of reach
+    const dx = c.x - b.pos.x, dz = c.z - b.pos.z, dl = Math.hypot(dx, dz);
+    if (dl > 2) { b.vel.x = dx / dl * 15; b.vel.z = dz / dl * 15; }
+    const d = new THREE.Vector3(dx, 0.35 * (dl || 1), dz).normalize();
+    g.combat.damageEnemy(e, 1, { source: 'punch', finisher: true, dir: d, knock: 15, point: c, part: 'body' });
+    this.heal(12 + st.execHeal);
+    if (g.weapons.onFinisher) g.weapons.onFinisher();
+    g.hitstop(0.11);
+    g.addShake(0.4);
+    g.flash(0xff2040, 0.22);
+    this.camPunch(0.8, 0.7);
+    g.audio.play('finisher', null, 1);
+    g.fx.blood(c, d, 3.5, e.bloodColor);
+    g.fx.chunks(c, 0x5a1010, g.lowPower ? 5 : 9, 8, 0.14);
+    g.fx.sparksBurst(c, 0xff3050, 16, 7, 0.35);
+    g.fx.ring(c.x, e.pos.y + 0.05, c.z, 2.4, 0xff3050, 0.3, 0.1);
+    g.style.add('EXECUTION', 60);
+    this.addRush(0.1);
+    if (st.execBlast) {
+      g.fx.ring(c.x, e.pos.y + 0.1, c.z, 5, 0xff6040, 0.35, 0.05);
+      for (const o of g.enemies.list) if (o.alive && o !== e && !o.mini && o.centerPos().distanceTo(c) < 5) o.stagger = Math.max(o.stagger, o.heavy ? 0.3 : 0.9);
+      g.combat.radialDamage(c, 5, 30 * st.execBlast * st.dmgMul, { source: 'punch', knock: 10, noSelf: true });
+    }
+    this.emit('finisher', e);
+  }
+
+  // Marks executable enemies (pooled sparks over their heads) and exposes the one in reach.
+  updateFinisherCue(dt) {
+    const g = this.game;
+    const eye = g.camera.position;
+    const dir = g.camera.getWorldDirection(this.tmp);
+    this.finisherTarget = this.findFinisher(eye, dir, 4.6);
+    this.cueT -= dt;
+    if (this.cueT > 0) return;
+    this.cueT = 0.12;
+    const p = this.body.pos;
+    for (const e of g.enemies.list) {
+      if (!this.canExecute(e)) continue;
+      if (Math.abs(e.pos.x - p.x) > 16 || Math.abs(e.pos.z - p.z) > 16) continue;
+      const h = e.headPos();
+      const hot = e === this.finisherTarget;
+      g.fx.sparks.spawn(h.x, h.y + 0.45 + (e.mini ? 1.2 : 0), h.z, 0, 0.6, 0, 1, hot ? 1 : 0.2, hot ? 1 : 0.25, 1, hot ? 0.22 : 0.15, 0.16, 0, 0);
+    }
+  }
+
+  // ---------------------------------------------------------------- RUSH overdrive
+  addRush(v) {
+    if (this.rushT > 0 || !this.alive || !(v > 0)) return;
+    const before = this.rush;
+    this.rush = Math.min(1, this.rush + v * this.stats.rushRate);
+    if (before < 1 && this.rush >= 1) {
+      const g = this.game;
+      g.audio.play('rushReady', null, 0.8);
+      g.hud.toast(g.input.usingTouch ? 'RUSH READY · TAP RUSH' : 'RUSH READY · PRESS X', '#ff3df0');
+    }
+  }
+
+  activateRush() {
+    const g = this.game;
+    if (this.rush < 1 || this.rushT > 0 || !this.alive || g.state !== 'playing') return;
+    this.rush = 0;
+    this.rushMax = RUSH_TIME + this.stats.rushDur;
+    this.rushT = this.rushMax;
+    this.dashCharges = this.stats.dashCharges;
+    if (g.weapons.onRush) g.weapons.onRush();
+    g.flash(0xff3df0, 0.5);
+    g.hitstop(0.08);
+    g.addShake(0.35);
+    this.camPunch(0.6, 0);
+    g.audio.play('rush', null, 1);
+    if (g.audio.setRush) g.audio.setRush(true);
+    const p = this.body.pos;
+    g.fx.ring(p.x, p.y + 0.1, p.z, 6, 0xff3df0, 0.45, 0.05);
+    g.fx.sparksBurst(p.clone().setY(p.y + 1), 0xff3df0, 30, 9, 0.5);
+    g.style.add('RUSH', 30);
+    this.emit('rush');
+  }
+
+  endRush() {
+    const g = this.game;
+    this.rushT = 0;
+    g.audio.play('rushEnd', null, 0.7);
+    if (g.audio.setRush) g.audio.setRush(false);
+  }
+
+  // ---------------------------------------------------------------- perfect dodge
+  perfectDodge() {
+    const g = this.game, st = this.stats;
+    if (!this.dodgeArmed) return;
+    this.dodgeArmed = false;
+    this.dodgeCd = 0.6;
+    g.slowT = Math.max(g.slowT || 0, 0.4 + st.dodgeSlow);
+    this.invuln = Math.max(this.invuln, 0.35);
+    this.dashCharges = Math.min(st.dashCharges, this.dashCharges + 1);
+    if (st.counter) this.counterT = 2;
+    g.audio.play('perfectDodge', null, 1);
+    g.flash(0x7fe0ff, 0.16);
+    const p = this.body.pos;
+    // afterimage where the hit would have landed
+    for (let i = 0; i < (g.lowPower ? 10 : 18); i++) {
+      g.fx.sparks.spawn(p.x + (Math.random() - 0.5) * 0.6, p.y + Math.random() * 1.8, p.z + (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 1.5, 0.5, (Math.random() - 0.5) * 1.5, 0.5, 0.9, 1, 1, 0.12, 0.45, -1, 1);
+    }
+    g.style.add('PERFECT DODGE', 45);
+    this.addRush(0.08);
+    this.emit('perfectDodge');
   }
 
   heal(n, silent = false) {
@@ -476,7 +700,11 @@ export class Player {
   damage(amount, from, cause, tip) {
     const g = this.game;
     if (!this.alive || g.state !== 'playing') return false;
-    if (this.invuln > 0 && cause !== 'THE VOID') return false;
+    if (this.invuln > 0 && cause !== 'THE VOID') {
+      // an attack that lands inside the dash's i-frames was dodged at the last moment
+      if (this.dodgeArmed && g.time - this.dashStart < DASH_TIME + 0.08 + this.stats.dodgeWindow && amount >= 4 && !NO_DODGE.test(cause || '')) this.perfectDodge();
+      return false;
+    }
     amount *= g.director.playerDamageMul();
     this.lastDamage = { cause, tip };
     if (this.shield > 0) {
@@ -492,7 +720,9 @@ export class Player {
     g.hud.damage(amount, from);
     g.style.onPlayerHit(amount);
     g.audio.play('hurt', null, 0.8);
+    if (g.audio.hurt) g.audio.hurt(Math.min(1, amount / 30));
     g.addShake(Math.min(0.45, 0.12 + amount / 60));
+    this.camPunch(-0.25, (Math.random() - 0.5) * 1.2 * Math.min(1, amount / 25));
     g.run.damageTaken += amount;
     g.emit('hurt', amount);
     if (this.hp <= 0) {
@@ -523,6 +753,6 @@ export class Player {
     const bobY = Math.sin(this.bob * 2) * 0.035 * this.bobAmp;
     cam.position.set(b.pos.x, b.pos.y + this.eye + bobY + this.landDip, b.pos.z);
     cam.rotation.order = 'YXZ';
-    cam.rotation.set(this.pitch, this.yaw, this.roll);
+    cam.rotation.set(this.pitch + this.kickP, this.yaw, this.roll + this.kickR);
   }
 }

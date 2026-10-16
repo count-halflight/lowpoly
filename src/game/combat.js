@@ -92,16 +92,32 @@ export class Combat {
     return { hits, bossHit, end, world: w };
   }
 
+  // Damage the player deals (as opposed to enemy friendly fire, hazards, self-destructs).
+  playerSource(info) {
+    return info.source !== 'enemy' && info.source !== 'hazard' && info.source !== 'self' && !info.friendly && info.fromPlayer !== false;
+  }
+
+  // RUSH overdrive multiplier on outgoing damage
+  rushMul(info) { return this.game.player.rushT > 0 && this.playerSource(info) ? 1.3 : 1; }
+
+  // Lifesteal while RUSH is active (on top of Vampiric Field)
+  rushLeech(amount, info) {
+    const pl = this.game.player;
+    if (pl.rushT > 0 && amount > 0 && this.playerSource(info)) pl.heal(Math.min(8, amount * 0.06), true);
+  }
+
   damageEnemy(e, dmg, info = {}) {
     const g = this.game;
     if (!e.alive) return 0;
-    let mul = 1;
+    let mul = this.rushMul(info);
     const head = info.part === 'head';
     if (head) mul *= (info.headMul || 2) * g.player.stats.headMul;
     if (e.elite) mul *= g.player.stats.elitesMul;
     // type-specific armour (e.g. Bulwark front shield)
-    const armor = e.armorFactor ? e.armorFactor(info) : 1;
+    const armor = info.finisher ? 1 : e.armorFactor ? e.armorFactor(info) : 1;
     let amount = dmg * mul * armor;
+    // finishers take exactly what is left, so damage stats and lifesteal stay honest
+    if (info.finisher) { e.shield = 0; amount = Math.max(1, e.hp); }
     let shieldHit = false;
     if (e.shield > 0) {
       const sMul = info.energy ? 2 : 1;
@@ -118,6 +134,7 @@ export class Combat {
     if (info.source !== 'enemy' && info.source !== 'hazard') {
       g.run.damageDealt += amount;
       if (g.player.stats.vampiric) g.player.heal(amount * 0.03 * g.player.stats.vampiric, true);
+      this.rushLeech(amount, info);
     }
     const p = info.point || e.centerPos();
     if (!shieldHit || amount > 0) g.fx.blood(p, info.dir || new THREE.Vector3(0, 1, 0), head ? 1.4 : 0.7, e.bloodColor);
@@ -148,6 +165,8 @@ export class Combat {
     if (info.source === 'parry') g.style.add('RETURN TO SENDER', 50);
     if (info.source === 'punch') g.style.add('KNOCKOUT', 30);
     if (info.source === 'slam') g.style.add('GROUND POUND', 30);
+    if (info.source === 'fire') g.style.add('CREMATED', 25);
+    if (info.boosted) g.style.add('HOME RUN', 35);
     if (info.dist !== undefined && info.dist > 28) g.style.add('LONGSHOT', 25);
     if (e.elite) g.style.add('ELITE DOWN', 60);
     if (e.type === 'signaller' && !e.called) g.style.add('NO BACKUP', 40);
@@ -165,6 +184,10 @@ export class Combat {
     else if (g.player.stats.healOnKill || bf > 1) g.player.heal((g.player.stats.healOnKill + (bf > 1 ? 4 : 0)) * bf);
     g.run.kills++;
     g.audio.play('kill', e.pos, 0.9);
+    // rising confirm tick: each kill in a quick streak lands a step higher
+    g.audio.play('killConfirm', null, head ? 0.75 : 0.55, Math.min(6, n + (head ? 1 : 0)));
+    const pl = g.player;
+    if (pl.rushT > 0 && pl.stats.rushExtend) pl.rushT = Math.min(pl.rushMax, pl.rushT + 0.5 * pl.stats.rushExtend);
     g.addShake(e.elite || e.heavy ? 0.2 : 0.07);
     if (head || e.elite || e.heavy) g.hitstop(e.elite || e.heavy ? 0.06 : 0.03);
     if (info.source === 'explosion' || (info.knock && info.knock > 9) || head) g.audio.play('gib', e.pos, 0.6);
@@ -210,11 +233,12 @@ export class Combat {
       g.fx.sparksBurst(info.point || boss.pos, 0x40e0ff, 5, 4, 0.2, 0.08);
       return 0;
     }
-    const mul = (part.mul || 1) * (part.weak ? g.player.stats.headMul : 1) * g.player.stats.elitesMul;
+    const mul = (part.mul || 1) * (part.weak ? g.player.stats.headMul : 1) * g.player.stats.elitesMul * this.rushMul(info);
     const amount = boss.applyDamage(dmg * mul, info, part);
     if (amount <= 0) return 0;
     g.run.damageDealt += amount;
     if (g.player.stats.vampiric) g.player.heal(amount * 0.03 * g.player.stats.vampiric, true);
+    this.rushLeech(amount, info);
     g.hud.hitMarker(part.weak ? 'head' : 'hit');
     if (!info.quiet) g.audio.play(part.weak ? 'headshot' : 'hit', null, 0.45);
     if (info.point) g.fx.sparksBurst(info.point, part.weak ? 0xffe060 : 0xffa060, part.weak ? 8 : 4, 5, 0.3, 0.09);
@@ -235,7 +259,7 @@ export class Combat {
       const fall = 1 - Math.max(0, d - e.radius) / radius * 0.6;
       const dir = c.clone().sub(pos).normalize();
       if (opts.launch) e.body.vel.y = Math.max(e.body.vel.y, opts.launch);
-      this.damageEnemy(e, dmg * fall, { source: opts.source || 'explosion', point: c, dir, knock: opts.knock || 8, stagger: 0.4, friendly: opts.friendly, chained: opts.chained, energy: opts.energy, fromPlayer: !opts.friendly });
+      this.damageEnemy(e, dmg * fall, { source: opts.source || 'explosion', point: c, dir, knock: opts.knock || 8, stagger: 0.4, friendly: opts.friendly, chained: opts.chained, energy: opts.energy, fromPlayer: !opts.friendly, boosted: opts.boosted });
       hits++;
     }
     const boss = g.bosses.active;

@@ -23,7 +23,7 @@ export class Projectiles {
     for (let i = 0; i < this.cap; i++) this.glow.setColorAt(i, c);
     game.scene.add(this.glow);
     this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.s = new THREE.Vector3(); this.tmp = new THREE.Vector3();
-    this.d = new THREE.Vector3();
+    this.d = new THREE.Vector3(); this.rd = new THREE.Vector3();
     this.dark = new THREE.Color(0.25, 0.25, 0.28);
   }
 
@@ -62,6 +62,8 @@ export class Projectiles {
     p.bounces = opts.kind === 'saw' ? 3 : (opts.bounces || 0);
     p.hitMap = null;
     p.stuck = false; p.stuckTo = null;
+    p.dodged = false; p.boosted = false; p.frozen = false; p.freezeAt = opts.freezeAt || 0;
+    p.direct = opts.direct || 0;
     return p;
   }
 
@@ -113,6 +115,53 @@ export class Projectiles {
     return best;
   }
 
+  // Perfect-dodge probe: hostile shots whose path passes through the player within `horizon`
+  // seconds are marked dodged (they fly through instead of hitting). Returns how many.
+  nearMiss(cx, cy, cz, horizon) {
+    let n = 0;
+    for (const p of this.list) {
+      if (!p.active || p.friendly || p.dodged) continue;
+      const rx = cx - p.pos.x, ry = cy - p.pos.y, rz = cz - p.pos.z;
+      const vv = p.vel.lengthSq();
+      if (vv < 1) continue;
+      const tc = (rx * p.vel.x + ry * p.vel.y + rz * p.vel.z) / vv;
+      if (tc < 0 || tc > horizon) continue;
+      const mx = rx - p.vel.x * tc, my = ry - p.vel.y * tc, mz = rz - p.vel.z * tc;
+      const rr = p.r + 0.85 + (p.explode ? 0.5 : 0);
+      if (mx * mx + my * my * 0.5 + mz * mz < rr * rr) { p.dodged = true; n++; }
+    }
+    return n;
+  }
+
+  // Punch boost: bat your own grenade / mine / rocket / core shell along the aim direction.
+  tryBoost(eye, dir, range, mul = 1) {
+    let best = null, bd = range;
+    for (const p of this.list) {
+      if (!p.active || !p.friendly || p.parried || p.boosted) continue;
+      if (p.kind !== 'grenade' && p.kind !== 'sticky' && p.kind !== 'rocket' && p.kind !== 'core') continue;
+      if (p.stuckTo) continue; // mines on enemies stay put
+      const v = this.tmp.subVectors(p.pos, eye);
+      const d = v.length();
+      if (d > bd) continue;
+      if (d > 0.6 && v.dot(dir) / d < 0.4) continue;
+      bd = d; best = p;
+    }
+    if (!best) return null;
+    const p = best;
+    const sp = Math.max(40, p.vel.length() * 1.8);
+    p.vel.copy(dir).multiplyScalar(sp);
+    p.stuck = false; p.frozen = false; p.freezeAt = 0;
+    p.gravity *= 0.2;
+    p.dmg *= 1.5 * mul;
+    p.explode = Math.max(2.5, p.explode * 1.25);
+    p.life = Math.max(p.life, 2.5);
+    if (p.kind === 'sticky') p.kind = 'grenade'; // a batted mine detonates on contact
+    p.boosted = true;
+    p.color.setHex(0xffe6a0);
+    this.game.fx.sparksBurst(p.pos, 0xffd060, 14, 7, 0.3);
+    return p;
+  }
+
   kill(p) {
     p.active = false;
     if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; }
@@ -147,6 +196,14 @@ export class Projectiles {
         this.render(p, i++, dt);
         continue;
       }
+      // freezeframe rockets hang in place (their timer pauses) until released
+      if (p.freezeAt > 0 && p.age >= p.freezeAt) { p.freezeAt = 0; p.frozen = true; }
+      if (p.frozen) {
+        p.life += dt;
+        if (Math.random() < 0.2) g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, (Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5), 0.5, 0.85, 1, 1, 0.09, 0.3, 0, 0);
+        this.render(p, i++, dt);
+        continue;
+      }
       p.vel.y -= p.gravity * dt;
       p.prev.copy(p.pos);
       p.pos.addScaledVector(p.vel, dt);
@@ -161,7 +218,7 @@ export class Projectiles {
       // actor collision
       let consumed = false;
       if (!p.friendly) {
-        if (player.alive && segPointDist2(p.prev.x, p.prev.y, p.prev.z, p.pos.x, p.pos.y, p.pos.z, pcx, pcy, pcz) < (p.r + 0.55) ** 2 &&
+        if (player.alive && !p.dodged && segPointDist2(p.prev.x, p.prev.y, p.prev.z, p.pos.x, p.pos.y, p.pos.z, pcx, pcy, pcz) < (p.r + 0.55) ** 2 &&
             Math.abs(p.pos.y - pcy) < player.body.h * 0.5 + p.r + 0.1) {
           if (p.explode) this.detonate(p, null);
           else {
@@ -183,6 +240,7 @@ export class Projectiles {
               continue;
             }
             if (p.kind === 'sticky') { p.stuck = true; p.stuckTo = e; p.stuckOff = p.pos.clone().sub(c).multiplyScalar(0.6); p.vel.set(0, 0, 0); g.audio.play('stick', p.pos, 0.6); break; }
+            if (p.direct) g.combat.damageEnemy(e, p.direct, { source: 'explosion', point: p.pos.clone(), dir: d.clone(), knock: 4, stagger: 0.3, quiet: true });
             if (p.explode) this.detonate(p, e);
             else g.combat.damageEnemy(e, p.dmg, { source: p.parried ? 'parry' : 'projectile', point: p.pos.clone(), dir: d.clone(), knock: 6, stagger: 0.4 });
             consumed = true; break;
@@ -233,7 +291,9 @@ export class Projectiles {
       }
       if (consumed) { p.active = false; if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; } this.hide(i++); continue; }
       if (p.trail && Math.random() < (g.lowPower ? 0.35 : 0.7)) {
-        g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0, 0, p.color.r * 0.8, p.color.g * 0.8, p.color.b * 0.8, 1, p.size * 1.4, 0.15, 0, 0);
+        g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0, 0, p.color.r * 0.8, p.color.g * 0.8, p.color.b * 0.8, 1, p.size * (p.boosted ? 2.4 : 1.4), p.boosted ? 0.3 : 0.15, 0, 0);
+        // rockets leave a short smoke ribbon
+        if (p.kind === 'rocket') g.fx.dust.spawn(p.pos.x, p.pos.y, p.pos.z, (Math.random() - 0.5) * 0.6, 0.4, (Math.random() - 0.5) * 0.6, 0.35, 0.35, 0.38, 0.55, 0.22, 0.5, -0.3, 1.5);
       }
       this.render(p, i++, dt);
     }
@@ -244,15 +304,18 @@ export class Projectiles {
   }
 
   render(p, i, dt) {
-    p.spin += dt * (p.kind === 'saw' ? 40 : 8);
+    p.spin += dt * (p.kind === 'saw' ? 40 : p.frozen ? 2 : 8);
     if (p.kind === 'saw') this.q.setFromAxisAngle(this.tmp.set(0, 1, 0), p.spin);
+    else if (p.kind === 'rocket') this.q.setFromUnitVectors(this.tmp.set(0, 0, 1), this.rd.copy(p.vel).normalize());
     else this.q.setFromAxisAngle(this.tmp.set(0.3, 1, 0.2).normalize(), p.spin);
     const s = p.size;
-    if (p.kind === 'saw') this.s.set(s * 1.6, s * 0.25, s * 1.6); else this.s.set(s, s, s);
+    if (p.kind === 'saw') this.s.set(s * 1.6, s * 0.25, s * 1.6);
+    else if (p.kind === 'rocket') this.s.set(s * 0.7, s * 0.7, s * 2.2);
+    else this.s.set(s, s, s);
     this.m.compose(p.pos, this.q, this.s);
     this.mesh.setMatrixAt(i, this.m);
-    this.mesh.setColorAt(i, p.kind === 'grenade' || p.kind === 'sticky' ? this.dark : p.color);
-    const gs = p.stuck ? s * (2 + Math.sin(this.game.time * 20) * 0.6) : s * 2.2;
+    this.mesh.setColorAt(i, (p.kind === 'grenade' || p.kind === 'sticky' || p.kind === 'rocket') && !p.boosted ? this.dark : p.color);
+    const gs = p.stuck || p.frozen ? s * (2 + Math.sin(this.game.time * 20) * 0.6) : s * (p.boosted ? 3 : 2.2);
     this.s.set(gs, gs, gs);
     this.m.compose(p.pos, this.q, this.s);
     this.glow.setMatrixAt(i, this.m);
@@ -276,7 +339,8 @@ export class Projectiles {
     g.audio.play('explosion', pos, 1);
     g.addShake(Math.max(0, 0.5 - pos.distanceTo(g.player.body.pos) * 0.03));
     if (p.friendly) {
-      g.combat.radialDamage(pos, p.explode, p.dmg, { source: p.parried ? 'parry' : 'explosion', knock: 10, selfKnock: 15 });
+      if (p.boosted) { g.fx.ring(pos.x, pos.y, pos.z, p.explode * 1.2, 0xffe6a0, 0.3, 0.2); g.hitstop(0.03); }
+      g.combat.radialDamage(pos, p.explode, p.dmg, { source: p.parried ? 'parry' : 'explosion', knock: p.boosted ? 14 : 10, selfKnock: 15, boosted: p.boosted });
       if (p.cluster) {
         for (let k = 0; k < 3 * p.cluster; k++) {
           const v = new THREE.Vector3((Math.random() - 0.5) * 9, 6 + Math.random() * 4, (Math.random() - 0.5) * 9);
