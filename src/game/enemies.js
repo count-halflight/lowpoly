@@ -1188,10 +1188,10 @@ const BULWARK_RIG = (() => {
     head: (S) => { S.b(0.3, 0.24, 0.3, 0, 0.1, 0.04, steel, { top: [0.8, 0.8] }); S.g(0.22, 0.04, 0.02, 0, 0.1, 0.195, glow); S.b(0.26, 0.1, 0.06, 0, 0.02, 0.17, dark); },
     arm: (S, s) => {
       S.b(0.24, 0.38, 0.26, 0, -0.17, 0, dark); S.b(0.38, 0.2, 0.38, side(s, 0.04), 0.02, 0, armor, { top: [0.75, 0.8] });
-      if (s < 0) { // tower shield
-        S.b(1.3, 1.65, 0.14, 0.45, -0.5, 0.48, steel); S.b(1.1, 1.4, 0.04, 0.45, -0.48, 0.56, armor);
-        S.b(1.32, 0.16, 0.16, 0.45, -1.15, 0.48, hazard); S.g(0.42, 0.06, 0.02, 0.45, 0.08, 0.585, glow);
-        for (let k = -1; k <= 1; k++) S.b(0.09, 0.22, 0.09, 0.45 + k * 0.42, 0.42, 0.48, dark, { top: [0, 0] });
+      if (s < 0) { // tower shield: its rim sits just under the visor so the eyes read over it
+        S.b(1.3, 1.4, 0.14, 0.45, -0.72, 0.48, steel); S.b(1.1, 1.18, 0.04, 0.45, -0.7, 0.56, armor);
+        S.b(1.32, 0.16, 0.16, 0.45, -1.34, 0.48, hazard); S.g(0.42, 0.06, 0.02, 0.45, -0.12, 0.585, glow);
+        for (const k of [-1, 1]) S.b(0.09, 0.22, 0.09, 0.45 + k * 0.5, 0.08, 0.48, dark, { top: [0, 0] });
       }
     },
     fore: (S, s) => {
@@ -2202,6 +2202,8 @@ const LEECH_RIG = (() => {
       S.b(0.36, 0.3, 0.32, 0, 0, 0, flesh, { top: [0.8, 0.9], bot: [0.9, 0.95] }); S.b(0.3, 0.06, 0.3, 0, -0.14, 0, belly);
       S.b(0.08, 0.06, 0.2, -0.2, -0.08, 0, dark, { rz: 0.5 }); S.b(0.08, 0.06, 0.2, 0.2, -0.08, 0, dark, { rz: -0.5 });
       spine(S, 0.04, 0.14); spine(S, -0.1, 0.12);
+      // swollen feeding sacs glow through the skin: readable at range and in the dark
+      S.g(0.1, 0.07, 0.1, -0.1, 0.16, -0.02, 0xff4a6a); S.g(0.1, 0.07, 0.1, 0.1, 0.16, -0.02, 0xff4a6a);
     }, 'flesh'],
     ['head', 'mid', 0, 0.01, 0.15, (S) => {
       S.b(0.34, 0.32, 0.24, 0, 0, 0.1, flesh, { top: [0.85, 0.9] });
@@ -2345,7 +2347,7 @@ class Leech extends Enemy {
     const sway = st === 'latched' ? Math.sin(t * 16) * 0.5 : Math.sin(w) * 0.45 * amt;
     J.head.rotation.y = -sway * 0.5; J.tail1.rotation.y = sway; J.tail2.rotation.y = sway * 1.2;
     J.mid.scale.set(1, 1 + Math.sin(w * 2) * 0.06 * amt, 1 - Math.sin(w * 2) * 0.04 * amt);
-    this.group.scale.setScalar(st === 'latched' ? 0.85 : this.elite ? 1.28 : 1.15);
+    this.group.scale.setScalar(st === 'latched' ? 0.85 : this.elite ? 1.45 : 1.3);
     this.shadow.visible = !this.latched;
   }
   deathPose(k) { this.joints.mid.rotation.z = 2.8 * k; this.joints.tail1.rotation.y = 0.8 * k; this.joints.head.rotation.y = -0.6 * k; }
