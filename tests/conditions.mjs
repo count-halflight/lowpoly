@@ -44,7 +44,10 @@ try {
       g.input.fire = false; g.input.held.left = g.input.held.right = false;
       r.enemies = g.enemies.list.length;
       if (cond === 'lowgrav' || cond === 'none') {
-        // jump apex
+        // jump apex, measured from open floor at the entrance (not wherever the strafing ended)
+        g.enemies.clear(); g.projectiles.clear();
+        { const ex = room.wx(room.spec.entX), ez = room.wz(room.D / 2 - 2); g.player.spawnAt(ex, room.floorAt(ex, ez) + 0.05, ez, 0); }
+        step(30);
         g.player.body.vel.set(0, 0, 0);
         let apex = 0; const y0 = g.player.body.pos.y;
         g.input.pressed.jump = true;
