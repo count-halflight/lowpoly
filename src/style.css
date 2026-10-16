@@ -210,3 +210,11 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
   .terminal { margin-top: 2vh; font-size: 19px; }
 }
 @media (prefers-reduced-motion: reduce) { .card { animation: none; } .credits-roll { animation-duration: 90s; } }
+
+/* ---------------------------------------------------------------- mechanics: RUSH touch button (append-only block) */
+.tc-rush { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(290px + var(--safe-r)); bottom: calc(110px + var(--safe-b)); border-color: #ff3df0; color: #ff9cf6; font-size: calc(15px * var(--btn-scale)); display: none; }
+#touch.rush-ready .tc-rush { display: grid; animation: tc-rush-pulse 0.7s steps(2) infinite; }
+.tc-rush.down { background: rgba(255,61,240,0.5); }
+#touch.lefty .tc-rush { left: calc(290px + var(--safe-l)); }
+@keyframes tc-rush-pulse { 50% { background: rgba(255,61,240,0.35); } }
+@media (prefers-reduced-motion: reduce) { #touch.rush-ready .tc-rush { animation: none; background: rgba(255,61,240,0.3); } }

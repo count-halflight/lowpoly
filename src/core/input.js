@@ -5,8 +5,9 @@ const KEYMAP = {
   KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   Space: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', ControlLeft: 'slide', KeyC: 'slide', KeyF: 'punch', KeyV: 'punch',
   KeyR: 'reload', KeyQ: 'lastWeapon', KeyE: 'use', KeyG: 'hook', Escape: 'pause', KeyP: 'pause', Enter: 'confirm', KeyZ: 'zoom',
+  KeyX: 'rush',
 };
-const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm', 'use', 'hook', 'altTap']);
+const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm', 'use', 'hook', 'altTap', 'rush']);
 
 export class Input {
   constructor(settings, canvas) {
@@ -20,6 +21,7 @@ export class Input {
     this.ads = false;
     this.alt = false;
     this.slot = -1; this.wheel = 0;
+    this.chipTap = null; // weapon id whose HUD chip was tapped this frame (re-tap cycles variants)
     this.locked = false;
     this.enabled = false; // gameplay input active
     this.usingTouch = false;
@@ -111,6 +113,7 @@ export class Input {
     this.lookDX = 0; this.lookDY = 0;
     this.firePressed = false;
     this.slot = -1; this.wheel = 0;
+    this.chipTap = null;
   }
 
   axis() {
@@ -160,6 +163,7 @@ export class TouchControls {
       <button class="tc-btn tc-swap" data-act="swap"><span>SWAP</span></button>
       <button class="tc-btn tc-use" data-act="use"><span>USE</span></button>
       <button class="tc-btn tc-pause" data-act="pause"><span>II</span></button>
+      <button class="tc-btn tc-rush" data-act="rush"><span>RUSH</span></button>
     `;
     this.stick = r.querySelector('.tc-stick');
     this.knob = r.querySelector('.tc-knob');
@@ -190,7 +194,7 @@ export class TouchControls {
     const inp = this.input;
     if (role === 'look' && this.onLookTap) {
       const id = this.onLookTap(e.clientX, e.clientY);
-      if (id) { this.pointers.delete(e.pointerId); return; }
+      if (id) { this.input.chipTap = id; this.pointers.delete(e.pointerId); return; }
     }
     if (role === 'move') {
       const rect = this.stick.getBoundingClientRect();
@@ -212,6 +216,7 @@ export class TouchControls {
       else if (act === 'use') inp.press('use');
       else if (act === 'swap') inp.press('lastWeapon');
       else if (act === 'pause') inp.press('pause');
+      else if (act === 'rush') inp.press('rush');
     }
   }
 
@@ -265,6 +270,13 @@ export class TouchControls {
       else if (p.act === 'jump') inp.held.jump = false;
       else if (p.act === 'dash') inp.touchSprint = false;
     }
+  }
+
+  // RUSH button only shows while the meter is full; toggled on change, not per frame
+  setRushReady(on) {
+    if (this.rushReady === on) return;
+    this.rushReady = on;
+    this.root.classList.toggle('rush-ready', on);
   }
 
   reset() {
