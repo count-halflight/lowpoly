@@ -468,14 +468,16 @@ export class Player {
     }
     if (this.dashT > 0) {
       // speed streaks behind the dash
+      // spawned on a ring around the body (never right in front of the lens)
       for (let i = 0; i < 2; i++) {
-        const ox = (Math.random() - 0.5) * 1.2, oy = 0.4 + Math.random() * 1.3, oz = (Math.random() - 0.5) * 1.2;
+        const a = Math.random() * Math.PI * 2, rr = 0.9 + Math.random() * 0.5;
+        const ox = Math.cos(a) * rr, oy = 0.2 + Math.random() * 1.6, oz = Math.sin(a) * rr;
         g.fx.sparks.spawn(p.x + ox, p.y + oy, p.z + oz, -this.dashDir.x * 14, 0, -this.dashDir.z * 14, 0.6, 0.85, 1, 0.8, 0.07, 0.12, 0, 0);
       }
     }
     if (this.rushT > 0 && Math.random() < 0.5) {
       const a = Math.random() * Math.PI * 2;
-      g.fx.sparks.spawn(p.x + Math.cos(a) * 0.6, p.y + 0.2 + Math.random() * 1.2, p.z + Math.sin(a) * 0.6, 0, 1.5, 0, 1, 0.24, 0.94, 1, 0.07, 0.3, -2, 0);
+      g.fx.sparks.spawn(p.x + Math.cos(a) * 1.0, p.y + 0.1 + Math.random() * 0.7, p.z + Math.sin(a) * 1.0, 0, 1.5, 0, 1, 0.24, 0.94, 1, 0.05, 0.3, -2, 0);
     }
   }
 
@@ -704,7 +706,9 @@ export class Player {
     const p = this.body.pos;
     // afterimage where the hit would have landed
     for (let i = 0; i < (g.lowPower ? 10 : 18); i++) {
-      g.fx.sparks.spawn(p.x + (Math.random() - 0.5) * 0.6, p.y + Math.random() * 1.8, p.z + (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 1.5, 0.5, (Math.random() - 0.5) * 1.5, 0.5, 0.9, 1, 1, 0.12, 0.45, -1, 1);
+      // trail it along the dash path behind you so it never fills the lens
+      const back = 0.9 + Math.random() * 1.2;
+      g.fx.sparks.spawn(p.x - this.dashDir.x * back + (Math.random() - 0.5) * 0.6, p.y + Math.random() * 1.8, p.z - this.dashDir.z * back + (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 1.5, 0.5, (Math.random() - 0.5) * 1.5, 0.5, 0.9, 1, 1, 0.1, 0.45, -1, 1);
     }
     g.style.add('PERFECT DODGE', 45);
     this.addRush(0.08);
