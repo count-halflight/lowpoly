@@ -9,10 +9,11 @@ import { graffitiCanvas } from './kits.js';
 // shutters, speed gates and shallow water. Everything is built in room-local coordinates,
 // collides through ordinary AABB colliders and is disposed with the room.
 
-const HP = { crate: 5, cover: 12, rack: 8, wall: 10, grate: 10, crumble: 1, glass: 2 };
-const SURF = { crate: 'wood', cover: 'concrete', rack: 'metal', wall: 'concrete', grate: 'metal', crumble: 'concrete', glass: 'metal' };
-const CHUNK = { crate: 0x8a6a4a, cover: 0x9a9a9a, rack: 0x303440, wall: 0x8a8a96, grate: 0x606470, crumble: 0x8a8078, glass: 0xb8e8ff };
+const HP = { crate: 5, cover: 12, rack: 8, wall: 10, brick: 8, grate: 10, crumble: 1, glass: 2 };
+const SURF = { crate: 'wood', cover: 'concrete', rack: 'metal', wall: 'concrete', brick: 'concrete', grate: 'metal', crumble: 'concrete', glass: 'metal' };
+const CHUNK = { crate: 0x8a6a4a, cover: 0x9a9a9a, rack: 0x303440, wall: 0x8a8a96, brick: 0x8a6a5a, grate: 0x606470, crumble: 0x8a8078, glass: 0xb8e8ff };
 const tmpV = new THREE.Vector3();
+const NONE = [];
 const tmpV2 = new THREE.Vector3();
 
 // ---------------------------------------------------------------- shared resources
@@ -28,6 +29,7 @@ export function featureRes(level) {
     anchor: basic(0xffa030), anchorLit: basic(0xfff4b0), gateLit: basic(0x9ffff0),
     markOn: new THREE.MeshBasicMaterial({ color: 0xff2030, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }),
     steam: new THREE.MeshBasicMaterial({ color: 0xa8b8c4, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    coldSteam: new THREE.MeshBasicMaterial({ color: 0x7ad8ff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     waterTex: makeWaterTexture(),
     markGeo, targetGeo,
     ringGeo: new THREE.TorusGeometry(0.42, 0.09, 4, 8),
@@ -97,8 +99,9 @@ function pushOut(body, c, dirX = 0, dirZ = 0) {
 export function buildFeatures(room, gb, M, rng) {
   const s = room.spec, R = featureRes(room.level);
   room.movers = []; room.crushers = []; room.vents = []; room.anchors = []; room.destructibles = [];
-  room.switches = []; room.gates = []; room.speedGates = []; room.waters = []; room.secretList = [];
-  room.navDirty = 0; room.powerOff = 0;
+  room.switches = []; room.gates = []; room.speedGates = []; room.waters = []; room.secretList = []; room.fallList = [];
+  room.navDirty = 0; room.powerOff = 0; room.drained = 0;
+  room.waterColor = new THREE.Color(s.waterColor || 0x7ab8c8);
 
   // --- destructibles: one merged builder, pieces hidden by collapsing their vertex ranges
   const list = s.breakables || [];
@@ -109,9 +112,10 @@ export function buildFeatures(room, gb, M, rng) {
       drawBreakable(dg, M, b, room);
       const ranges = dg.end();
       const col = room.addCollider(b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { surface: SURF[b.kind] || 'wood', nav: b.nav !== false, tag: 'barrel' });
+      if (b.kind === 'crumble') col.crumble = true;
       const d = {
         kind: 'break', type: b.kind, room, col, ranges, hp: b.hp || HP[b.kind] || 5, broken: false,
-        floor: b.kind === 'grate' || b.kind === 'crumble', bulletproof: b.kind === 'wall' || b.kind === 'grate' || b.kind === 'crumble',
+        floor: b.kind === 'grate' || b.kind === 'crumble', bulletproof: b.kind === 'wall' || b.kind === 'brick' || b.kind === 'grate' || b.kind === 'crumble',
         nav: b.nav !== false, secret: b.secret !== undefined ? b.secret : -1, src: b, t: -1, regrow: -1,
         c: new THREE.Vector3(room.wx((b.x0 + b.x1) / 2), (b.y0 + b.y1) / 2, room.wz((b.z0 + b.z1) / 2)),
       };
@@ -196,7 +200,7 @@ export function buildFeatures(room, gb, M, rng) {
       const xa = m.x + Math.min(0, m.ax) - m.w / 2 - 0.6, xb = m.x + Math.max(0, m.ax) + m.w / 2 + 0.6;
       for (const o of [-0.75, 0.75]) gb.box(xa, 0, z + o - 0.06, xb, 0.08, z + o + 0.06, M.trim, { tint: 1.3, faces: 63 & ~FACES.NY });
       for (let x = xa + 0.3; x < xb; x += 0.9) gb.box(x, 0, z - 1.05, x + 0.3, 0.04, z + 1.05, M.crate, { tint: 0.45, faces: FACES.PY | FACES.PX | FACES.NX });
-      for (const bx of [xa - 0.5, xb]) {
+      for (const bx of [xa - 1.1, xb + 0.6]) {
         gb.box(bx, 0, z - 1.0, bx + 0.5, 0.9, z + 1.0, M.hazard, { uvScale: 2 });
         room.addCollider(bx, 0, z - 1.0, bx + 0.5, 0.9, z + 1.0, { surface: 'metal', nav: true });
       }
@@ -204,6 +208,7 @@ export function buildFeatures(room, gb, M, rng) {
     }
     const col = room.addCollider(0, 0, 0, 0, 0, 0, { surface: 'metal', nav: false });
     col.navBlock = m.kind === 'lift';
+    col.mover = true;
     const mv = { ...m, group: built.group, col, lamp, lx: m.x, ly: m.y, lz: m.z, speed: 0, dirX: 0, dirZ: 0, horn: false };
     placeMover(room, mv, 0);
     room.movers.push(mv);
@@ -248,14 +253,17 @@ export function buildFeatures(room, gb, M, rng) {
 
   // --- steam vents
   for (const v of s.vents || []) {
-    gb.cylinder(v.x, 0.03, v.z, 1.05, 0.06, 'y', 8, M.trim, { tint: 0.6 });
-    gb.cylinder(v.x, 0.065, v.z, 0.85, 0.01, 'y', 8, M.grate, { tint: 0.5 });
-    gb.cylinder(v.x, 0.07, v.z, 1.08, 0.04, 'y', 8, M.hazard, { caps: false });
-    const jet = new THREE.Mesh(R.jetGeo, R.steam);
-    jet.position.set(v.x, 2.1, v.z);
+    const vy = v.y || 0;
+    gb.cylinder(v.x, vy + 0.03, v.z, 1.05, 0.06, 'y', 8, M.trim, { tint: 0.6 });
+    gb.cylinder(v.x, vy + 0.065, v.z, 0.85, 0.01, 'y', 8, M.grate, { tint: 0.5 });
+    gb.cylinder(v.x, vy + 0.07, v.z, 1.08, 0.04, 'y', 8, M.hazard, { caps: false });
+    // a short exhaust stack on the wall-side rim reads as "steam outlet" from across the room
+    gb.box(v.x - 0.18, vy, v.z + 0.85, v.x + 0.18, vy + 0.5, v.z + 1.05, M.trim, { tint: 0.5 });
+    const jet = new THREE.Mesh(R.jetGeo, v.cold ? R.coldSteam : R.steam);
+    jet.position.set(v.x, vy + 2.1, v.z);
     jet.visible = false;
     room.group.add(jet);
-    room.vents.push({ ...v, jet, wx: room.wx(v.x), wz: room.wz(v.z), active: false, cd: 0 });
+    room.vents.push({ ...v, y: vy, jet, wx: room.wx(v.x), wz: room.wz(v.z), active: false, cd: 0 });
   }
 
   // --- grapple anchors: a ring on a chain, with its own collider so the hook catches it
@@ -265,7 +273,7 @@ export function buildFeatures(room, gb, M, rng) {
     const ring = new THREE.Mesh(R.ringGeo, R.anchor);
     ring.position.set(a.x, a.y, a.z);
     room.group.add(ring);
-    const col = room.addCollider(a.x - 0.5, a.y - 0.5, a.z - 0.5, a.x + 0.5, a.y + 0.5, a.z + 0.5, { surface: 'metal', nav: false, tag: 'anchor' });
+    const col = room.addCollider(a.x - 0.45, a.y - 0.45, a.z - 0.45, a.x + 0.45, a.y + 0.45, a.z + 0.45, { surface: 'metal', nav: false, tag: 'anchor', solid: false });
     room.anchors.push({ ...a, ring, col, lit: 0, wp: new THREE.Vector3(room.wx(a.x), a.y, room.wz(a.z)) });
   }
 
@@ -324,10 +332,27 @@ export function buildFeatures(room, gb, M, rng) {
     room.speedGates.push({ ...sg, bar, side: 0, cd: 0, flash: 0 });
   }
 
-  // --- shallow water: a scrolling translucent sheet above the floor
-  if ((s.water || []).length) {
-    const mat = psxify(new THREE.MeshBasicMaterial({ map: R.waterTex, color: s.waterColor || 0x7ab8c8, transparent: true, opacity: 0.62, depthWrite: false }));
-    room.disposables.push(mat);
+  // --- shallow water: a scrolling translucent sheet above the floor; outfalls pour into it
+  if ((s.water || []).length || (s.falls || []).length) {
+    const tex = R.waterTex.clone();
+    tex.needsUpdate = true;
+    const mat = psxify(new THREE.MeshBasicMaterial({ map: tex, color: s.waterColor || 0x7ab8c8, transparent: true, opacity: 0.62, depthWrite: false }));
+    room.disposables.push(mat, tex);
+    room.waterTex = tex;
+    for (const f of s.falls || []) {
+      // outlet pipe mouth + a falling sheet + foam at the bottom
+      const ns = f.side === 'n' || f.side === 's';
+      const geo = new THREE.PlaneGeometry(f.w, f.y - 0.25);
+      const fm = new THREE.Mesh(geo, mat);
+      const off = f.side === 'e' ? -0.35 : f.side === 'w' ? 0.35 : f.side === 'n' ? 0.35 : -0.35;
+      fm.position.set(f.x + (ns ? 0 : off), (f.y + 0.25) / 2, f.z + (ns ? off : 0));
+      fm.rotation.y = f.side === 'e' ? -Math.PI / 2 : f.side === 'w' ? Math.PI / 2 : f.side === 's' ? Math.PI : 0;
+      room.group.add(fm);
+      room.disposables.push(geo);
+      if (ns) gb.box(f.x - f.w / 2 - 0.2, f.y, f.z - (f.side === 'n' ? 0 : 0.7), f.x + f.w / 2 + 0.2, f.y + 0.7, f.z + (f.side === 'n' ? 0.7 : 0), M.trim, { tint: 0.6 });
+      else gb.box(f.x - (f.side === 'e' ? 0.7 : 0), f.y, f.z - f.w / 2 - 0.2, f.x + (f.side === 'w' ? 0.7 : 0), f.y + 0.7, f.z + f.w / 2 + 0.2, M.trim, { tint: 0.6 });
+      room.fallList.push({ wx: room.wx(f.x + (ns ? 0 : off * 2)), wz: room.wz(f.z + (ns ? off * 2 : 0)), w: f.w });
+    }
     for (const w of s.water) {
       const geo = new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0);
       const uv = geo.attributes.uv;
@@ -337,7 +362,7 @@ export function buildFeatures(room, gb, M, rng) {
       mesh.position.set((w.x0 + w.x1) / 2, 0.28, (w.z0 + w.z1) / 2);
       room.group.add(mesh);
       room.disposables.push(geo);
-      room.waters.push({ wx0: room.wx(w.x0), wx1: room.wx(w.x1), wz0: room.wz(w.z0), wz1: room.wz(w.z1) });
+      room.waters.push({ wx0: room.wx(w.x0), wx1: room.wx(w.x1), wz0: room.wz(w.z0), wz1: room.wz(w.z1), mesh });
     }
   }
 }
@@ -406,8 +431,31 @@ function drawBreakable(dg, M, b, room) {
       break;
     }
     case 'glass': {
-      dg.box(x0, y0, z0, x1, y1, z1, M.accent, { tint: 0.35 });
-      dg.box(x0 - 0.03, y0, z0 - 0.03, x1 + 0.03, y0 + 0.15, z1 + 0.03, M.trim, {});
+      if (b.skylight) {
+        // roof skylight: frame, ribbed glass top that glows from the room below
+        dg.box(x0, y0, z0, x1, y1 - 0.25, z1, M.trim, { tint: 0.7, faces: 63 & ~FACES.NY });
+        dg.box(x0 + 0.12, y1 - 0.25, z0 + 0.12, x1 - 0.12, y1, z1 - 0.12, M.lamp, { tint: 0.45, faces: 63 & ~FACES.NY });
+        for (let x = x0 + 0.6; x < x1 - 0.3; x += 0.6) dg.box(x - 0.04, y1, z0 + 0.1, x + 0.04, y1 + 0.04, z1 - 0.1, M.trim, { tint: 0.5 });
+      } else {
+        dg.box(x0, y0, z0, x1, y1, z1, M.accent, { tint: 0.35 });
+        dg.box(x0 - 0.03, y0, z0 - 0.03, x1 + 0.03, y0 + 0.15, z1 + 0.03, M.trim, {});
+      }
+      break;
+    }
+    case 'brick': {
+      // crumbling masonry: darker courses, cracks on both faces, rubble at the foot
+      dg.box(x0, y0, z0, x1, y1, z1, M.concrete, { tint: 0.62 });
+      const alongZ = z1 - z0 > x1 - x0;
+      for (let y = y0 + 0.5; y < y1 - 0.2; y += 0.5) {
+        if (alongZ) { dg.box(x0 - 0.01, y, z0, x0, y + 0.05, z1, M.trim, { faces: FACES.NX, tint: 0.5 }); dg.box(x1, y, z0, x1 + 0.01, y + 0.05, z1, M.trim, { faces: FACES.PX, tint: 0.5 }); }
+        else { dg.box(x0, y, z0 - 0.01, x1, y + 0.05, z0, M.trim, { faces: FACES.NZ, tint: 0.5 }); dg.box(x0, y, z1, x1, y + 0.05, z1 + 0.01, M.trim, { faces: FACES.PZ, tint: 0.5 }); }
+      }
+      const len = alongZ ? z1 - z0 : x1 - x0, c0 = alongZ ? z0 : x0;
+      for (const [f, fy, fh] of [[0.3, 0.1, 0.5], [0.55, 0.35, 0.35], [0.7, 0.15, 0.25]]) {
+        const a = c0 + len * f, h = y1 - y0;
+        if (alongZ) { dg.box(x0 - 0.02, y0 + h * fy, a - 0.05, x0, y0 + h * (fy + fh), a + 0.05, M.accent2, { faces: FACES.NX, tint: 0.7 }); dg.box(x1, y0 + h * fy, a - 0.05, x1 + 0.02, y0 + h * (fy + fh), a + 0.05, M.accent2, { faces: FACES.PX, tint: 0.7 }); }
+        else { dg.box(a - 0.05, y0 + h * fy, z0 - 0.02, a + 0.05, y0 + h * (fy + fh), z0, M.accent2, { faces: FACES.NZ, tint: 0.7 }); dg.box(a - 0.05, y0 + h * fy, z1, a + 0.05, y0 + h * (fy + fh), z1 + 0.02, M.accent2, { faces: FACES.PZ, tint: 0.7 }); }
+      }
       break;
     }
     default: dg.box(x0, y0, z0, x1, y1, z1, M.crate, { tint: t });
@@ -456,11 +504,27 @@ function placeMover(room, m, dt) {
 // ---------------------------------------------------------------- update
 export function updateFeatures(room, dt, player) {
   const g = room.game;
-  const enemies = g.enemies.list;
+  // only the room the player is in can hurt, launch or carry anyone
+  const live = g.state === 'playing' && room === room.level.current;
+  const enemies = live ? g.enemies.list : NONE;
   const pb = player.body;
   const cols = room.level.colliders;
   const powered = room.powerOff <= 0;
   if (room.powerOff > 0) room.powerOff -= dt;
+  if (room.waterTex) room.waterTex.offset.y -= dt * 0.35;
+  for (const sw of room.switches) {
+    if (sw.rearm > 0) { sw.rearm -= dt; if (sw.rearm <= 0) { sw.on = false; sw.target.material = room.level.featRes.warnOn; } }
+  }
+  // drained water: sheets sink out of sight, then refill
+  if (room.drained > 0) {
+    room.drained -= dt;
+    const k = room.drained > 1.5 ? Math.max(0, 1 - (room.drainT - room.drained) * 0.8) : 1 - room.drained / 1.5;
+    for (const w of room.waters) { w.mesh.position.y = 0.28 * k - 0.02; w.mesh.visible = k > 0.05; }
+  }
+  if (live && room.fallList.length && Math.random() < dt * 10) {
+    const f = room.fallList[(Math.random() * room.fallList.length) | 0], c = room.waterColor;
+    g.fx.sparks.spawn(f.wx + (Math.random() - 0.5) * f.w, 0.35, f.wz + (Math.random() - 0.5) * f.w * 0.4, (Math.random() - 0.5) * 2, 2 + Math.random() * 2.5, (Math.random() - 0.5) * 2, c.r, c.g, c.b, 0.9, 0.1, 0.5, 12, 1, 0.28);
+  }
 
   // movers: move, carry riders, push / ram anything in the way
   for (const m of room.movers) {
@@ -474,12 +538,13 @@ export function updateFeatures(room, dt, player) {
       if (!warn) m.horn = false;
     }
     if (!dx && !dy && !dz) continue;
+    if (!live) continue;
     carry(room, m, pb, true, dx, dy, dz, cols);
     for (const e of enemies) if (e.alive && e.body && !e.flying) carry(room, m, e.body, false, dx, dy, dz, cols, e);
   }
 
   // crushers
-  for (const c of room.crushers) updateCrusher(room, c, dt, pb, enemies, powered);
+  for (const c of room.crushers) updateCrusher(room, c, dt, pb, enemies, powered, live);
 
   // vents
   for (const v of room.vents) {
@@ -494,15 +559,15 @@ export function updateFeatures(room, dt, player) {
       v.jet.scale.set(0.8 + Math.sin(room.time * 30) * 0.12, f, 0.8 + Math.cos(room.time * 27) * 0.12);
       v.jet.position.y = 2.1 * f;
       if (!was) g.audio.play('sizzle', tmpV.set(v.wx, 0.5, v.wz), 0.7);
-      if (Math.random() < 0.6) g.fx.sparks.spawn(v.wx + (Math.random() - 0.5) * 0.8, 0.3, v.wz + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.5, 7 + Math.random() * 5, (Math.random() - 0.5) * 1.5, 0.75, 0.8, 0.85, 0.8, 0.35, 0.5, -2, 1.5);
+      if (Math.random() < 0.6) g.fx.sparks.spawn(v.wx + (Math.random() - 0.5) * 0.8, v.y + 0.3, v.wz + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.5, 7 + Math.random() * 5, (Math.random() - 0.5) * 1.5, 0.75, 0.8, 0.85, 0.8, 0.35, 0.5, -2, 1.5);
       v.cd -= dt;
       const launch = (body, power) => {
         const p = body.pos;
-        if (Math.hypot(p.x - v.wx, p.z - v.wz) > 1.1 || p.y > 1.2 || body.vel.y > power * 0.6) return false;
+        if (Math.hypot(p.x - v.wx, p.z - v.wz) > 1.1 || p.y > v.y + 1.2 || p.y < v.y - 0.3 || body.vel.y > power * 0.6) return false;
         body.vel.y = power; body.grounded = false;
         return true;
       };
-      if (v.cd <= 0 && launch(pb, v.power * (room.cond === 'lowgrav' ? 0.75 : 1))) {
+      if (live && v.cd <= 0 && launch(pb, v.power * (room.cond === 'lowgrav' ? 0.75 : 1))) {
         v.cd = 0.4;
         player.sliding = false;
         g.audio.play('pad', null, 0.8);
@@ -537,6 +602,7 @@ export function updateFeatures(room, dt, player) {
 
   // speed gates
   for (const sg of room.speedGates) {
+    if (!live) break;
     sg.cd -= dt;
     if (sg.flash > 0) { sg.flash -= dt; sg.bar.visible = sg.flash > 0; }
     const p = pb.pos;
@@ -555,7 +621,20 @@ export function updateFeatures(room, dt, player) {
     sg.side = side;
   }
 
-  // crumbling floor tiles and debris regrowth
+  // dashing / sliding fast through a crate smashes it
+  if (live && (player.dashT > 0 || (player.sliding && player.slideSpeed > 13))) {
+    for (const d of room.destructibles) {
+      if (d.broken || (d.type !== 'crate' && d.type !== 'glass')) continue;
+      if (overlapsBox(pb, d.col, -0.25)) { breakDestructible(room, d); g.style.add(player.dashT > 0 ? 'BULLDOZER' : 'SKITTLES', 8, true); g.addShake(0.1); }
+    }
+  }
+  // crumbling floor tiles: stepping on one starts the collapse (and so does landing hard nearby)
+  const gbx = pb.grounded ? pb.groundBox : null;
+  if (live && gbx && gbx.crumble && gbx.ref && !gbx.ref.broken && gbx.ref.t < 0) {
+    gbx.ref.t = 0.5;
+    g.audio.play('land', gbx.ref.c, 0.7);
+    g.fx.sparksBurst(gbx.ref.c, 0xa09080, 6, 2, 0.3, 0.08);
+  }
   for (const d of room.destructibles) {
     if (d.type !== 'crumble') continue;
     if (!d.broken && d.t >= 0) {
@@ -639,7 +718,7 @@ function moveBodyLite(body, dx, dz, cols) {
   }
 }
 
-function updateCrusher(room, c, dt, pb, enemies, powered) {
+function updateCrusher(room, c, dt, pb, enemies, powered, live) {
   const g = room.game, R = room.level.featRes;
   const P = c.period;
   const k = ((room.time + c.phase) % P + P) % P;
@@ -671,7 +750,7 @@ function updateCrusher(room, c, dt, pb, enemies, powered) {
     if (dp < 9) g.addShake(0.3 * (1 - dp / 9));
     c.hitSet.clear();
   }
-  if (bottom >= prev || bottom > 2.2) return;
+  if (bottom >= prev || bottom > 2.2 || !live) return;
   // anything under a descending head is crushed and shoved clear
   const col = c.col;
   const hit = (body) => body.pos.x + body.r - 0.1 > col.minX && body.pos.x - body.r + 0.1 < col.maxX && body.pos.z + body.r - 0.1 > col.minZ && body.pos.z - body.r + 0.1 < col.maxZ && body.pos.y + body.h > bottom && body.pos.y < bottom + 0.6;
@@ -771,8 +850,13 @@ export function activateSwitch(room, sw) {
     room.powerOff = sw.dur || 9;
     g.hud.toast('POWER CUT · ' + Math.round(room.powerOff) + 's', '#3effa0', true);
     g.style.add('SABOTAGE', 15);
-    // the switch re-arms once the power comes back
-    setTimeout(() => { if (room.group.parent) { sw.on = false; sw.target.material = room.level.featRes.warnOn; } }, (sw.dur || 9) * 1000 + 3000);
+    sw.rearm = (sw.dur || 9) + 3; // re-arms once the power comes back
+  } else if (sw.action === 'drain') {
+    room.drained = room.drainT = sw.dur || 14;
+    g.hud.toast('PUMPS ON · WATER DRAINING', '#3effa0', true);
+    g.style.add('DRAINED', 10, true);
+    g.audio.play('sizzle', sw.wp, 0.8);
+    sw.rearm = (sw.dur || 14) + 4;
   } else {
     const gt = room.gates[sw.gate || 0];
     if (gt) gt.target = 1;
@@ -818,8 +902,9 @@ export function meleeRoom(room, eye, dir) {
   return hit;
 }
 
-// shallow water: returns true when the point is in water
+// shallow water: returns true when the point is in (undrained) water
 export function inWater(room, x, z) {
+  if (room.drained > 1.5) return false;
   for (const w of room.waters) if (x > w.wx0 && x < w.wx1 && z > w.wz0 && z < w.wz1) return true;
   return false;
 }
