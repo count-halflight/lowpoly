@@ -105,6 +105,7 @@ function clipLine(px, pz, dx, dz, b) {
 }
 // player standing inside a horizontal band [y0, y1] (feet to head)
 function playerBand(g, y0, y1) { const p = g.player.body; return p.pos.y < y1 && p.pos.y + p.h > y0; }
+function wrapAng(d) { return Math.atan2(Math.sin(d), Math.cos(d)); }
 function mixHex(c1, c2, k) { const a = new THREE.Color(c1), b = new THREE.Color(c2); return a.lerp(b, k).getHex(); }
 function announce(a, text, big) { a.game.hud.toast(text, hexOf(a), !big); }
 
@@ -1441,7 +1442,8 @@ export const MODULES = {
       return s.t > p.wind + 0.3;
     },
   },
-  // Bullet-hell shapes: flower, cross, wave, ledger (rows with a gap), implode (ring closing in).
+  // Bullet-hell shapes: flower, cross, wave, helix (counter-wound arms + lagging aimed shot),
+// ledger (rows with a gap), implode (ring closing in).
   pattern: {
     def: { shape: 'flower', n: 22, speed: 10, dmg: 9, bursts: 3, gap: 0.5, dur: 2.8, wind: 0.6, petals: 5, range: [0, 70], cd: 8 },
     start(a, s, p) {
@@ -1479,9 +1481,23 @@ export const MODULES = {
         while (lt >= s.next) {
           s.next += 0.07;
           const pp = g.player.body.pos;
-          s.aim += clamp(Math.atan2(pp.x - c.x, pp.z - c.z) - s.aim, -0.02, 0.02);
+          s.aim += clamp(wrapAng(Math.atan2(pp.x - c.x, pp.z - c.z) - s.aim), -0.02, 0.02);
           const w = Math.sin(lt * 5) * 0.55;
           o(s.aim + w, p.speed); o(s.aim + w + 0.9, p.speed * 0.85); o(s.aim + w - 0.9, p.speed * 0.85);
+        }
+        return lt > p.dur;
+      }
+      if (p.shape === 'helix') {
+        // two arms wind one way, a slower arm winds back through them, and every third beat
+        // a lagging aimed shot: weave through the crossings instead of circle-strafing
+        while (lt >= s.next) {
+          s.next += 0.12;
+          s.rot += 0.24 * (p.dir || 1);
+          const pp = g.player.body.pos;
+          s.aim += clamp(wrapAng(Math.atan2(pp.x - c.x, pp.z - c.z) - s.aim), -0.05, 0.05);
+          o(s.rot, p.speed, c.x, c.z, 3); o(s.rot + Math.PI, p.speed, c.x, c.z, 3);
+          o(-s.rot * 0.7 + Math.PI / 2, p.speed * 0.8, c.x, c.z, 3);
+          if (s.k++ % 3 === 0) { o(s.aim, p.speed * 1.15, c.x, c.z, 3); g.audio.play('enemyShot', a.pos, 0.4); }
         }
         return lt > p.dur;
       }

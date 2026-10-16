@@ -307,7 +307,7 @@ export class Miniboss extends Enemy {
     g.emit('minibossKilled', this.def.id);
     if (this.segs) serpentRemove(this);
   }
-  remove() { super.remove(); if (this.segs) serpentRemove(this); expireOwned(this.game, this, true); }
+  remove() { super.remove(); if (this.segs) serpentRemove(this); expireOwned(this.game, this, true); if (this.ch.glowMat) this.ch.glowMat.dispose(); }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -593,5 +593,7 @@ export class KitBoss extends Boss {
     if (this.pylons) for (const p of this.pylons) { this.game.scene.remove(p.grp, p.beam); }
     if (this.gimmick === 'darkness') this.game.level.setDarkness(false);
     expireOwned(this.game, this, true);
+    // the per-actor glow material (wind-up flashes) is the only thing this actor owns
+    if (this.ch && this.ch.glowMat) this.ch.glowMat.dispose();
   }
 }
