@@ -80,6 +80,19 @@ export class Cutscene {
     this.typeAcc = 0;
   }
 
+  // End immediately without callbacks or deferred side effects (used when the world is reset).
+  abort() {
+    if (!this.active) return;
+    const g = this.game;
+    this.active = false;
+    this.line = null;
+    this.letterbox = 0;
+    this.onDone = null;
+    g.hud.nameCardS = null;
+    g.camera.fov = g.settings.get('fov');
+    g.camera.updateProjectionMatrix();
+  }
+
   finish(skipped) {
     if (!this.active) return;
     const g = this.game;

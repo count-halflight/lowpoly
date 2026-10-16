@@ -193,6 +193,8 @@ export class Director {
     this.warden = null;
     this.minis = [];
     this.miniPending = 0;
+    this.severed = false;
+    this.roomToken = (this.roomToken || 0) + 1;
     const route = room.route || { type: 'combat' };
     this.lastRoutes.push(route.type);
     if (this.lastRoutes.length > 3) this.lastRoutes.shift();
@@ -275,7 +277,7 @@ export class Director {
   spawnSummons(types, n, nearPos) {
     const g = this.game;
     const room = g.level.current;
-    if (!room) return;
+    if (!room || this.severed) return;
     const rng = new RNG(hashSeed(this.seed, 'summon', g.time * 100 | 0));
     const heat = this.heatOf(room);
     const pp = g.player.body.pos;
@@ -363,9 +365,11 @@ export class Director {
     const heat = this.heatOf(room);
     const comp = this.composition(heat, room.spec.arch, 2.5 + heat * 0.25, rng, { noSignaller: true });
     this.pendingBackup++;
+    const token = this.roomToken;
     g.enemies.delayed(1.2, () => {
-      this.pendingBackup--;
-      if (room !== g.level.current || room.state !== 'combat') return;
+      if (token !== this.roomToken) return; // a later room reset the counter already
+      this.pendingBackup = Math.max(0, this.pendingBackup - 1);
+      if (room !== g.level.current || room.state !== 'combat' || this.severed) return;
       this.spawnWave(comp, null);
     });
     void sig;
@@ -389,7 +393,7 @@ export class Director {
     // the last miniboss in a containment room takes its escorts and summons down with it
     if (e.mini && this.minis.includes(e) && !this.minis.some((m) => m.alive)) {
       this.waveIdx = this.waves.length;
-      this.pendingBackup = 0;
+      this.severed = true;
       const room = g.level.current;
       g.hud.toast('LINK SEVERED · ESCORTS SHUT DOWN', '#ffd060');
       g.enemies.delayed(0.45, () => {
@@ -461,7 +465,7 @@ export class Director {
         this.waveT = this.survival ? 13 : 0;
         if (this.waveIdx > 1 || this.minis.length) g.hud.toast(this.survival ? 'WAVE ' + this.waveIdx + ' / ' + this.waves.length : 'REINFORCEMENTS', '#ff8a3a', true);
       } else if (this.minis.length && !minisAlive) this.waveIdx = this.waves.length;
-    } else if (alive === 0 && this.pendingBackup === 0) {
+    } else if (alive === 0 && (this.pendingBackup <= 0 || this.severed)) {
       this.clearT += dt;
       if (this.clearT > (this.minis.length ? 1.2 : 0.4)) { this.active = false; g.onRoomCleared(room); }
     }

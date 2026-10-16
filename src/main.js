@@ -187,6 +187,7 @@ class Game {
   resetRun(seed, custom = false) {
     this.audio.init();
     if (this.input.usingTouch) this.toggleFullscreen(true);
+    this.cutscene.abort();
     this.run = this.newRun(seed, custom);
     this.clearWorld();
     this.level.reset(seed);
@@ -446,7 +447,7 @@ class Game {
     this.ignoreLockLoss = true;
     this.input.exitLock();
     this.profile.flush();
-    if (this.cutscene.active) { this.cutscene.onDone = null; this.cutscene.finish(true); }
+    this.cutscene.abort();
     this.tutorial.end();
     this.campaign.active = false;
     this.mode = 'menu';
@@ -502,7 +503,15 @@ class Game {
       ctx.bossType = b.type; ctx.bossTier = b.tier;
     }
     room.chosenExit = i;
-    this.level.buildNext(route, ctx);
+    try {
+      this.level.buildNext(route, ctx);
+    } catch (err) {
+      // never strand the player behind a closed door: retry with a plain arena
+      console.error(err);
+      this.lastError = String(err && err.stack || err);
+      try { this.level.buildNext(route, { ...ctx, arch: ctx.arch === 'boss' || ctx.arch === 'miniboss' ? ctx.arch : 'arena', kit: null, terminal: null }); }
+      catch (err2) { console.error(err2); room.chosenExit = -1; return; }
+    }
     room.exitDoors.forEach((d, k) => room.setDoor(d, k === i ? 'open' : 'locked'));
     this.audio.play('door', null, 0.6);
   }

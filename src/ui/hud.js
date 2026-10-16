@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { RANKS } from '../game/style.js';
 import { DEFS, WEAPON_ORDER } from '../game/weapons.js';
 import { font, scramble, drawIcon } from './pixel.js';
@@ -194,6 +195,7 @@ export class HUD {
       this.drawHealth();
       this.drawAmmo();
       this.drawDamageDirs();
+      this.drawStragglers();
       this.drawPrompt();
       this.drawHint();
     }
@@ -417,6 +419,52 @@ export class HUD {
     this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES INF', lx, y - 4, 7, '#ccc', 'right');
     if (w.reloading) this.segBar(lx - 60, y - 24, 60, 2, 1 - w.reloadT / w.reloadTotal, d.color, 10, 1);
     if (w.altInfo) this.text(w.altInfo(), lx, y - 27, 7, '#ffd060', 'right', { kind: 'mono', weight: 400 });
+  }
+
+  // When only one or two enemies remain and nothing has died for a while, point at them so a
+  // room never looks finished while its door is still sealed.
+  drawStragglers() {
+    const g = this.game, room = g.level.current;
+    if (!room || room.state !== 'combat' || (g.bosses.active && g.bosses.active.alive)) return;
+    if (g.time - (g.enemies.lastKill || 0) < 5) return;
+    let n = 0;
+    for (const e of g.enemies.list) if (e.alive) n++;
+    if (!n || n > 2) return;
+    const v = this.tmpV || (this.tmpV = new THREE.Vector3());
+    const cx = this.W / 2, cy = this.V / 2, pp = g.player.body.pos;
+    const blink = Math.floor(this.t * 3) % 2 === 0;
+    for (const e of g.enemies.list) {
+      if (!e.alive) continue;
+      v.copy(e.centerPos()).project(g.camera);
+      const behind = v.z > 1;
+      let x = (v.x * 0.5 + 0.5) * this.W, y = (-v.y * 0.5 + 0.5) * this.V;
+      if (behind) { x = this.W - x; y = this.V - y; }
+      const dist = Math.round(Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z));
+      const m = 22;
+      const onScreen = !behind && x > m && x < this.W - m && y > m && y < this.V - m;
+      const c = this.ctx;
+      if (onScreen) {
+        // corner brackets around the target
+        c.strokeStyle = blink ? RED : '#ffd060'; c.lineWidth = 1;
+        const r = 7;
+        c.beginPath();
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { c.moveTo(x + sx * r, y + sy * (r - 3)); c.lineTo(x + sx * r, y + sy * r); c.lineTo(x + sx * (r - 3), y + sy * r); }
+        c.stroke();
+        this.text(dist + 'M', x, y - r - 3, 7, '#ffd060', 'center', { kind: 'mono', weight: 400 });
+      } else {
+        // clamp to the screen edge along the direction from the centre
+        let dx = x - cx, dy = y - cy;
+        const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+        const k = Math.min((this.W / 2 - m) / Math.max(0.001, Math.abs(dx)), (this.V / 2 - m) / Math.max(0.001, Math.abs(dy)));
+        const ax = cx + dx * k, ay = cy + dy * k;
+        c.save(); c.translate(ax, ay); c.rotate(Math.atan2(dy, dx));
+        c.fillStyle = blink ? RED : '#ffd060';
+        c.beginPath(); c.moveTo(8, 0); c.lineTo(-4, -6); c.lineTo(-4, 6); c.closePath(); c.fill();
+        c.restore();
+        this.text(dist + 'M', ax - dx * 14, ay - dy * 14 + 3, 7, '#ffd060', 'center', { kind: 'mono', weight: 400 });
+      }
+    }
+    this.text(n === 1 ? 'LAST HOSTILE' : n + ' HOSTILES LEFT', this.W / 2, 28 + this.safe.t, 8, blink ? RED : '#ffd060', 'center', { kind: 'mono', weight: 400 });
   }
 
   drawDamageDirs() {

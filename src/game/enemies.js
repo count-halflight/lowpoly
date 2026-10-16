@@ -268,6 +268,11 @@ export class Enemy {
         this.stagger -= dt;
         this.stop(dt);
         this.onStagger && this.onStagger();
+      } else if (this.hunt && !this.flying && !this.perch && (!this.canSee || this.playerDist() > 18)) {
+        // straggler hunt: walk to the player before resuming normal behaviour
+        const p = this.game.player.body.pos;
+        this.navMove(dt, p.x, p.z, (this.speed || 4) * this.speedMul);
+        this.faceToward(p.x, p.z, dt, 6);
       } else this.think(dt);
     }
     this.physics(dt);
@@ -770,8 +775,9 @@ class Signaller extends Enemy {
     this.calling = false;
     this.beacon.visible = true;
     this.parts.armL.rotation.x = 0;
-    // after calling: keep distance and plink
-    if (d < 9) this.navMove(dt, this.pos.x - (p.x - this.pos.x), this.pos.z - (p.z - this.pos.z), this.speed * this.speedMul, true);
+    // after calling: back off a little when crowded, but never hide: close in when out of sight or far
+    if (this.hunt || !this.canSee || d > 16) this.navMove(dt, p.x, p.z, this.speed * this.speedMul);
+    else if (d < 6) this.navMove(dt, this.pos.x - (p.x - this.pos.x), this.pos.z - (p.z - this.pos.z), this.speed * this.speedMul * 0.6, true);
     else this.stop(dt);
     this.faceToward(p.x, p.z, dt, 5);
     if (this.called && this.attackCd <= 0 && this.canSee) {
@@ -953,6 +959,8 @@ export class Enemies {
       }
       if (alive.length && alive.length <= 2 && g.time - (this.lastKill || 0) > 12 && room.state === 'combat') {
         for (const e of alive) g.fx.spawnColumn(e.pos.x, e.pos.y, e.pos.z, 0xff3050, 1.2, 9);
+        // the last stragglers stop hiding and come for the player so a room never feels stuck
+        if (g.time - (this.lastKill || 0) > 20) for (const e of alive) if (!e.mini) e.hunt = true;
       }
     }
     // remove dead (their meshes were handed to the corpse system)

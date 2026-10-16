@@ -190,6 +190,7 @@ export class Campaign {
     if (arch === 'boss') return 'boss';
     if (arch === 'miniboss') return room.index === 3 ? 'rare' : 'standard';
     const r = room.route && room.route.type;
+    if (arch === 'cache' || r === 'cache') return 'supply';
     if (r === 'hazard' || r === 'elite') return 'rare';
     if (r === 'survival') return 'standard';
     if (room.index === 1 && this.levelIdx === 0) return 'standard';
