@@ -41,6 +41,26 @@ try {
       return { done: g.tutorial.done, frames: f, obj: g.tutorial.objective, x: +l.x.toFixed(2), y: +l.y.toFixed(2), z: +l.z.toFixed(2), hp: Math.round(g.player.hp) };
     }
     const out = {};
+    // 2: switch weapons, destroy the dummy first (the old soft-lock: no target left for the
+    // ricochet), then flip a coin and shoot it out of the air with real aim + trigger presses
+    const aimAt = (q) => { const c = g.camera.position, dx = q.x - c.x, dy = q.y - c.y, dz = q.z - c.z; g.player.yaw = Math.atan2(-dx, -dz); g.player.pitch = Math.atan2(dy, Math.hypot(dx, dz)); };
+    out.coin = solve(2, 1500, (f, p, pl, m) => {
+      if (f === 2) g.input.slot = 2; // breacher
+      if (f === 40) g.input.slot = 0; // hammer
+      if (f < 70) return {};
+      const dummy = g.tutorial.dummies.find((e) => e.alive);
+      if (!m.killed) {
+        if (dummy) { aimAt(dummy.headPos()); g.input.fire = true; if (f % 8 === 0) g.input.firePressed = true; return {}; }
+        m.killed = f; g.input.fire = false;
+      }
+      const coin = g.weapons.coins.find((c) => c.alive);
+      if (!coin && f - (m.flip || 0) > 50) { m.flip = f; g.player.pitch = 0.2; return { press: ['altTap'] }; }
+      if (coin && coin.vel.y < 1.5) { aimAt(coin.pos); g.input.fire = true; g.input.firePressed = true; return {}; }
+      g.input.fire = false;
+      return {};
+    });
+    out.coin.coinHits = g.tutorial.counts.coinhit || 0;
+    g.input.fire = false;
     // 3: run, jump at the edge of the slag, dash in mid-air
     out.slag = solve(3, 600, (f, p, pl, m) => {
       if (p.z < 3.3 && !m.j) { m.j = f; return { hold: ['fwd'], press: ['jump'] }; }

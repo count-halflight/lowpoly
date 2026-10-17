@@ -52,6 +52,7 @@ export class Tutorial {
     this.station = n;
     this.counts = {};
     this.done = false;
+    this.deadAt = null;
     this.room = room;
     this.startPos = g.player.body.pos.clone();
     room.state = 'tutorial';
@@ -133,9 +134,11 @@ export class Tutorial {
       }
       case 1: obj = 'DESTROY THE TARGETS  ' + killed + ' / 3'; ok = killed >= 3; break;
       case 2: {
-        const sw = (c.swap || 0) > 0, rs = (c.ricoshot || 0) > 0;
-        obj = !sw ? 'SWITCH WEAPONS' : !rs ? 'FLIP A COIN AND SHOOT IT  ' + (c.coin || 0) + ' FLIPS' : 'DONE';
+        // any coin shot out of the air counts (a ricochet with no target left still proves it)
+        const sw = (c.swap || 0) > 0, rs = (c.ricoshot || 0) + (c.coinhit || 0) > 0;
+        obj = !sw ? 'SWITCH WEAPONS' : !rs ? 'FLIP A COIN, THEN SHOOT IT MID-AIR' + (c.coin ? '  · ' + c.coin + ' FLIPS' : '') : 'DONE';
         ok = sw && rs;
+        this.respawnDummy(0, -8, { hpMul: 3 });
         break;
       }
       case 3: obj = 'CROSS THE SLAG'; ok = lz < -4 && g.player.body.grounded; break;
@@ -153,11 +156,7 @@ export class Tutorial {
         const n = c.parry || 0;
         obj = 'PARRY ORBS  ' + Math.min(2, n) + ' / 2';
         ok = n >= 2;
-        if (this.dummies.every((e) => !e.alive) && !ok) { // respawn the turret if it was destroyed
-          const e = g.enemies.spawn('husk', new THREE.Vector3(room.wx(0), 0.05, room.wz(-8)), { hpMul: 40, dmgMul: 0.2, aggr: 0.55 });
-          e.tutorial = true;
-          this.dummies = [e];
-        }
+        if (!ok) this.respawnDummy(0, -8, { hpMul: 40, dmgMul: 0.2, aggr: 0.55, live: true });
         break;
       }
       case 8: {
@@ -176,6 +175,19 @@ export class Tutorial {
     }
     this.objective = obj;
     if (ok) this.complete();
+  }
+
+  // keep a target standing in stations that need one (a destroyed dummy comes back after a beat)
+  respawnDummy(x, z, opts) {
+    const g = this.game, room = this.room;
+    if (this.dummies.some((e) => e.alive)) { this.deadAt = null; return; }
+    if (this.deadAt == null) this.deadAt = g.time;
+    if (g.time - this.deadAt < 1.2) return;
+    this.deadAt = null;
+    const e = g.enemies.spawn('husk', new THREE.Vector3(room.wx(x), 0.05, room.wz(z)), { hpMul: opts.hpMul || 1, dmgMul: opts.dmgMul || 0, aggr: opts.aggr || 50 });
+    if (!opts.live) e.attackCd = 1e9;
+    e.tutorial = true;
+    this.dummies = [e];
   }
 
   complete() {

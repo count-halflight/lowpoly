@@ -1022,6 +1022,7 @@ export class Weapons {
   ricoshot(coin, dmg, chain = 0) {
     const g = this.game;
     this.breakCoin(coin);
+    if (chain === 0) g.emit('coinhit');
     const from = coin.pos.clone();
     g.fx.sparksBurst(from, 0xffd040, 10, 6, 0.3);
     g.audio.play('ricochet', from, 0.9);
