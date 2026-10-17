@@ -479,9 +479,10 @@ const GEN = {
     s.hazards.push({ type: hz, x0: -W / 2, z0: -D / 2 + 5, x1: W / 2, z1: D / 2 - 5, dps: 30 });
     const y = 0.32;
     const lanes = rng.pick([[-7, 7], [-9, 0, 9], [-5, 5]]);
-    for (const x of lanes) prop(s, x - 1.4, 0, -D / 2 + 4, x + 1.4, y, D / 2 - 4, 'grate', 'metal', { platformFlat: true });
-    prop(s, -W / 2, 0, -1.3, W / 2, y, 1.3, 'grate', 'metal', { platformFlat: true });
-    if (rng.chance(0.5)) prop(s, -W / 2, 0, -D / 4 - 1.1, W / 2, y, -D / 4 + 1.1, 'grate', 'metal', { platformFlat: true });
+    // walkways are flat and step-on: they may run right up to the doors (keep: the door rule must not strip them)
+    for (const x of lanes) prop(s, x - 1.4, 0, -D / 2 + 4, x + 1.4, y, D / 2 - 4, 'grate', 'metal', { platformFlat: true, keep: true });
+    prop(s, -W / 2, 0, -1.3, W / 2, y, 1.3, 'grate', 'metal', { platformFlat: true, keep: true });
+    if (rng.chance(0.5)) prop(s, -W / 2, 0, -D / 4 - 1.1, W / 2, y, -D / 4 + 1.1, 'grate', 'metal', { platformFlat: true, keep: true });
     for (let i = 0; i < 3; i++) crate(s, rng, rng.pick(lanes), rng.range(-D / 2 + 9, D / 2 - 9), 1.1, 1);
     // gantry towers on the banks for snipers
     platform(s, rng, -W / 2, -D / 2, -W / 2 + 4, -D / 2 + 4.5, 2.6, 'east');
@@ -493,11 +494,13 @@ const GEN = {
     const W = rng.int(22, 26), D = rng.int(24, 28), H = 16;
     const s = base(rng, 'tower', W, D, H);
     s.exits = exitsFor(rng, W, 2);
-    platform(s, rng, -W / 2, -4, -W / 2 + 6, 4, 4, 'east');
-    platform(s, rng, W / 2 - 6, -4, W / 2, 4, 4, 'west');
+    // side towers climb toward the entrance (inward stairs used to meet mid-room and wall it off)
+    platform(s, rng, -W / 2, -4, -W / 2 + 6, 4, 4, 'south');
+    platform(s, rng, W / 2 - 6, -4, W / 2, 4, 4, 'south');
     prop(s, -4, 0, -D / 2 + 1, 4, 7, -D / 2 + 5, 'trim', 'metal', { platform: true, tint: 0.85 });
     s.perches.push({ x0: -3.4, z0: -D / 2 + 1.6, x1: 3.4, z1: -D / 2 + 4.4, y: 7 });
     s.pads = [{ x: 0, z: 0, power: 17 }, { x: -6, z: 7, power: 14 }, { x: 6, z: 7, power: 14 }, { x: 0, z: -D / 2 + 8, power: 16 }];
+    s.anchors.push({ x: -W / 4, y: H - 4, z: -2 }, { x: W / 4, y: H - 4, z: -2 });
     for (let i = 0; i < 3; i++) crate(s, rng, rng.range(-W / 2 + 8, W / 2 - 8), rng.range(-4, 8), 1.2, 1);
     lightGrid(s, rng, 2, 3);
     s.cachePos = { x: 0, z: 6 };
@@ -943,14 +946,18 @@ export function generateSpec(arch, rng, ctx) {
   if (combat && !s.open && (ctx.secrets !== false) && rng.chance(s.wantSecret !== undefined ? s.wantSecret : 0.22)) placeSecret(s, rng);
   // level conditions add features
   if (cond === 'pads' && combat && !s.pads.length) { s.pads.push({ x: rng.range(-s.W / 4, s.W / 4), z: rng.range(-s.D / 4, s.D / 4), power: 15 }); s.pads.push({ x: rng.range(-s.W / 3, s.W / 3), z: rng.range(-s.D / 4, s.D / 4), power: 13 }); }
+  // floor bands for level conditions must not cross pits, water, presses or rails
+  const bandFree = (z0, z1) => ![...s.holes, ...s.water].some((h) => h.z0 < z1 && h.z1 > z0) &&
+    !s.crushers.some((c) => Math.abs(c.z - (z0 + z1) / 2) < c.d / 2 + (z1 - z0) / 2) && !s.movers.some((m) => m.y < 0.5 && Math.min(m.z, m.z + m.az) - m.d / 2 < z1 && Math.max(m.z, m.z + m.az) + m.d / 2 > z0);
+  const freeBand = (half) => { for (let k = 0; k < 8; k++) { const z = rng.range(-s.D / 4, s.D / 4); if (bandFree(z - half, z + half)) return z; } return null; };
   if (cond === 'conveyor' && combat) {
-    const z = rng.range(-s.D / 4, s.D / 4);
-    s.conveyors.push({ x0: -s.W / 2, z0: z - 2, x1: s.W / 2, z1: z + 2, dx: rng.sign() * 0.25, dz: 0 });
-    if (s.D > 30) s.conveyors.push({ x0: -s.W / 2, z0: z - 10, x1: s.W / 2, z1: z - 7, dx: rng.sign() * 0.25, dz: 0 });
+    const z = freeBand(2);
+    if (z !== null) s.conveyors.push({ x0: -s.W / 2, z0: z - 2, x1: s.W / 2, z1: z + 2, dx: rng.sign() * 0.25, dz: 0 });
+    if (z !== null && s.D > 30 && bandFree(z - 10, z - 7)) s.conveyors.push({ x0: -s.W / 2, z0: z - 10, x1: s.W / 2, z1: z - 7, dx: rng.sign() * 0.25, dz: 0 });
   }
   if (cond === 'hazards' && combat && !s.hazards.length) {
-    const z = rng.range(-s.D / 4, s.D / 4);
-    s.hazards.push({ type: ctx.theme.hazard, x0: -s.W / 2, z0: z - 1.2, x1: s.W / 2, z1: z + 1.2, on: 2, off: 2.2, phase: rng.next() * 3, dps: 30 });
+    const z = freeBand(1.2);
+    if (z !== null) s.hazards.push({ type: ctx.theme.hazard, x0: -s.W / 2, z0: z - 1.2, x1: s.W / 2, z1: z + 1.2, on: 2, off: 2.2, phase: rng.next() * 3, dps: 30 });
   }
   const nb = (cond === 'barrels' ? 7 : 2) * (combat ? 1 : 0) + (arch === 'miniboss' ? 2 : 0);
   for (let i = 0; i < nb; i++) s.barrels.push({ x: rng.range(-s.W / 2 + 2, s.W / 2 - 2), z: rng.range(-s.D / 2 + 4, s.D / 2 - 4) });

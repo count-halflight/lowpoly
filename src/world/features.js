@@ -19,7 +19,8 @@ const tmpV2 = new THREE.Vector3();
 // ---------------------------------------------------------------- shared resources
 export function featureRes(level) {
   if (level.featRes) return level.featRes;
-  const basic = (c, o = {}) => psxify(new THREE.MeshBasicMaterial({ color: c, ...o }));
+  // plain unlit colours: the same shader program the door indicators already use (no extra compiles)
+  const basic = (c, o = {}) => new THREE.MeshBasicMaterial({ color: c, ...o });
   const markGeo = new THREE.PlaneGeometry(1, 1);
   markGeo.rotateX(-Math.PI / 2);
   const targetGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.12, 8);
@@ -27,7 +28,7 @@ export function featureRes(level) {
   level.featRes = {
     warnOn: basic(0xff2a30), warnOff: basic(0x3a0c10), goOn: basic(0x3effa0),
     anchor: basic(0xffa030), anchorLit: basic(0xfff4b0), gateLit: basic(0x9ffff0),
-    markOn: new THREE.MeshBasicMaterial({ color: 0xff2030, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }),
+    markOn: new THREE.MeshBasicMaterial({ color: 0xff2030, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     steam: new THREE.MeshBasicMaterial({ color: 0xa8b8c4, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     coldSteam: new THREE.MeshBasicMaterial({ color: 0x7ad8ff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
     waterTex: makeWaterTexture(),
@@ -59,6 +60,10 @@ function makeWaterTexture() {
   return t;
 }
 
+function whiteColors(geo) {
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 3).fill(1), 3));
+  return geo;
+}
 const smooth = (u) => u * u * (3 - 2 * u);
 // ping-pong 0 -> 1 -> 0 with a pause at each end
 function moverU(m, t) {
@@ -232,13 +237,13 @@ export function buildFeatures(room, gb, M, rng) {
     const built = hg.build();
     room.group.add(built.group);
     room.disposables.push(...built.geos);
-    const lamps = [];
-    for (const [lx, lz] of [[0, -c.d / 2 - 0.12], [0, c.d / 2 + 0.12], [-c.w / 2 - 0.12, 0], [c.w / 2 + 0.12, 0]]) {
-      const l = new THREE.Mesh(R.lampGeo, R.warnOff);
-      l.position.set(lx, 0.98, lz);
-      built.group.add(l);
-      lamps.push(l);
-    }
+    // all four warning lamps in one mesh: one draw call, one material swap to blink
+    const lg = new GeoBuilder(2);
+    for (const [lx, lz] of [[0, -c.d / 2 - 0.12], [0, c.d / 2 + 0.12], [-c.w / 2 - 0.12, 0], [c.w / 2 + 0.12, 0]]) lg.box(lx - 0.17, 0.87, lz - 0.17, lx + 0.17, 1.09, lz + 0.17, R.warnOff);
+    const lb = lg.build();
+    built.group.add(lb.group);
+    room.disposables.push(...lb.geos);
+    const lamps = [lb.meshes.get(R.warnOff)];
     const mark = new THREE.Mesh(R.markGeo, R.markOn);
     mark.scale.set(c.w - 0.5, 1, c.d - 0.5);
     mark.position.set(c.x, 0.03, c.z);
@@ -336,13 +341,14 @@ export function buildFeatures(room, gb, M, rng) {
   if ((s.water || []).length || (s.falls || []).length) {
     const tex = R.waterTex.clone();
     tex.needsUpdate = true;
-    const mat = psxify(new THREE.MeshBasicMaterial({ map: tex, color: s.waterColor || 0x7ab8c8, transparent: true, opacity: 0.62, depthWrite: false }));
+    // vertexColors + map + psx: the same program as the theme's screen material
+    const mat = psxify(new THREE.MeshBasicMaterial({ map: tex, color: s.waterColor || 0x7ab8c8, transparent: true, opacity: 0.62, depthWrite: false, vertexColors: true }));
     room.disposables.push(mat, tex);
     room.waterTex = tex;
     for (const f of s.falls || []) {
       // outlet pipe mouth + a falling sheet + foam at the bottom
       const ns = f.side === 'n' || f.side === 's';
-      const geo = new THREE.PlaneGeometry(f.w, f.y - 0.25);
+      const geo = whiteColors(new THREE.PlaneGeometry(f.w, f.y - 0.25));
       const fm = new THREE.Mesh(geo, mat);
       const off = f.side === 'e' ? -0.35 : f.side === 'w' ? 0.35 : f.side === 'n' ? 0.35 : -0.35;
       fm.position.set(f.x + (ns ? 0 : off), (f.y + 0.25) / 2, f.z + (ns ? off : 0));
@@ -354,7 +360,7 @@ export function buildFeatures(room, gb, M, rng) {
       room.fallList.push({ wx: room.wx(f.x + (ns ? 0 : off * 2)), wz: room.wz(f.z + (ns ? off * 2 : 0)), w: f.w });
     }
     for (const w of s.water) {
-      const geo = new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0);
+      const geo = whiteColors(new THREE.PlaneGeometry(w.x1 - w.x0, w.z1 - w.z0));
       const uv = geo.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w.x1 - w.x0) / 3, uv.getY(i) * (w.z1 - w.z0) / 3);
       const mesh = new THREE.Mesh(geo, mat);

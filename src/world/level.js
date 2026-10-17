@@ -924,8 +924,13 @@ export class Level {
       let ok = true;
       nav.flow(ex, ez);
       const check = (x, z) => { const k = nav.nearestFree(room.wx(x), room.wz(z), 2); return k >= 0 && nav.dist[k] >= 0; };
-      for (const x of spec.exits) if (!check(x, -spec.D / 2 + 1.5)) ok = false;
-      if (!check(spec.cachePos.x, spec.cachePos.z)) ok = false;
+      const fails = [];
+      spec.exits.forEach((x, i) => { if (!check(x, -spec.D / 2 + 1.5)) fails.push('exit' + i); });
+      if (!check(spec.cachePos.x, spec.cachePos.z)) fails.push('cache');
+      ok = !fails.length;
+      // kept for tests / debugging: which attempts failed validation and why
+      this.genLog = attempt === 0 ? [] : this.genLog || [];
+      this.genLog.push({ arch: spec.arch, attempt, fails });
       if (ok || arch === 'tutorial') break;
       room.dispose();
       room = null;

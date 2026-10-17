@@ -484,7 +484,7 @@ function signMaterial() {
   });
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
-  signMat = psxify(new THREE.MeshBasicMaterial({ map: tex }));
+  signMat = psxify(new THREE.MeshBasicMaterial({ map: tex, vertexColors: true })); // same program as screens
   return signMat;
 }
 function signUV(i) {
@@ -804,10 +804,14 @@ export function skyRes() {
   tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
   const starGeo = new THREE.PlaneGeometry(320, 320);
   starGeo.rotateX(Math.PI / 2);
+  // stars, moon and halo share one shader program (map, no fog)
+  const wc = document.createElement('canvas'); wc.width = wc.height = 2;
+  const wx = wc.getContext('2d'); wx.fillStyle = '#ffffff'; wx.fillRect(0, 0, 2, 2);
+  const white = new THREE.CanvasTexture(wc);
   sky = {
     starGeo, starMat: new THREE.MeshBasicMaterial({ map: tex, fog: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true }),
-    moonGeo: new THREE.CircleGeometry(7, 12), moonMat: new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }),
-    haloGeo: new THREE.CircleGeometry(11, 12), haloMat: new THREE.MeshBasicMaterial({ color: 0x2a3050, fog: false, transparent: true, opacity: 0.5, depthWrite: false }),
+    moonGeo: new THREE.CircleGeometry(7, 12), moonMat: new THREE.MeshBasicMaterial({ map: white, color: 0xe8ecff, fog: false }),
+    haloGeo: new THREE.CircleGeometry(11, 12), haloMat: new THREE.MeshBasicMaterial({ map: white, color: 0x2a3050, fog: false, transparent: true, opacity: 0.5, depthWrite: false }),
   };
   return sky;
 }
