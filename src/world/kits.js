@@ -794,9 +794,9 @@ export function propDetail(gb, M, p) {
     gb.cylinder(cx, y1 + 0.05, cz, 0.12, 0.04, 'y', 6, M.trim, {});
     for (let y = y0 + 0.2; y < y1 - 0.2; y += 0.18) gb.box(x0 - 0.01, y, z0 + 0.1, x0, y + 0.06, z1 - 0.1, M.trim, { faces: FACES.NX, tint: 0.5 });
   } else if (p.pew) {
-    const back = z1 + 0.0;
-    gb.box(x0, y1, back - 0.08, x1, y1 + 0.5, back, M.crate, { tint: 0.5 });
-    gb.box(x0, y1 + 0.5, back - 0.1, x1, y1 + 0.56, back + 0.02, M.crate, { tint: 0.65 });
+    const back = p.pewFace < 0 ? z0 + 0.08 : z1; // the backrest sits on the side away from what the pew faces
+    gb.box(x0, y1, back - 0.08, x1, y1 + 0.5, back, M.crate, { tint: 0.7 });
+    gb.box(x0, y1 + 0.5, back - 0.1, x1, y1 + 0.56, back + 0.02, M.crate, { tint: 0.85 });
   } else if (p.terrace) {
     // painted edge stripes so the tiers read from below
     gb.box(x0, y1 - 0.12, z0 - 0.01, x1, y1 - 0.04, z0, M.accent, { faces: FACES.NZ, tint: 0.6 });

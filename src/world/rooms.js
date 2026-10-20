@@ -193,9 +193,11 @@ const GEN = {
     if (look === 1) {
       // RELAY CHAPEL: pews face the beacon down a centre aisle
       s.name = rng.pick(['RELAY CHAPEL', 'QUIET ROOM']);
-      for (let z = 4.8; z < D / 2 - 3.4; z += 1.5) for (const sx of [-1, 1]) prop(s, sx * 1.7, 0, z - 0.25, sx * (W / 2 - 1.6), 0.5, z + 0.25, 'crate', 'wood', { tint: 0.55, pew: true, keep: true });
-      prop(s, -W / 2, 0, -D / 2 + 2, -W / 2 + 1.1, 0.55, -2.5, 'trim', 'metal', { tint: 0.8 });
-      prop(s, W / 2 - 1.1, 0, -D / 2 + 2, W / 2, 0.55, -2.5, 'trim', 'metal', { tint: 0.8 });
+      // rows on both sides of the dais, all facing it; side aisles stay wide enough to walk round
+      // the beacon and its bollards (the centre aisle alone is too tight past them)
+      for (let z = 4.6; z <= D / 2 - 3.2; z += 1.4) for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
+        prop(s, sx * 2.1, 0, sz * z - 0.25, sx * (W / 2 - 2.2), 0.5, sz * z + 0.25, 'crate', 'wood', { tint: 0.85, pew: true, pewFace: sz, keep: true });
+      }
       s.cachePos = { x: -(W / 2 - 2.6), z: 1.2 };
     } else if (look === 2) {
       // WAYSTATION: lockers down the back half of both walls, benches in front of them, supply crates
