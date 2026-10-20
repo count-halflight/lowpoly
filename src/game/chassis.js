@@ -571,6 +571,54 @@ const B = {
 
 export const CHASSIS_LIST = Object.keys(B);
 
+// ---- ornaments: picked from the encounter id, so every boss and miniboss that shares a chassis
+// still reads as its own machine (silhouette and accents). Purely visual: hitboxes come from the
+// chassis data. Built from three unit shapes scaled to the part they sit on.
+function hashId(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function U(geo, mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) { const m = M(geo, mat, x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, ry, rz); return m; }
+const UB = () => box(1, 1, 1), UC = () => cone(0.5, 1, 4), UO = () => oct(0.5);
+// each builder: (mats, w, h, d of the host part) -> group placed at the top centre of the part
+const ORN = {
+  horns(m, w, h) { const g = new THREE.Group(); for (const s of [-1, 1]) { g.add(U(UC(), m.plate, w * 0.16, h * 0.75, w * 0.16, s * w * 0.32, h * 0.28, 0, 0, 0, -s * 0.6)); g.add(U(UO(), m.glow, w * 0.09, w * 0.09, w * 0.09, s * w * 0.53, h * 0.58, 0)); } return g; },
+  crown(m, w, h, d) {
+    const g = new THREE.Group();
+    g.add(U(UB(), m.dark, w * 0.78, h * 0.08, d * 0.78, 0, 0.02, 0));
+    for (let i = 0; i < 6; i++) { const a = i / 6 * PI * 2; g.add(U(UC(), i % 2 ? m.glow : m.hazard, w * 0.1, h * 0.38, w * 0.1, cos(a) * w * 0.34, h * 0.2, sin(a) * d * 0.34)); }
+    return g;
+  },
+  antenna(m, w, h, d) { const g = new THREE.Group(); g.add(U(UB(), m.dark, w * 0.05, h * 1.2, w * 0.05, w * 0.26, h * 0.6, -d * 0.2), U(UB(), m.dark, w * 0.32, w * 0.03, w * 0.03, w * 0.26, h * 0.95, -d * 0.2), U(UO(), m.glow, w * 0.13, w * 0.13, w * 0.13, w * 0.26, h * 1.22, -d * 0.2)); return g; },
+  fins(m, w, h, d) { const g = new THREE.Group(); for (let i = 0; i < 3; i++) g.add(U(UB(), m.plate, w * 0.05, h * (0.55 - i * 0.1), d * 0.3, 0, h * 0.2, -d * (0.05 + i * 0.22), -0.35)); return g; },
+  halo(m, w, h) { const g = new THREE.Group(); for (let i = 0; i < 8; i++) { const a = i / 8 * PI * 2; g.add(U(UB(), m.glow, w * 0.2, w * 0.03, w * 0.05, cos(a) * w * 0.48, h * 0.55, sin(a) * w * 0.48, 0, -a + PI / 2)); } return g; },
+  spikes(m, w, h, d) { const g = new THREE.Group(); for (let i = -2; i <= 2; i++) g.add(U(UC(), m.dark, w * 0.1, h * (0.45 - Math.abs(i) * 0.08), w * 0.1, i * w * 0.18, h * 0.15, -d * 0.25)); return g; },
+  stacks(m, w, h, d) { const g = new THREE.Group(); for (const s of [-1, 1]) g.add(U(UB(), m.dark, w * 0.14, h * 0.6, w * 0.14, s * w * 0.28, h * 0.25, -d * 0.42), U(UB(), m.vent, w * 0.17, h * 0.08, w * 0.17, s * w * 0.28, h * 0.56, -d * 0.42), U(UB(), m.glow, w * 0.1, h * 0.02, w * 0.1, s * w * 0.28, h * 0.6, -d * 0.42)); return g; },
+  banner(m, w, h, d) { const g = new THREE.Group(); g.add(U(UB(), m.dark, w * 0.04, h * 1.4, w * 0.04, -w * 0.4, h * 0.65, -d * 0.4), U(UB(), m.plate, w * 0.28, h * 0.55, w * 0.02, -w * 0.25, h * 1.0, -d * 0.4), U(UB(), m.hazard, w * 0.28, h * 0.06, w * 0.025, -w * 0.25, h * 0.8, -d * 0.4)); return g; },
+  lamp(m, w, h, d) { const g = new THREE.Group(); g.add(U(UB(), m.dark, w * 0.34, w * 0.3, w * 0.1, 0, -h * 0.35, d * 0.5), U(UB(), m.glow, w * 0.2, w * 0.18, w * 0.04, 0, -h * 0.35, d * 0.56), U(UB(), m.hazard, w * 0.36, w * 0.04, w * 0.11, 0, -h * 0.35 + w * 0.17, d * 0.5)); return g; },
+  chains(m, w, h) { const g = new THREE.Group(); for (const s of [-1, 1]) for (let i = 0; i < 4; i++) g.add(U(UB(), i === 3 ? m.glow : m.dark, w * 0.06, h * 0.12, w * 0.06, s * w * 0.52, -h * 0.25 - i * h * 0.15, 0, 0, i * 0.8)); return g; },
+};
+const ORN_KEYS = Object.keys(ORN);
+const ORN_HOSTS = ['head', 'turret', 'rig', 'bell', 'block', 'center', 'core', 'torso', 'body'];
+const _ob = new THREE.Box3(), _oc = new THREE.Box3(), _ov = new THREE.Vector3();
+function addOrnaments(c, m, id) {
+  const h = hashId(String(id));
+  let host = null;
+  for (const k of ORN_HOSTS) if (c.parts[k] && c.parts[k].isObject3D) { host = c.parts[k]; break; }
+  if (!host) return;
+  // bounds of the host's own meshes (not nested limbs or tails)
+  c.group.updateMatrixWorld(true);
+  _ob.makeEmpty();
+  for (const ch of host.children) if (ch.isMesh) _ob.union(_oc.setFromObject(ch));
+  if (_ob.isEmpty()) return;
+  const w = Math.max(0.3, _ob.max.x - _ob.min.x), hh = Math.max(0.3, _ob.max.y - _ob.min.y), d = Math.max(0.3, _ob.max.z - _ob.min.z);
+  const a = ORN_KEYS[h % ORN_KEYS.length], b = ORN_KEYS[(h >>> 5) % ORN_KEYS.length];
+  for (const key of a === b ? [a] : [a, b]) {
+    const o = ORN[key](m, w, hh, d);
+    _ov.set((_ob.min.x + _ob.max.x) / 2, _ob.max.y, (_ob.min.z + _ob.max.z) / 2);
+    host.worldToLocal(_ov);
+    o.position.copy(_ov);
+    host.add(o);
+  }
+}
+
 // opts.unique: give this instance its own glow material so the actor can pulse it as a
 // telegraph without recolouring every other actor that shares the palette.
 export function buildChassis(type, colors, scale = 1, opts = {}) {
@@ -578,6 +626,7 @@ export function buildChassis(type, colors, scale = 1, opts = {}) {
   const c = (B[type] || B.brute)(m);
   c.type = type;
   c.scale = scale;
+  if (opts.orn) addOrnaments(c, m, opts.orn);
   c.group.scale.setScalar(scale);
   c.meshes = [];
   // chassis geometry is cached and shared: owners must never dispose it
@@ -586,6 +635,7 @@ export function buildChassis(type, colors, scale = 1, opts = {}) {
   c.mats = m;
   c.armor = c.armor || [];
   c.vents = c.vents || [[0, c.height * 0.8, 0]];
+  c.muzzle = c.muzzle || [0, c.height * 0.6, 0.8];
   c.baseGlow = new THREE.Color(colors[2]);
   if (opts.unique) {
     const gm = m.glow.clone();
