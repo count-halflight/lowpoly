@@ -82,7 +82,7 @@ export class Menus {
         <div class="panel">
           <div class="panel-h"><span data-px="SETTINGS"></span></div>
           <div class="settings-list" id="m-settingslist"></div>
-          <div class="row-btns"><button class="btn" data-a="resetSettings">RESET</button><button class="btn primary" data-a="back">BACK</button></div>
+          <div class="row-btns"><button class="btn primary" data-a="back">BACK</button><button class="btn" data-a="controls">CONTROLS</button><button class="btn" data-a="resetSettings">RESET</button></div>
         </div>
       </section>
       <section class="screen shade-full" id="m-controls">
@@ -286,17 +286,16 @@ export class Menus {
     list.push('<button class="mi" data-a="endless">ENDLESS</button>');
     list.push(`<button class="mi" data-a="codex">CODEX <small>${Object.keys(p.logs).length}/${Object.keys(LOGS).length} LOGS</small></button>`);
     list.push(`<button class="mi" data-a="medals">MEDALS &amp; STATS <small>${Object.keys(p.medals).length}/${MEDALS.length}</small></button>`);
-    list.push('<button class="mi" data-a="settings">SETTINGS</button>');
-    list.push('<button class="mi" data-a="controls">CONTROLS</button>');
+    list.push('<button class="mi" data-a="settings">SETTINGS <small>+ CONTROLS</small></button>');
     list.push('<button class="mi" data-a="fullscreen">FULLSCREEN</button>');
     this.$('m-titlelist').innerHTML = list.join('');
     const e = p.endless;
-    const bosses = Object.values(p.bosses).filter((n) => n > 0).length, minis = Object.values(p.minis).filter((n) => n > 0).length;
+    // just the headline records: the rest lives on the STATS page
+    const bosses = Object.values(p.bosses).filter((n) => n > 0).length;
     this.$('m-records').innerHTML = [
       p.deepest ? `DEEPEST <b>STRATUM ${ROMAN[p.deepest]}</b>` : 'THE DESCENT AWAITS',
-      `BOSSES <b>${bosses}/30</b>`, `MINIBOSSES <b>${minis}/60</b>`,
-      e.runs ? `ENDLESS BEST <b>${e.bestScore}</b> · ROOM <b>${e.bestRoom}</b>` : '',
-      p.cyclesCleared ? `CYCLES <b>${p.cyclesCleared}</b>` : '',
+      bosses ? `BOSSES <b>${bosses}/30</b>` : '',
+      e.runs ? `ENDLESS BEST <b>${e.bestScore}</b>` : '',
     ].filter(Boolean).map((s) => `<span>${s}</span>`).join('');
   }
   updateRecords() { this.updateTitle(); }
@@ -420,7 +419,7 @@ export class Menus {
     if (mode === 'campaign') items.push('<button class="mi" data-a="retryLevel">RESTART LEVEL <small>FROM THE START</small></button>');
     if (mode === 'endless') items.push('<button class="mi" data-a="restart">RESTART RUN</button>');
     if (mode === 'tutorial') items.push('<button class="mi" data-a="skipTraining">SKIP TRAINING</button>');
-    items.push('<button class="mi" data-a="settings">SETTINGS</button>', '<button class="mi" data-a="controls">CONTROLS</button>', '<button class="mi" data-a="fullscreen">FULLSCREEN</button>');
+    items.push('<button class="mi" data-a="settings">SETTINGS <small>+ CONTROLS</small></button>', '<button class="mi" data-a="fullscreen">FULLSCREEN</button>');
     items.push(`<button class="mi danger" data-a="quit">QUIT TO TITLE${mode === 'campaign' ? ` <small>PROGRESS SAVED AT ${opts.checkpoint ? 'CHECKPOINT' : 'LEVEL START'}</small>` : ''}</button>`);
     this.$('m-pauselist').innerHTML = items.join('');
     this.show('pause');

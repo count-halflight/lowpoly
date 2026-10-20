@@ -164,6 +164,13 @@ export class HUD {
     if (t !== str) t = t.slice(0, -1) + '.';
     return this.text(t, x, y, sz, color, 'left', opts);
   }
+  // largest size <= size at which str fits maxW (leaves that font set on the context)
+  fitSize(str, size, maxW, kind = 'serif', weight = 700) {
+    const c = this.ctx;
+    c.font = font(size, kind, weight);
+    while (size > 7 && c.measureText(str).width > maxW) { size--; c.font = font(size, kind, weight); }
+    return size;
+  }
   rect(x, y, w, h, color) { this.ctx.fillStyle = color; this.ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
   frame(x, y, w, h, color) {
     const c = this.ctx;
@@ -236,6 +243,9 @@ export class HUD {
     this.lefty = this.touch && !!g.settings.get('leftHanded');
     const cut = g.cutscene && g.cutscene.active;
     this.topY = 22 + this.safe.t;
+    // width free for centred messages: on touch the button cluster (~260 css px from the edge on
+    // both layouts, mirrored) must stay clear, so banners, cards and toasts shrink to fit between
+    this.midW = this.touch ? Math.max(160, 2 * (this.W / 2 - 262 * this.k - Math.max(this.safe.l, this.safe.r))) : this.W - 20;
     if (!cut) {
       this.drawObjective();
       this.drawBossBars();
@@ -346,15 +356,20 @@ export class HUD {
     if (this.styleA < 0.02) return;
     this.ctx.globalAlpha = this.styleA;
     const w = 96, h = 30;
+    // one dark plate for the meter and its feed so the feed text never sits on bare scenery
+    const nf = Math.min(2, st.feed.length);
+    let fa = 0;
+    for (let i = 0; i < nf; i++) fa = Math.max(fa, Math.min(1, (3 - (g.time - st.feed[i].t)) * 1.5));
     this.rect(x, y, w, h, DIM);
+    if (nf && fa > 0) { this.ctx.globalAlpha = this.styleA * fa; this.rect(x, y + h, w + 40, nf * 10 + 4, DIM); this.ctx.globalAlpha = this.styleA; }
     this.rect(x, y, 2, h, r.c);
     this.text(r.l, x + 15, y + 25, r.l.length > 1 ? 18 : 26, r.c, 'center', { ca: 0.6 });
     this.text(r.w, x + 30, y + 12, 9, r.c, 'left');
     this.text(String(Math.floor(st.score)), x + 30, y + 21, 8, '#e8e8e8', 'left', { kind: 'mono', weight: 400 });
     this.segBar(x + 30, y + 23, 60, 2, Math.max(0, Math.min(1, st.meter / 100)), r.c, 8, 1);
     this.ctx.globalAlpha = 1;
-    let fy = y + h + 9;
-    for (let i = 0; i < Math.min(2, st.feed.length); i++) {
+    let fy = y + h + 10;
+    for (let i = 0; i < nf; i++) {
       const f = st.feed[i], age = g.time - f.t;
       const a = Math.max(0, Math.min(1, (3 - age) * 1.5));
       const slide = Math.max(0, 0.15 - age) * 60;
@@ -604,9 +619,10 @@ export class HUD {
   drawPrompt() {
     if (!this.prompt) return;
     const y = this.V / 2 + 34;
-    const w = this.ctx.measureText(this.prompt).width;
-    this.text(this.prompt, this.W / 2, y, 10, '#ffe23a', 'center', { kind: 'mono', weight: 400 });
-    void w;
+    const size = this.fitSize(this.prompt, 10, this.midW - 12, 'mono', 400);
+    const w = this.ctx.measureText(this.prompt).width + 12;
+    this.rect(this.W / 2 - w / 2, y - size, w, size + 4, 'rgba(4,8,10,0.7)');
+    this.text(this.prompt, this.W / 2, y, size, '#ffe23a', 'center', { kind: 'mono', weight: 400, shadow: false });
   }
 
   drawHint() {
@@ -640,9 +656,9 @@ export class HUD {
     const fadeIn = Math.min(1, t * 8), fadeOut = Math.min(1, (b.dur - t) * 3);
     const a = Math.min(fadeIn, fadeOut);
     const main = this.scr(b.main, t, 0.5, b.main.length);
-    c.font = font(20, 'serif');
+    const ms = this.fitSize(b.main, 20, this.midW - 50, 'serif', 700);
     const tw = c.measureText(b.main).width;
-    const w = Math.min(this.W - 20, tw + 72), h = 26;
+    const w = Math.min(this.midW, tw + 72), h = 26;
     // below the objective pill and any boss bars, never on top of them
     const x = this.W / 2 - w / 2, y = Math.max(Math.round(this.V * 0.2) + this.safe.t, Math.round(this.topY + 4));
     this.bannerY = y; this.bannerBottom = y + h + (b.sub ? 14 : 0);
@@ -655,12 +671,12 @@ export class HUD {
     this.stripes(x + w - 20, y, 20, h, b.color, 7, 3);
     this.rect(x, y, w, 1, b.color); this.rect(x, y + h - 1, w, 1, b.color);
     const jitter = this.textFx && t < 0.5 ? Math.round((Math.random() - 0.5) * 3) : 0;
-    this.text(main, this.W / 2 + jitter, y + 19, 20, WHITE, 'center', { ca: 1 });
+    this.text(main, this.W / 2 + jitter, y + 13 + Math.round(ms * 0.3), ms, WHITE, 'center', { ca: 1 });
     if (b.sub) {
-      c.font = font(10, 'serif', 700);
-      const sw = Math.min(this.W - 20, c.measureText(b.sub).width + 16);
+      const ss = this.fitSize(b.sub, 10, this.midW - 16, 'serif', 700);
+      const sw = Math.min(this.midW, c.measureText(b.sub).width + 16);
       this.rect(this.W / 2 - sw / 2, y + h + 1, sw, 13, 'rgba(6,10,12,0.8)');
-      this.text(this.scr(b.sub, t, 0.8, 3), this.W / 2, y + h + 11, 10, b.color, 'center');
+      this.text(this.scr(b.sub, t, 0.8, 3), this.W / 2, y + h + 11, ss, b.color, 'center');
     }
     c.restore();
   }
@@ -676,7 +692,7 @@ export class HUD {
       const kind = t.small ? 'mono' : 'serif', weight = t.small ? 400 : 700;
       c.font = font(size, kind, weight);
       // long callouts shrink to fit instead of running off a phone screen
-      while (size > 8 && c.measureText(t.text).width > this.W - 40) { size--; c.font = font(size, kind, weight); }
+      while (size > 8 && c.measureText(t.text).width > this.midW - 14) { size--; c.font = font(size, kind, weight); }
       const w = c.measureText(t.text).width + 14;
       c.globalAlpha = a * 0.85;
       this.rect(this.W / 2 - w / 2, y - size, w, size + 5, 'rgba(4,8,10,0.75)');
@@ -712,15 +728,16 @@ export class HUD {
     const c = this.ctx;
     const a = Math.min(1, L.t * 3, (L.dur - L.t) * 2);
     c.globalAlpha = a;
-    const cw = Math.min(this.W - 24, this.touch ? 280 : 340);
+    const cw = Math.min(this.midW, 340);
     c.font = font(11, 'mono', 400);
-    const lines = wrap(c, L.desc, cw - 20).slice(0, 2);
+    const lines = wrap(c, L.desc, cw - 16).slice(0, this.touch ? 3 : 2);
     const ch = 44 + lines.length * 12;
     const x = this.W / 2 - cw / 2, y = Math.max(Math.round(this.V * 0.16) + this.safe.t, Math.round(this.topY + 4));
     this.rect(x, y, cw, ch, 'rgba(4,6,10,0.88)');
     this.rect(x, y, cw, 2, MINT);
-    this.text(L.stratum, this.W / 2, y + 13, 9, MINT, 'center');
-    this.text(this.scr(L.code + '  ' + L.name, L.t, 0.6), this.W / 2, y + 33, 20, WHITE, 'center', { ca: 0.8 });
+    this.text(L.stratum, this.W / 2, y + 13, this.fitSize(L.stratum, 9, cw - 12), MINT, 'center');
+    const title = L.code + '  ' + L.name;
+    this.text(this.scr(title, L.t, 0.6), this.W / 2, y + 33, this.fitSize(title, 20, cw - 16), WHITE, 'center', { ca: 0.8 });
     lines.forEach((l, i) => this.text(l, this.W / 2, y + 48 + i * 12, 11, '#d8f0ea', 'center', { kind: 'mono', weight: 400 }));
     this.cardBottom = y + ch;
     c.globalAlpha = 1;

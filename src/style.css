@@ -77,7 +77,7 @@ body.touch.playing #touch { display: block; }
 .tc-swap { --s: 38px; --x: 118px; --y: 234px; }
 .tc-hook { --s: 42px; --x: 58px; --y: 196px; border-color: rgba(255,208,96,0.5); }
 #touch.minimal .tc-reload, #touch.minimal .tc-swap { display: none; }
-.tc-use { width: calc(70px * var(--btn-scale)); height: calc(34px * var(--btn-scale)); left: 50%; right: auto; margin-left: calc(-35px * var(--btn-scale)); bottom: calc(110px + var(--safe-b)); border-radius: 17px; border-color: var(--amber); color: var(--amber); flex-direction: row; gap: 4px; display: none; opacity: 0.9; }
+.tc-use { width: calc(70px * var(--btn-scale)); height: calc(34px * var(--btn-scale)); left: 50%; right: auto; margin-left: calc(-35px * var(--btn-scale)); bottom: calc(68px + var(--safe-b)); border-radius: 17px; border-color: var(--amber); color: var(--amber); flex-direction: row; gap: 4px; display: none; opacity: 0.9; }
 .tc-use svg { width: auto; height: 55%; }
 #touch.can-use .tc-use { display: flex; }
 .tc-pause { width: 36px; height: 36px; left: calc(10px + var(--safe-l)); top: calc(8px + var(--safe-t)); right: auto; bottom: auto; border-radius: 8px; border-width: 1px; }
