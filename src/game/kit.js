@@ -126,12 +126,28 @@ function chassisMotion(actor, dt) {
       for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2; g.fx.dust.spawn(actor.pos.x + Math.cos(a) * actor.radius, gy + 0.1, actor.pos.z + Math.sin(a) * actor.radius, Math.cos(a) * 4, 0.6, Math.sin(a) * 4, 0.35, 0.33, 0.3, 0.7, 0.3, 0.7, -0.3, 2.5); }
     }
   }
+  // boot (kit bosses): slumped and dark through the establishing shot, the lights stutter on,
+  // it straightens up and roars as the hero shot cuts in
+  let dormant = 0;
+  if (actor.boot !== undefined && actor.boot < 1) {
+    actor.boot = Math.min(1, actor.boot + dt * (actor.state === 'intro' ? 1 / 2.4 : 3));
+    const k = clamp((actor.boot - 0.55) / 0.4, 0, 1);
+    dormant = 1 - k * k * (3 - 2 * k);
+    const lit = actor.boot >= 1 || (actor.boot > 0.45 && Math.random() < (actor.boot - 0.35) * 1.6);
+    if (!lit && ch.glowMat) ch.glowMat.color.copy(ch.baseGlow).multiplyScalar(0.06);
+    if (actor.boot > 0.6 && actor.boot < 0.95 && Math.random() < 0.3) {
+      const v = ch.vents[Math.floor(Math.random() * ch.vents.length)];
+      chassisWorld(actor, v[0], v[1], v[2], _mz);
+      g.fx.dust.spawn(_mz.x, _mz.y, _mz.z, (Math.random() - 0.5), 2 + Math.random(), (Math.random() - 0.5), 0.5, 0.5, 0.52, 0.6, 0.4, 0.9, -0.6, 1);
+    }
+    if (actor.boot >= 1) actor.roarT = actor.roar0 = 1.1;
+  }
   const moving = Math.hypot(vf, vl) > 0.5;
   const breathe = moving || an.wind ? 0 : Math.sin(t * 1.7 + m.seed) * 0.014;
   const wob = Math.sin(m.settle * 18) * m.settle * 0.05;
-  const sY = 1 - 0.08 * m.wind + 0.07 * m.act + breathe + wob + roar * 0.08 - m.hit * 0.05;
-  const sX = 1 + 0.05 * m.wind - 0.035 * m.act - wob * 0.6 + m.hit * 0.03;
-  let rx = -0.12 * m.wind + 0.16 * m.act - roar * 0.3, rz = 0;
+  const sY = 1 - 0.08 * m.wind + 0.07 * m.act + breathe + wob + roar * 0.08 - m.hit * 0.05 - dormant * 0.14;
+  const sX = 1 + 0.05 * m.wind - 0.035 * m.act - wob * 0.6 + m.hit * 0.03 + dormant * 0.04;
+  let rx = -0.12 * m.wind + 0.16 * m.act - roar * 0.3 + dormant * 0.32, rz = 0;
   if (actor.flying) {
     m.bank += (clamp(-vl * 0.035, -0.4, 0.4) - m.bank) * Math.min(1, dt * 4);
     m.pitch += (clamp(vf * 0.02, -0.25, 0.25) - m.pitch) * Math.min(1, dt * 4);
@@ -141,6 +157,8 @@ function chassisMotion(actor, dt) {
   if (roar > 0) rz += Math.sin(t * 40) * 0.035 * roar;
   ch.group.scale.set(cs * sX, cs * sY, cs * sX);
   ch.group.rotation.x = rx; ch.group.rotation.z = rz;
+  // a dormant flier rests near the floor
+  ch.group.position.y = actor.flying ? -dormant * Math.max(0, actor.pos.y - actor.groundY - actor.radius) : 0;
   // the charge glow swells at the muzzle for as long as the wind-up lasts
   if (an.wind && !actor.hidden && g.fx.flare) {
     const k = Math.min(1, m.windT / 0.8), pulse = 0.85 + 0.15 * Math.sin(t * 28);
@@ -406,6 +424,7 @@ export class KitBoss extends Boss {
     this.ch = ch;
     this.group.add(ch.group);
     this.flying = !!ch.flying;
+    this.boot = 0;
     this.radius = ch.radius * scale;
     this.height = ch.height * scale;
     this.color = hexToNum(def.colors[2]);

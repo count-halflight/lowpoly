@@ -1014,14 +1014,16 @@ export class FX {
     }
     const box = _bx.setFromObject(mesh);
     const half = Math.max(0.05, (box.max.y - box.min.y) * 0.5);
-    const piece = { mesh, v: vel.clone(), w: spin.clone(), half, rest: false, t: 0, bleed: null, spark: false, trailT: 0 };
-    if (opts) { piece.bleed = opts.bleed && this.gore ? opts.bleed : null; piece.spark = !!opts.spark; }
+    const piece = { mesh, v: vel.clone(), w: spin.clone(), half, rest: false, t: 0, bleed: null, spark: false, trailT: 0, own: false };
+    // opts.own: the piece's geometry belongs to it alone (bespoke boss wreckage) and is freed with it
+    if (opts) { piece.bleed = opts.bleed && this.gore ? opts.bleed : null; piece.spark = !!opts.spark; piece.own = !!opts.own; }
     this.corpses.push(piece);
-    while (this.corpses.length > this.corpseCap) {
-      const c = this.corpses.shift();
-      this.game.scene.remove(c.mesh);
-    }
+    while (this.corpses.length > this.corpseCap) this.dropCorpse(this.corpses.shift());
     return piece;
+  }
+  dropCorpse(c) {
+    this.game.scene.remove(c.mesh);
+    if (c.own) c.mesh.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
   }
 
   // a pool that spreads under a body (blood, or oil for machines)
@@ -1079,7 +1081,7 @@ export class FX {
   }
 
   clearCorpses() {
-    for (const c of this.corpses) this.game.scene.remove(c.mesh);
+    for (const c of this.corpses) this.dropCorpse(c);
     this.corpses.length = 0;
   }
 }
