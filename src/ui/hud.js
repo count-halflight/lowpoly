@@ -82,7 +82,7 @@ export class HUD {
     this.banners = b;
   }
   nameCard(name, title, color, dur = 3) { this.nameCardS = { name, title, color, t: 0, dur }; }
-  levelCard(code, name, stratum, desc, dur = 5) { this.levelCardS = { code, name, stratum, desc, t: 0, dur }; }
+  levelCard(code, name, stratum, desc, dur = 5) { this.levelCardS = { code, name, stratum, desc, t: 0, dur: Math.min(dur, 4.5) }; }
   toast(text, color = WHITE, small = false) {
     if (/^MEDAL|^UNLOCK/.test(text)) { this.corner.unshift({ text, color, t: 0, dur: 3.2 }); this.corner.length = Math.min(this.corner.length, 3); return; }
     if (this.redundant(text)) return;
@@ -105,8 +105,8 @@ export class HUD {
     dur = Math.min(dur, 7);
     if (this.game.mode === 'tutorial') { this.hintQ.length = 0; this.hintText = ''; this.hintT = 0; this.hintGap = 0; }
     if (text === this.hintText || this.hintQ.some((q) => q.text === text)) return;
+    if (this.hintQ.length >= 2) return; // a burst of tips (a new room): the first ones win, the rest wait for another time
     this.hintQ.push({ text, dur, at: this.t });
-    if (this.hintQ.length > 2) this.hintQ.shift();
   }
   hitMarker(kind) { this.hitKind = kind; this.hitT = kind === 'kill' || kind === 'headkill' ? 0.28 : 0.13; }
   damage(amount, from) {
@@ -204,7 +204,7 @@ export class HUD {
     if (this.levelCardS) { this.levelCardS.t += dt; if (this.levelCardS.t > this.levelCardS.dur) this.levelCardS = null; }
     for (const t of this.toasts) t.t += dt;
     this.toasts = this.toasts.filter((t) => t.t < t.dur);
-    if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) { this.hintText = ''; this.hintGap = 1.2; } }
+    if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) { this.hintText = ''; this.hintGap = g.mode === 'tutorial' ? 0.5 : 4; } }
     else if (this.hintQ.length) {
       this.hintGap -= dt;
       while (this.hintQ.length && this.t - this.hintQ[0].at > 12 && g.mode !== 'tutorial') this.hintQ.shift(); // stale tip
@@ -356,7 +356,7 @@ export class HUD {
     let fy = y + h + 9;
     for (let i = 0; i < Math.min(2, st.feed.length); i++) {
       const f = st.feed[i], age = g.time - f.t;
-      const a = Math.max(0, Math.min(1, 4 - age));
+      const a = Math.max(0, Math.min(1, (3 - age) * 1.5));
       const slide = Math.max(0, 0.15 - age) * 60;
       this.text('+' + f.pts, x + 2 - slide, fy, 9, r.c, 'left', { alpha: a * this.styleA });
       this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 28 - slide, fy, 9, WHITE, 'left', { alpha: a * this.styleA });
@@ -645,7 +645,7 @@ export class HUD {
     const w = Math.min(this.W - 20, tw + 72), h = 26;
     // below the objective pill and any boss bars, never on top of them
     const x = this.W / 2 - w / 2, y = Math.max(Math.round(this.V * 0.2) + this.safe.t, Math.round(this.topY + 4));
-    this.bannerBottom = y + h + (b.sub ? 14 : 0);
+    this.bannerY = y; this.bannerBottom = y + h + (b.sub ? 14 : 0);
     const squash = 1 - Math.max(0, 0.12 - t) * 6;
     c.save();
     c.globalAlpha = a;
