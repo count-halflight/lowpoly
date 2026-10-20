@@ -449,25 +449,46 @@ class Decals {
     this.c = new THREE.Color();
     scene.add(this.mesh);
   }
-  add(x, y, z, nx, ny, nz, size, color) {
+  // grow > 0: the decal spreads from a third of its size over grow seconds (pools)
+  add(x, y, z, nx, ny, nz, size, color, grow = 0) {
     const i = this.i; this.i = (this.i + 1) % this.cap;
+    if (this.growing) { for (let k = this.growing.length - 1; k >= 0; k--) if (this.growing[k].i === i) this.growing.splice(k, 1); }
     this.n.set(nx, ny, nz);
     this.q.setFromUnitVectors(this.z, this.n);
     this.q.premultiply(_spin.setFromAxisAngle(this.n, Math.random() * Math.PI));
     this.v.set(x + nx * 0.01, y + ny * 0.01, z + nz * 0.01);
-    this.s.set(size, size, size);
+    const s0 = grow > 0 ? size * 0.3 : size;
+    this.s.set(s0, s0, s0);
     this.m.compose(this.v, this.q, this.s);
     this.mesh.setMatrixAt(i, this.m);
+    if (grow > 0) {
+      if (!this.growing) this.growing = [];
+      this.growing.push({ i, p: this.v.clone(), q: this.q.clone(), s0, s1: size, t: 0, T: grow });
+    }
     this.c.setHex(color);
     this.mesh.setColorAt(i, this.c);
     this.mesh.count = Math.max(this.mesh.count, i + 1);
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
+  update(dt) {
+    const G = this.growing;
+    if (!G || !G.length) return;
+    for (const d of G) {
+      d.t += dt;
+      const u = Math.min(1, d.t / d.T), e = 1 - (1 - u) * (1 - u) * (1 - u), sz = d.s0 + (d.s1 - d.s0) * e;
+      this.s.set(sz, sz, sz);
+      this.m.compose(d.p, d.q, this.s);
+      this.mesh.setMatrixAt(d.i, this.m);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.growing = G.filter((d) => d.t < d.T);
+  }
   clear() {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < this.cap; i++) this.mesh.setMatrixAt(i, zero);
     this.mesh.count = 0; this.i = 0;
+    if (this.growing) this.growing.length = 0;
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }
@@ -520,6 +541,8 @@ export class FX {
     this.tracers = new Tracers(scene, 64);
     this.decals = new Decals(scene, mobile ? 96 : 160);
     this.drops = new Decals(scene, mobile ? 64 : 128);
+    // blood / oil pools under bodies spread out over a few seconds
+    this.pools = new Decals(scene, mobile ? 28 : 48);
     this.fire = new Billboards(scene, mobile ? 110 : 190, true);
     this.smoke = new Billboards(scene, mobile ? 70 : 130, false);
     const box = new THREE.BoxGeometry(1, 1, 1);
@@ -581,6 +604,7 @@ export class FX {
     this.dust.update(dt);
     this.fire.update(dt);
     this.smoke.update(dt);
+    this.pools.update(dt);
     this.tracers.update(dt);
     this.beams.update(dt);
     this.balls.update(dt);
@@ -600,7 +624,7 @@ export class FX {
   }
 
   clear() {
-    this.sparks.clear(); this.dust.clear(); this.tracers.clear(); this.decals.clear(); this.drops.clear();
+    this.sparks.clear(); this.dust.clear(); this.tracers.clear(); this.decals.clear(); this.drops.clear(); this.pools.clear();
     this.fire.clear(); this.smoke.clear();
     this.beams.clear(); this.balls.clear(); this.rings.clear(); this.discs.clear(); this.columns.clear();
     for (const d of this.debris) d.life = 0;
@@ -623,6 +647,13 @@ export class FX {
   flare(p, color, size, life = 0.05, mode = 2) {
     const c = _cv.setHex(color);
     this.fire.spawn(p.x, p.y, p.z, 0, 0, 0, size, size, BB.GLOW, BB.GLOW, life, c.r, c.g, c.b, 1, mode === 2 ? FLARE_OPT : FADE_OPT);
+  }
+
+  // A four-point star glint (attack release, metal ping): white core tinted toward color.
+  glint(p, color, size = 1, life = 0.09) {
+    const c = _cv.setHex(color);
+    this.fire.spawn(p.x, p.y, p.z, 0, 0, 0, size, size * 0.3, BB.STAR, BB.STAR, life, 0.6 + c.r * 0.4, 0.6 + c.g * 0.4, 0.6 + c.b * 0.4, 1, FLARE_OPT);
+    this.fire.spawn(p.x, p.y, p.z, 0, 0, 0, size * 0.8, size * 1.2, BB.GLOW, BB.GLOW, life * 1.6, c.r, c.g, c.b, 0.8, FADE_OPT);
   }
 
   // Per-surface hits: metal throws bright sparks and a glint, concrete chips and puffs dust,
@@ -668,12 +699,12 @@ export class FX {
         color[0], color[1], color[2], 1, 0.08 + Math.random() * 0.08, 0.5 + Math.random() * 0.5, 16, 0.5, floor);
       if (sticky > 0) { sticky--; this.dust.stick[k] = 1; this.dust.life[k] = this.dust.max[k] = 2.5; }
     }
-    if (gore && amount >= 0.6) {
-      const m = Math.min(3, Math.ceil(amount * 0.8));
+    if (gore && amount >= 1.2) {
+      const m = amount >= 2 ? 2 : 1;
       for (let i = 0; i < m; i++) {
         this.smoke.spawn(p.x + (Math.random() - 0.5) * 0.2, p.y + (Math.random() - 0.5) * 0.2, p.z + (Math.random() - 0.5) * 0.2,
           dir.x * 1.5 + (Math.random() - 0.5), dir.y * 1.5 + 0.3, dir.z * 1.5 + (Math.random() - 0.5),
-          0.2 + amount * 0.12, 0.45 + amount * 0.3, BB.MIST, BB.MIST, 0.3 + Math.random() * 0.2, color[0] * 0.9, color[1] * 0.9, color[2] * 0.9, 0.85, MIST_OPT);
+          0.15 + amount * 0.06, 0.3 + amount * 0.14, BB.MIST, BB.MIST, 0.22 + Math.random() * 0.12, color[0] * 0.7, color[1] * 0.7, color[2] * 0.7, 0.6, MIST_OPT);
       }
     }
   }
@@ -722,10 +753,10 @@ export class FX {
       const a = Math.random() * Math.PI * 2, r = 0.4 + Math.random() * 1.8 * scale;
       this.drops.add(p.x + Math.cos(a) * r + dir.x * r * 0.6, floor + 0.006, p.z + Math.sin(a) * r + dir.z * r * 0.6, 0, 1, 0, 0.25 + Math.random() * 0.45 * scale, hex);
     }
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       this.smoke.spawn(p.x + (Math.random() - 0.5) * 0.6, p.y + (Math.random() - 0.3) * 0.6, p.z + (Math.random() - 0.5) * 0.6,
         (Math.random() - 0.5) * 2 + dir.x * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2 + dir.z * 2,
-        0.4 * scale, 1.1 * scale, BB.MIST, BB.MIST, 0.4 + Math.random() * 0.3, color[0], color[1], color[2], 0.9, MIST_OPT);
+        0.3 * scale, 0.9 * scale, BB.MIST, BB.MIST, 0.35 + Math.random() * 0.25, color[0] * 0.75, color[1] * 0.75, color[2] * 0.75, 0.7, MIST_OPT);
     }
     this.splatter(p, _rd.set(dir.x, dir.y * 0.3, dir.z), 1.0 * scale, hex, 4);
   }
@@ -896,7 +927,7 @@ export class FX {
     it.mesh.material.color.setHex(color);
     it.mesh.visible = true;
     it.life = it.max = life;
-    it.update = (o, t) => { const s = radius * (2.2 - 1.2 * t); o.mesh.scale.set(s, 1, s); o.mesh.material.opacity = 0.35 + 0.65 * t; o.mesh.rotation.y += 0.1; };
+    it.update = (o, t) => { const s = radius * (2.2 - 1.2 * Math.min(1, t * 2)); o.mesh.scale.set(s, 1, s); o.mesh.material.opacity = t < 0.5 ? 0.35 + 1.3 * t : (1 - t) * 2; o.mesh.rotation.y += 0.1; };
     it.update(it, 0, 0);
     const n = this.game.lowPower ? 8 : 14;
     for (let i = 0; i < n; i++) {
@@ -963,12 +994,24 @@ export class FX {
   // Turn enemy part meshes into physical corpse pieces that tumble and settle.
   // opts.bleed: blood colour (the piece trails sticky drops and splats where it lands);
   // opts.spark: the piece trails sparks and smoke (robot parts).
+  // A whole limb (a bone group with its children) is wrapped in a holder centred on its bounds,
+  // so it tumbles about its middle and settles on the floor instead of its joint.
   addCorpsePiece(mesh, vel, spin, opts) {
-    mesh.updateWorldMatrix(true, false);
-    mesh.matrixWorld.decompose(_wp, _wq, _ws);
-    if (mesh.parent) mesh.parent.remove(mesh);
-    mesh.position.copy(_wp); mesh.quaternion.copy(_wq); mesh.scale.copy(_ws);
-    this.game.scene.add(mesh);
+    if (!mesh.isMesh) {
+      mesh.updateWorldMatrix(true, true);
+      const holder = new THREE.Group();
+      _bx.setFromObject(mesh).getCenter(holder.position);
+      this.game.scene.add(holder);
+      holder.updateMatrixWorld(true);
+      holder.attach(mesh);
+      mesh = holder;
+    } else {
+      mesh.updateWorldMatrix(true, false);
+      mesh.matrixWorld.decompose(_wp, _wq, _ws);
+      if (mesh.parent) mesh.parent.remove(mesh);
+      mesh.position.copy(_wp); mesh.quaternion.copy(_wq); mesh.scale.copy(_ws);
+      this.game.scene.add(mesh);
+    }
     const box = _bx.setFromObject(mesh);
     const half = Math.max(0.05, (box.max.y - box.min.y) * 0.5);
     const piece = { mesh, v: vel.clone(), w: spin.clone(), half, rest: false, t: 0, bleed: null, spark: false, trailT: 0 };
@@ -979,6 +1022,12 @@ export class FX {
       this.game.scene.remove(c.mesh);
     }
     return piece;
+  }
+
+  // a pool that spreads under a body (blood, or oil for machines)
+  pool(x, y, z, size, color, grow = 2.2) {
+    if (!this.gore) return;
+    this.pools.add(x, y + 0.008, z, 0, 1, 0, size, color, grow);
   }
 
   updateCorpses(dt) {

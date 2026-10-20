@@ -16,28 +16,29 @@ const TAU = Math.PI * 2;
 // detailed enemy costs about one draw call per bone.
 // ---------------------------------------------------------------------------------------
 let MATS = null;
+function mkEnemyMat(tex, o = {}, glow = [1, 1, 1, 0]) {
+  const m = psxify(new THREE.MeshLambertMaterial({ map: tex, vertexColors: true, emissive: new THREE.Color(0.2, 0.2, 0.2), ...o }));
+  const uGlow = { value: new THREE.Vector4(...glow) };
+  const base = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    base(sh, r);
+    sh.uniforms.uGlow = uGlow;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float glow;\nvarying float vGlow;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec4 uGlow;\nvarying float vGlow;')
+      // self-illumination follows the paint, so dark parts stay dark
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor;')
+      .replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, mix(vColor, uGlow.rgb, uGlow.a), vGlow);\n#include <opaque_fragment>');
+  };
+  // distinct key: the shader differs from plain psxify materials with the same parameters
+  m.customProgramCacheKey = () => 'psx1-enemy';
+  return m;
+}
 function enemyMats() {
   if (MATS) return MATS;
-  const mk = (tex, o = {}, glow = [1, 1, 1, 0]) => {
-    const m = psxify(new THREE.MeshLambertMaterial({ map: tex, vertexColors: true, emissive: new THREE.Color(0.2, 0.2, 0.2), ...o }));
-    const uGlow = { value: new THREE.Vector4(...glow) };
-    const base = m.onBeforeCompile;
-    m.onBeforeCompile = (sh, r) => {
-      base(sh, r);
-      sh.uniforms.uGlow = uGlow;
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float glow;\nvarying float vGlow;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow;');
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec4 uGlow;\nvarying float vGlow;')
-        // self-illumination follows the paint, so dark parts stay dark
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= vColor;')
-        .replace('#include <opaque_fragment>', 'outgoingLight = mix(outgoingLight, mix(vColor, uGlow.rgb, uGlow.a), vGlow);\n#include <opaque_fragment>');
-    };
-    // distinct key: the shader differs from plain psxify materials with the same parameters
-    m.customProgramCacheKey = () => 'psx1-enemy';
-    return m;
-  };
+  const mk = mkEnemyMat;
   const skin = getTexture('skin'), sinew = sinewTexture();
   const CX = { color: 0xa890c8, emissive: new THREE.Color(0.3, 0.08, 0.4) }, GX = [0.8, 0.3, 1, 0.85];
   MATS = {
@@ -47,7 +48,34 @@ function enemyMats() {
     // stalker camouflage: a faint additive shimmer
     cloak: mk(sinew, { color: 0x6890b0, emissive: new THREE.Color(0.08, 0.16, 0.24), transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }, [0.5, 1, 0.4, 0.6]),
   };
+  MATS.tex = { metal: skin, flesh: sinew };
   return MATS;
+}
+
+// Per-stratum paint (a multiplicative cast + a faint self-glow) and elite glow colours.
+// Variants share one shader program; each is built once on first use.
+const PAINT = {
+  foundry: { color: 0xffd2b0, em: [0.26, 0.15, 0.08] },
+  reactor: { color: 0xd4f4b8, em: [0.12, 0.24, 0.08] },
+  research: { color: 0xf4f6ff, em: [0.24, 0.24, 0.26] },
+  orbital: { color: 0xc4d4f4, em: [0.12, 0.16, 0.26] },
+  cryo: { color: 0xd8f0ff, em: [0.16, 0.24, 0.32] },
+  slaughter: { color: 0xf0b4a8, em: [0.28, 0.08, 0.06] },
+  choir: { color: 0xfff0c0, em: [0.28, 0.24, 0.12] },
+  core: { color: 0xb8b0c8, em: [0.14, 0.08, 0.18] },
+  breach: { color: 0xd8c4f0, em: [0.2, 0.1, 0.28] },
+};
+const ELITE_GLOW = { shielded: [0.3, 0.9, 1, 0.9], frenzied: [1, 0.2, 0.25, 0.9], volatile: [1, 0.6, 0.15, 0.9], blinking: [0.8, 0.4, 1, 0.9] };
+const VARIANTS = new Map();
+function variantMat(skin, paint, elite) {
+  const k = skin + '|' + (paint || '') + '|' + (elite || '');
+  let m = VARIANTS.get(k);
+  if (m) return m;
+  const M = enemyMats(), P = paint && PAINT[paint];
+  const o = P ? { color: P.color, emissive: new THREE.Color(...P.em) } : {};
+  m = mkEnemyMat(M.tex[skin] || M.tex.metal, o, elite && ELITE_GLOW[elite] || [1, 1, 1, 0]);
+  VARIANTS.set(k, m);
+  return m;
 }
 
 function sinewTexture() {
@@ -228,6 +256,84 @@ function humanBones(o) {
   return bones;
 }
 
+// ---------------------------------------------------------------------------------------
+// Stratum gear: accessories bolted onto humanoid rigs per region (visor, tank, helmet, crown,
+// horns...). Each piece is built once in a unit box and scaled to the bone it rides on, so
+// one design fits every body. Pieces ride on the bone's mesh (a helmet flies off with a head).
+// ---------------------------------------------------------------------------------------
+const GEAR = {
+  service: [['armR', (S) => { S.b(1.25, 0.32, 1.25, 0, 0.42, 0, 0x5a5c70, { top: [0.75, 0.75] }); S.b(1.28, 0.08, 1.28, 0, 0.27, 0, 0xc8a020); }]],
+  foundry: [
+    ['head', (S) => { S.b(1.12, 0.6, 0.16, 0, 0.04, 0.56, 0x34302a, { top: [0.95, 1] }); S.g(0.82, 0.1, 0.05, 0, 0.1, 0.65, 0xff9020); S.b(1.15, 0.12, 1.12, 0, 0.36, 0, 0x5a4636); }],
+    ['armL', (S) => { S.b(1.3, 0.36, 1.3, 0, 0.4, 0, 0x6a4a30, { top: [0.8, 0.8] }); S.b(0.5, 0.5, 0.06, 0, 0.1, 0.62, 0x3a2a1e); }],
+  ],
+  reactor: [
+    ['torso', (S) => { S.b(0.36, 0.55, 0.3, 0.2, 0.12, -0.72, 0x7c8a2c); S.g(0.38, 0.07, 0.32, 0.2, 0.18, -0.72, 0x80ff40); S.b(0.2, 0.08, 0.2, 0.2, 0.43, -0.72, 0x2c2c26); S.b(0.06, 0.06, 0.5, 0.2, 0.47, -0.45, 0x2c2c26); }],
+    ['head', (S) => { S.b(0.5, 0.36, 0.3, 0, -0.22, 0.56, 0x3a3e30); S.g(0.18, 0.18, 0.06, -0.14, -0.22, 0.72, 0x80ff40); S.g(0.18, 0.18, 0.06, 0.14, -0.22, 0.72, 0x80ff40); }],
+  ],
+  research: [
+    ['head', (S) => { S.b(0.08, 0.9, 0.08, 0.32, 0.8, -0.15, 0x3a3e48); S.g(0.16, 0.16, 0.16, 0.32, 1.28, -0.15, 0x40e0ff); S.b(0.3, 0.3, 0.12, -0.36, 0.12, 0.56, 0xe8ecf0); S.g(0.2, 0.2, 0.05, -0.36, 0.12, 0.63, 0x40e0ff); }],
+    ['torso', (S) => { S.b(0.9, 0.5, 0.06, 0, 0.05, 0.53, 0xe8ecf0); S.b(0.12, 0.3, 0.07, 0.25, 0.1, 0.56, 0xc83040); }],
+  ],
+  orbital: [
+    ['head', (S) => { S.b(1.18, 0.5, 1.18, 0, 0.42, 0, 0x8a96aa, { top: [0.7, 0.7] }); S.g(0.92, 0.14, 0.06, 0, 0.14, 0.6, 0x60a8ff); S.b(0.12, 0.3, 0.12, -0.5, 0.75, -0.1, 0x3a4050); }],
+    ['torso', (S) => { S.b(0.5, 0.42, 0.22, 0, 0.18, -0.66, 0x8a96aa); S.g(0.1, 0.3, 0.04, -0.15, 0.18, -0.78, 0x60a8ff); S.g(0.1, 0.3, 0.04, 0.15, 0.18, -0.78, 0x60a8ff); }],
+  ],
+  cryo: [
+    ['torso', (S) => {
+      S.g(0.16, 0.5, 0.16, -0.42, 0.62, -0.05, 0xa8e4ff, { top: [0, 0], rz: 0.35 }); S.g(0.12, 0.38, 0.12, -0.3, 0.58, 0.12, 0xd8f4ff, { top: [0, 0], rz: 0.15 });
+      S.g(0.16, 0.5, 0.16, 0.42, 0.62, -0.05, 0xa8e4ff, { top: [0, 0], rz: -0.35 }); S.g(0.12, 0.36, 0.12, 0.3, 0.6, -0.15, 0xd8f4ff, { top: [0, 0], rz: -0.2 });
+      S.b(1.05, 0.12, 1.05, 0, 0.47, 0, 0xc8e8f4);
+    }],
+    ['head', (S) => { S.b(1.12, 0.16, 1.12, 0, 0.5, 0, 0xd8f0ff); S.g(0.14, 0.3, 0.14, 0.25, 0.68, 0.1, 0xa8e4ff, { top: [0, 0] }); }],
+  ],
+  slaughter: [
+    ['torso', (S) => {
+      for (let i = 0; i < 4; i++) S.b(0.1, 0.1, 0.06, 0.32, 0.55 - i * 0.12, -0.6 - (i % 2) * 0.03, 0x3a3a3c);
+      S.b(0.08, 0.3, 0.08, 0.32, -0.02, -0.62, 0x8a8a90); S.b(0.24, 0.08, 0.08, 0.24, -0.18, -0.62, 0x8a8a90); S.b(0.06, 0.12, 0.06, 0.14, -0.12, -0.62, 0x8a8a90, { top: [0, 0] });
+      S.b(0.86, 0.75, 0.05, 0, -0.08, 0.53, 0x5a2018); S.b(0.3, 0.2, 0.06, -0.2, 0.05, 0.56, 0x7a0c10);
+    }],
+    ['armL', (S) => { S.b(0.18, 0.5, 0.18, -0.1, 0.55, 0, 0xc8c0a8, { top: [0, 0], rz: 0.4 }); S.b(0.18, 0.4, 0.18, 0.15, 0.5, 0, 0xc8c0a8, { top: [0, 0], rz: -0.3 }); }],
+  ],
+  choir: [
+    ['head', (S) => {
+      S.b(1.14, 0.16, 1.14, 0, 0.5, 0, 0xc89a38);
+      for (let i = 0; i < 5; i++) { const a = -0.9 + i * 0.45; S.b(0.12, 0.42, 0.08, Math.sin(a) * 0.52, 0.72, Math.cos(a) * 0.52, 0xe0b848, { top: [0, 0] }); }
+      S.g(0.16, 0.16, 0.06, 0, 0.55, 0.6, 0xfff0a0);
+    }],
+    ['torso', (S) => { S.b(0.36, 0.9, 0.04, 0, 0.05, 0.53, 0x8a1c20); S.b(0.12, 0.6, 0.05, 0, 0.1, 0.55, 0xd0a040); }],
+  ],
+  core: [
+    ['torso', (S) => {
+      for (let k = -1; k <= 1; k += 2) for (let i = 0; i < 5; i++) { const a = i / 4 * 2.6; S.b(0.09, 0.09, 0.2, k * 0.28, 0.25 + Math.sin(a) * 0.5, -0.3 - Math.cos(a) * 0.25, 0x1c1c22); }
+      S.g(0.14, 0.14, 0.14, -0.28, 0.75, -0.3, 0xff3050); S.g(0.14, 0.14, 0.14, 0.28, 0.75, -0.3, 0xff3050);
+      S.b(0.6, 0.4, 0.2, 0, 0.15, -0.62, 0x26242c);
+    }],
+  ],
+  breach: [
+    ['head', (S) => {
+      S.b(0.2, 0.62, 0.2, -0.36, 0.62, -0.08, 0x2a2030, { top: [0.2, 0.2], rz: 0.45 }); S.g(0.08, 0.12, 0.08, -0.55, 0.92, -0.08, 0xc060ff);
+      S.b(0.2, 0.62, 0.2, 0.36, 0.62, -0.08, 0x2a2030, { top: [0.2, 0.2], rz: -0.45 }); S.g(0.08, 0.12, 0.08, 0.55, 0.92, -0.08, 0xc060ff);
+    }],
+    ['torso', (S) => { S.g(0.12, 0.7, 0.04, -0.2, 0.1, 0.53, 0xc060ff, { rz: 0.3 }); S.g(0.1, 0.5, 0.04, 0.22, 0.0, 0.53, 0xc060ff, { rz: -0.4 }); }],
+  ],
+};
+const GEAR_GEO = new Map();
+const GEAR_TYPES = new Set(['husk', 'ripper', 'gunner', 'lancer', 'bulwark', 'signaller', 'stalker', 'cantor', 'mirror']);
+function gearGeo(key, fn) {
+  let gd = GEAR_GEO.get(key);
+  if (!gd) { const S = new Shape(); fn(S); gd = S.build(); GEAR_GEO.set(key, gd); }
+  return gd;
+}
+// is this mesh still part of the body (not a severed limb or a flying head)?
+function onBody(m, root) { for (let o = m.parent; o; o = o.parent) if (o === root) return true; return false; }
+// world-space spot on a bone (scratch output)
+const _bw = new THREE.Vector3();
+const _m4 = new THREE.Matrix4();
+const SPARK_TRAIL = { spark: true };
+// a blood colour as a darker decal hex
+function bloodHex(c, k = 0.55) { return (Math.round(c[0] * 255 * k) << 16) | (Math.round(c[1] * 255 * k) << 8) | Math.round(c[2] * 255 * k); }
+
 export const ENEMY_INFO = {
   husk: { name: 'HUSK', desc: 'Basic ranged trooper' },
   ripper: { name: 'RIPPER', desc: 'Fast melee lunger' },
@@ -302,6 +408,38 @@ export class Enemy {
     this.dropC = 0;
     this.gait = { stride: 0.7, knee: 0.9, arm: 0.45, bob: 0.05, lean: 0.1 };
     this.wardT = 0;
+    // motion layers (visual only): hit reactions, landing, turning, wind-up tells
+    this.limbHit = 0; this.limbSide = 'L'; this.limbPart = 0; this.hitJit = 0;
+    this.land = 0; this.airMax = 0; this.yawPrev = this.yaw; this.vfPrev = 0; this.accF = 0;
+    this.windStates = null; this.tell = null; this.tellT = -1;
+    this.stumps = null;
+  }
+
+  // region paint + bolt-on gear for humanoids (visual only; added before meshes are collected)
+  dressUp() {
+    const room = this.game.level && this.game.level.current;
+    const th = room && room.theme && room.theme.id;
+    if (!th) return;
+    if (PAINT[th] && Math.random() < 0.85) this.paint = th;
+    const J = this.joints;
+    const gear = GEAR[th];
+    if (!gear || !J || !J.head || !J.torso || !GEAR_TYPES.has(this.type) || Math.random() < 0.25) return;
+    const M = enemyMats();
+    gear.forEach(([bone, fn], i) => {
+      const host = J[bone] && J[bone].userData.mesh;
+      if (!host) return;
+      const geo = host.geometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const bb = geo.boundingBox;
+      const w = bb.max.x - bb.min.x, h = bb.max.y - bb.min.y, d = bb.max.z - bb.min.z;
+      const gd = gearGeo(th + i, fn);
+      const skin = host.userData.skin || 'metal';
+      const m = new THREE.Mesh(gd.geo, M[skin]);
+      m.scale.set(w, h, d);
+      m.position.set(gd.c[0] * w + (bb.max.x + bb.min.x) / 2, gd.c[1] * h + (bb.max.y + bb.min.y) / 2, gd.c[2] * d + (bb.max.z + bb.min.z) / 2);
+      m.userData.mat = M[skin]; m.userData.skin = skin; m.userData.gear = true;
+      host.add(m);
+    });
   }
 
   finishSetup(maxHp) {
@@ -309,7 +447,10 @@ export class Enemy {
     this.hp = this.maxHp;
     if (this.elite === 'shielded') { this.shieldMax = this.maxHp * 0.5; this.shield = this.shieldMax; }
     if (this.elite === 'frenzied') { this.speedMul = 1.35; this.aggr *= 0.65; this.windMul = 0.75; }
+    if (!this.mini) this.dressUp();
     this.group.traverse((o) => { if (o.isMesh) this.meshes.push(o); });
+    if (this.joints && (this.paint || this.elite)) this.applySkin(false);
+    if (this.elite && this.eyes) this.eyes.material = eyeMat(this.eyes.userData.kind, ELITE_MODS[this.elite].color);
     if (!shadowGeo) { shadowGeo = new THREE.CircleGeometry(1, 10); shadowGeo.rotateX(-Math.PI / 2); }
     this.shadow = new THREE.Mesh(shadowGeo, sharedMaterials().shadow);
     this.shadow.scale.setScalar(this.radius * 1.3);
@@ -329,10 +470,33 @@ export class Enemy {
       }
     }
     this.headY0 = this.headY; this.bodyY10 = this.bodyY1;
+    this.baseScale = this.group.scale.x;
+    this.spawnT0 = this.spawnT;
     this.group.visible = false;
     this.game.scene.add(this.group);
-    this.game.fx.spawnColumn(this.pos.x, this.pos.y, this.pos.z, this.elite ? ELITE_MODS[this.elite].color : 0xff3050, this.spawnT, this.bodyY1 + 1.5);
+    const sc = this.elite ? ELITE_MODS[this.elite].color : 0xff3050;
+    this.game.fx.spawnColumn(this.pos.x, this.pos.y, this.pos.z, sc, this.spawnT, this.bodyY1 + 1.5);
+    if (this.game.fx.spawnIn) this.game.fx.spawnIn(this.pos.x, this.flying ? this.gy() : this.pos.y, this.pos.z, sc, Math.max(1, this.bodyY1), Math.max(0.6, this.radius * 1.4), this.spawnT);
     this.game.audio.play('spawn', this.pos, 0.6);
+  }
+
+  // Spawn-in: walkers rise out of the floor through the sigil, fliers unfold out of a flash.
+  // Only the visual group moves; the body (and its hitboxes) stays where it spawned.
+  spawnPose() {
+    const T0 = this.spawnT0 || 0.9, half = Math.min(0.45, T0 * 0.5);
+    if (this.spawnT > half) return;
+    const u = Math.max(0, 1 - this.spawnT / half), e = 1 - (1 - u) * (1 - u) * (1 - u);
+    if (this.flying) {
+      const s = this.baseScale * (0.15 + 0.85 * e + Math.sin(u * Math.PI) * 0.12);
+      this.group.scale.setScalar(s);
+      this.group.position.y += (1 - e) * 0.8;
+    } else {
+      const h = (this.bodyY1 || 1.5) + 0.25;
+      this.group.position.y -= (1 - e) * h;
+      this.group.rotation.y += (1 - e) * 1.2;
+    }
+    this.group.visible = u > 0.04 && (u > 0.5 || Math.random() < 0.8);
+    this.eyeFlare = Math.max(this.eyeFlare, 1 - u);
   }
 
   // pose targets for the joints that exist on this rig
@@ -360,10 +524,11 @@ export class Enemy {
   // material set: base skin per mesh, NG+ corruption, or cloak
   applySkin(cloak = false) {
     const M = enemyMats();
+    const plain = !this.paint && !this.elite;
     for (const m of this.meshes) {
       const sk = m.userData.skin;
       if (!sk) continue;
-      const mat = cloak ? M.cloak : M[sk + (this.corrupt ? 'X' : '')];
+      const mat = cloak ? M.cloak : this.corrupt || plain ? M[sk + (this.corrupt ? 'X' : '')] : variantMat(sk, this.paint, this.elite);
       m.userData.mat = mat;
       if (!this.flashing) m.material = mat;
     }
@@ -498,6 +663,18 @@ export class Enemy {
       this.flinchX = f * k; this.flinchZ = -r * k;
       this.flinchH = (info.part === 'head' ? 1.4 : 0.3) * (f || -1) * k;
     }
+    // where it landed: low hits buckle a knee, hits wide on the shoulder throw an arm back
+    if (this.tg && info.point && info.part !== 'head') {
+      const pt = info.point;
+      const rel = (pt.y - this.pos.y) / Math.max(0.5, this.headY0 || this.headY);
+      const lx = (pt.x - this.pos.x) * Math.cos(this.yaw) - (pt.z - this.pos.z) * Math.sin(this.yaw);
+      const k = Math.min(1, 0.45 + amount / Math.max(1, this.maxHp) * 3) * (this.heavy ? 0.5 : 1);
+      if (rel < 0.45 && this.tg.legL) { this.limbPart = 1; this.limbSide = lx < 0 ? 'L' : 'R'; this.limbHit = k; }
+      else if (rel > 0.55 && rel < 0.95 && this.tg.armL && Math.abs(lx) > this.radius * 0.35) { this.limbPart = 2; this.limbSide = lx < 0 ? 'L' : 'R'; this.limbHit = k; }
+    }
+    // the body shudders for a beat on every hit (hit-stop feel without stopping the game)
+    this.hitJit = Math.max(this.hitJit, Math.min(0.12, 0.05 + amount / Math.max(1, this.maxHp) * 0.3));
+    if (this.robot && info.point && amount > 0) this.game.fx.sparksBurst(info.point, 0xffc060, 4, 5, 0.25, 0.07);
     if (this.elite === 'blinking' && this.recentDmg > this.maxHp * 0.22 && this.blinkCd <= 0 && this.hp > 0) this.blink();
   }
 
@@ -532,7 +709,6 @@ export class Enemy {
   update(dt) {
     if (this.spawnT > 0) {
       this.spawnT -= dt;
-      this.group.visible = this.spawnT < 0.45 && Math.random() < 0.85;
       if (this.spawnT <= 0) {
         this.group.visible = true; this.targetable = true;
         const info = ENEMY_INFO[this.type];
@@ -601,6 +777,49 @@ export class Enemy {
       this.eyes.scale.set(s, s, s);
     }
     this.animate(dt);
+    if (this.spawnT > 0) this.spawnPose();
+    else if (this.baseScale && this.group.scale.x !== this.baseScale) this.group.scale.setScalar(this.baseScale);
+    if (this.hitJit > 0) {
+      const j = this.hitJit;
+      this.group.position.x += (Math.random() - 0.5) * j; this.group.position.z += (Math.random() - 0.5) * j;
+      this.hitJit = Math.max(0, j - dt * 0.7);
+    }
+    if (this.windStates) this.updateTell(dt);
+  }
+
+  // Wind-up tell: a glow swells on the weapon (or the eyes) for as long as the enemy winds up,
+  // then pops as a glint when the attack releases. Interrupted wind-ups just go dark.
+  updateTell(dt) {
+    const on = this.alive && this.spawnT <= 0 && this.stagger <= 0 && this.windStates.has(this.state);
+    const fx = this.game.fx;
+    if (on) {
+      if (this.tellT < 0) this.tellT = 0;
+      this.tellT += dt;
+      if (!this.group.visible || this.cloaked || !fx.flare) return;
+      const k = Math.min(1, this.tellT / 0.45);
+      const pulse = 0.85 + 0.15 * Math.sin(this.game.time * 30);
+      fx.flare(this.tellPos(_bw), this.tellColor(), (0.22 + 0.5 * k) * pulse * (this.tellSize || 1), 0.04);
+    } else if (this.tellT >= 0) {
+      if (this.alive && this.stagger <= 0 && this.group.visible && fx.glint) fx.glint(this.tellPos(_bw), this.tellColor(), 0.9 * (this.tellSize || 1));
+      this.tellT = -1;
+    }
+  }
+  tellPos(out) {
+    const t = this.tell || this.muzzle;
+    this.group.updateMatrixWorld(true);
+    if (t) return t.bone.localToWorld(out.copy(t.at));
+    if (this.eyes) return this.eyes.getWorldPosition(out);
+    return out.copy(this.centerPos());
+  }
+  tellColor() { return this.eyes ? this.eyes.material.color.getHex() : 0xff4030; }
+
+  // touchdown after a fall or a leap: a puff of dust at the feet
+  landFx(k) {
+    const fx = this.game.fx, p = this.pos;
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * TAU;
+      fx.dust.spawn(p.x + Math.cos(a) * this.radius, p.y + 0.05, p.z + Math.sin(a) * this.radius, Math.cos(a) * 2 * k, 0.4, Math.sin(a) * 2 * k, 0.4, 0.38, 0.35, 0.6, 0.16, 0.45, -0.2, 3);
+    }
   }
 
   groundY() { return this.flying ? this.groundLevel || 0 : this.pos.y; }
@@ -631,20 +850,73 @@ export class Enemy {
     const keys = this.jkeys;
     for (let i = 0; i < keys.length; i++) { const o = T[keys[i]]; o.x = 0; o.y = 0; o.z = 0; }
     T.drop = 0; T.rate = 12;
-    const v = Math.hypot(this.body.vel.x, this.body.vel.z);
-    const amt = Math.min(1, v / Math.max(1.5, (this.speed || 3) * 0.75));
+    const vx = this.body.vel.x, vz = this.body.vel.z;
+    const v = Math.hypot(vx, vz);
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const vf = vx * sy + vz * cy, vl = vx * cy - vz * sy; // forward / sideways (local +X)
+    const idt = 1 / Math.max(dt, 1e-4);
+    // turning on the spot still shuffles the feet
+    const yawRate = Math.abs(angleDiff(this.yawPrev, this.yaw)) * idt;
+    this.yawPrev = this.yaw;
+    const turn = v < 0.8 ? Math.min(1, Math.max(0, yawRate - 1.2) / 4) : 0;
+    if (turn > 0) this.walk += turn * dt * 7;
+    const amt = Math.max(Math.min(1, v / Math.max(1.5, (this.speed || 3) * 0.75)), turn * 0.45);
+    const fwd = v > 0.3 ? vf / v : 1, lat = v > 0.3 ? vl / v : 0;
+    // braking and accelerating tip the body (weight)
+    this.accF += (clamp((vf - this.vfPrev) * idt, -30, 30) - this.accF) * Math.min(1, dt * 10);
+    this.vfPrev = vf;
     const s = Math.sin(this.walk), c = Math.cos(this.walk);
+    const breathe = Math.sin(t * 2.1 + this.seed);
     if (T.legL) {
-      T.legL.x = -s * G.stride * amt; T.legR.x = s * G.stride * amt;
+      const st = G.stride * amt;
+      // stepping follows the travel direction: forward, backpedal or side-step
+      T.legL.x = -s * st * fwd; T.legR.x = s * st * fwd;
+      T.legL.z = s * st * 0.5 * lat; T.legR.z = -s * st * 0.5 * lat;
       T.shinL.x = (0.08 + Math.max(0, c) * G.knee) * amt; T.shinR.x = (0.08 + Math.max(0, -c) * G.knee) * amt;
       T.drop = (0.5 - Math.abs(c)) * G.bob * amt;
     }
-    if (T.armL) { T.armL.x = s * G.arm * amt; T.armR.x = -s * G.arm * amt; }
-    if (T.foreL) { T.foreL.x = -0.2 * amt; T.foreR.x = -0.2 * amt; }
-    T.torso.x = G.lean * amt + Math.sin(t * 2.1 + this.seed) * 0.025;
-    T.torso.y = s * 0.1 * amt;
-    if (T.head) { T.head.x = -G.lean * amt * 0.6; T.head.y = Math.sin(t * 0.8 + this.seed) * 0.14 * (1 - amt); }
+    let hy = 0, hz = 0;
+    if (T.hips) {
+      // pelvis rolls onto the planted leg and twists with the stride; idle weight shifts
+      hz = T.hips.z = s * 0.07 * amt + Math.sin(t * 0.7 + this.seed) * 0.03 * (1 - amt);
+      hy = T.hips.y = s * 0.15 * amt * fwd;
+    }
+    if (T.armL) {
+      T.armL.x = s * G.arm * amt * fwd; T.armR.x = -s * G.arm * amt * fwd;
+      T.armL.z = -0.05 - breathe * 0.025; T.armR.z = 0.05 + breathe * 0.025;
+    }
+    if (T.foreL) { T.foreL.x = -0.2 * amt - 0.08; T.foreR.x = -0.2 * amt - 0.08; }
+    T.torso.x = G.lean * amt * Math.max(-0.4, fwd) + breathe * 0.025 + clamp(this.accF * 0.012, -0.22, 0.22);
+    T.torso.y = -hy * 1.7;
+    T.torso.z = -hz * 1.3 - lat * 0.16 * amt;
+    if (T.head) {
+      // the head stays level and keeps looking where it is going
+      T.head.x = -G.lean * amt * 0.6 - breathe * 0.02;
+      T.head.y = Math.sin(t * 0.8 + this.seed) * 0.14 * (1 - amt) - (hy + T.torso.y) * 0.8;
+      T.head.z = -(hz + T.torso.z) * 0.7;
+    }
+    // airborne: knees tuck, arms out for balance; touchdown absorbs the fall
+    if (!this.flying) {
+      const air = !this.body.grounded && this.airTime > 0.12;
+      if (air) {
+        this.airMax = Math.max(this.airMax, this.airTime);
+        if (T.legL) { const rise = this.body.vel.y > 0 ? 1 : 0; T.legL.x = -0.8 - rise * 0.2; T.shinL.x = 1.25; T.legR.x = -0.25; T.shinR.x = 0.55 + rise * 0.4; T.legL.z = T.legR.z = 0; T.drop = 0; }
+        if (T.armL) { T.armL.x = -0.5; T.armL.z = -0.55; T.armR.x = -0.45; T.armR.z = 0.55; }
+        T.torso.x = 0.12; T.rate = 10;
+      } else if (this.airMax > 0) {
+        if (this.airMax > 0.25) { this.land = Math.min(1, this.airMax * 1.4); if (this.land > 0.35) this.landFx(this.land); }
+        this.airMax = 0;
+      }
+    }
     this.pose(T, dt, amt);
+    if (this.land > 0) {
+      const l = this.land;
+      this.crouch(T, 0.2 * l); T.torso.x += 0.32 * l;
+      if (T.head) T.head.x -= 0.2 * l;
+      if (T.armL) { T.armL.z -= 0.3 * l; T.armR.z += 0.3 * l; }
+      if (l > 0.5) T.rate = 22;
+      this.land = Math.max(0, l - dt * 3.2);
+    }
     if (this.stagger > 0) this.staggerPose(T, t);
     const k = 1 - Math.exp(-T.rate * dt);
     for (let i = 0; i < keys.length; i++) {
@@ -661,25 +933,72 @@ export class Enemy {
       J.torso.rotation.x += this.flinchX * f; J.torso.rotation.z += this.flinchZ * f;
       if (J.head) J.head.rotation.x += this.flinchH * f;
     }
+    // located hit reactions snap on and ease out on top of everything (they are impacts, not poses)
+    if (this.limbHit > 0) {
+      const f = this.limbHit, sd = this.limbSide, L = sd === 'L';
+      if (this.limbPart === 1 && J['leg' + sd]) {
+        J['leg' + sd].rotation.x -= 0.35 * f; J['shin' + sd].rotation.x += 0.95 * f;
+        if (J.hips) J.hips.position.y -= 0.08 * f;
+        J.torso.rotation.z += (L ? 0.2 : -0.2) * f;
+      } else if (this.limbPart === 2 && J['arm' + sd]) {
+        J['arm' + sd].rotation.x += 0.95 * f; J['arm' + sd].rotation.z += (L ? -0.6 : 0.6) * f;
+        if (J['fore' + sd]) J['fore' + sd].rotation.x += 0.5 * f;
+        J.torso.rotation.y += (L ? -0.3 : 0.3) * f;
+      }
+      this.limbHit = Math.max(0, f - dt * 3.5);
+    }
   }
 
-  // death collapse: knees buckle, the body tips along the killing blow, limbs flop
+  // Death collapse by style (see Enemies.collapse): the knees buckle and the body tips along the
+  // killing blow; headshots can drop to their knees first; big hits throw the arms up; a lost
+  // leg topples it toward the stump; a body cut in half leaves the legs folding. d.flop is the
+  // after-impact bounce that makes loose limbs settle.
   deathPose(k, d) {
     const J = this.joints;
     if (!J || !J.torso) return;
+    const st = d.style || 'fall', fl = d.flop || 0;
     const b = Math.min(1, k * 2.2);
+    const shin = Math.max(0.3, this.legLen * 0.5);
+    if (st === 'kneel') {
+      const a = Math.min(1, k / 0.45), e = a * a * (3 - 2 * a);
+      if (J.legL) {
+        J.legL.rotation.x = -0.25 * e; J.shinL.rotation.x = 1.55 * e;
+        J.legR.rotation.x = 0.05 * e; J.shinR.rotation.x = 1.6 * e;
+        J.hips.position.y = this.hipY - this.dropC - shin * 0.92 * e;
+      }
+      J.torso.rotation.x = 0.35 * e + 0.25 * Math.max(0, k - 0.45); J.torso.rotation.z = 0.08 * e;
+      if (J.head) J.head.rotation.x = 0.6 * e + fl * 2;
+      if (J.armL) { J.armL.rotation.x = 0.15 * e - fl * 3; J.armL.rotation.z = -0.15 * e; J.armR.rotation.x = 0.1 * e - fl * 3; J.armR.rotation.z = 0.2 * e; }
+      if (J.foreL) { J.foreL.rotation.x = -0.3 * e; J.foreR.rotation.x = -0.2 * e; }
+      return;
+    }
+    if (st === 'bisect') {
+      if (J.legL) {
+        J.legL.rotation.x = -0.9 * b; J.shinL.rotation.x = 1.9 * b; J.legR.rotation.x = -0.5 * b; J.shinR.rotation.x = 1.4 * b;
+        J.legL.rotation.z = -0.25 * b; J.legR.rotation.z = 0.3 * b;
+        J.hips.position.y = this.hipY - this.dropC - shin * 1.1 * b;
+      }
+      return;
+    }
     if (J.legL) {
-      J.legL.rotation.x = -0.55 * b; J.shinL.rotation.x = 1.0 * b;
-      J.legR.rotation.x = -0.15 * b; J.shinR.rotation.x = 0.5 * b;
+      const kb = st === 'blown' ? 0.5 : 1;
+      J.legL.rotation.x = -0.55 * b * kb; J.shinL.rotation.x = 1.0 * b * kb;
+      J.legR.rotation.x = -0.15 * b; J.shinR.rotation.x = 0.5 * b * kb;
       J.hips.position.y = this.hipY - this.dropC - 0.12 * b;
     }
     J.torso.rotation.x = d.lz * 0.35 * k; J.torso.rotation.z = -d.lx * 0.2 * k;
-    if (J.head) J.head.rotation.x = d.lz * 0.7 * k + 0.2;
+    if (J.head) J.head.rotation.x = d.lz * 0.7 * k + 0.2 + fl * 2.5;
     if (J.armL) {
-      J.armL.rotation.x = -d.lz * 1.3 * k; J.armL.rotation.z = -0.7 * k;
-      J.armR.rotation.x = -d.lz * 1.1 * k; J.armR.rotation.z = 0.7 * k;
+      if (st === 'blown') {
+        // arms fly up and back with the blast
+        J.armL.rotation.x = -2.3 * b + fl * 4; J.armL.rotation.z = -0.9 * b;
+        J.armR.rotation.x = -2.0 * b + fl * 4; J.armR.rotation.z = 0.9 * b;
+      } else {
+        J.armL.rotation.x = -d.lz * 1.3 * k + fl * 4; J.armL.rotation.z = -0.7 * k;
+        J.armR.rotation.x = -d.lz * 1.1 * k - fl * 3; J.armR.rotation.z = 0.7 * k;
+      }
     }
-    if (J.foreL) { J.foreL.rotation.x = -0.4 * k; J.foreR.rotation.x = -0.6 * k; }
+    if (J.foreL) { J.foreL.rotation.x = -0.4 * k + fl * 3; J.foreR.rotation.x = -0.6 * k; }
   }
 
   // shoot an orb at the player with lead
@@ -714,6 +1033,30 @@ export class Enemy {
     return out.add(this.pos);
   }
 
+  // Tear a bone (and everything hanging off it) away as one tumbling piece. The rig keeps a
+  // detached stand-in for each removed joint so the death pose never twists a flying limb.
+  // stump: the bone left behind, which sprays from the wound for a moment.
+  sever(bone, vel, stump) {
+    const g = this.game, J = this.joints;
+    const piv = J && J[bone];
+    if (!piv || !onBody(piv, this.group)) return false;
+    this.group.updateMatrixWorld(true);
+    const at = piv.getWorldPosition(new THREE.Vector3());
+    const host = stump && J[stump] ? (J[stump].userData.mesh || J[stump]) : null;
+    const origin = host ? host.getWorldPosition(new THREE.Vector3()) : null;
+    for (const k of Object.keys(J)) if (J[k] === piv || onBody(J[k], piv)) J[k] = new THREE.Object3D();
+    const spin = new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+    g.fx.addCorpsePiece(piv, vel, spin, this.robot ? SPARK_TRAIL : { bleed: this.bloodColor });
+    if (host) {
+      const d = at.clone().sub(origin);
+      if (d.lengthSq() < 1e-4) d.set(0, 1, 0);
+      g.enemies.addSpurt(host, at, d.normalize().add(V3.set(0, 0.6, 0)).normalize(), this.bloodColor, !!this.robot);
+    }
+    if (this.robot) g.fx.sparksBurst(at, 0xffc060, 10, 6, 0.4, 0.08);
+    else g.fx.blood(at, V3.set(vel.x, Math.max(1, vel.y), vel.z).normalize(), 2, this.bloodColor);
+    return true;
+  }
+
   die(info) {
     const g = this.game;
     this.alive = false;
@@ -725,46 +1068,77 @@ export class Enemy {
     this.flashing = false;
     if (this.cloaked) this.applySkin(false);
     if (this.eyes) this.eyes.visible = false;
+    const gore = g.settings.get('gore') !== false;
+    const robot = !!this.robot, bc = this.bloodColor;
+    const kd = info.killDmg || 0;
     const gib = info.source === 'explosion' || info.source === 'self' || force > 10 || !this.joints || this.flying || !this.body.grounded || this.latched;
+    const c = this.centerPos().clone();
     if (gib) {
+      // blown apart: every part flies, a few of them trailing blood (or sparks and smoke)
+      let trails = 0;
       for (const m of this.meshes.slice()) {
-        if (m.userData.noCorpse) continue;
+        if (m.userData.noCorpse || !m.parent) continue;
         const v = new THREE.Vector3(dir.x * force + (Math.random() - 0.5) * 3, 2 + Math.random() * 3 + (gib ? 4 : 0), dir.z * force + (Math.random() - 0.5) * 3);
         if (info.part === 'head' && m === this.headMesh) { v.y += 6; v.x += dir.x * 4; v.z += dir.z * 4; }
-        g.fx.addCorpsePiece(m, v, new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12));
+        const trail = trails < 4 && (m === this.headMesh || Math.random() < 0.4) && info.source !== 'self';
+        if (trail) trails++;
+        g.fx.addCorpsePiece(m, v, new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12), trail ? (robot ? SPARK_TRAIL : { bleed: bc }) : null);
       }
-      g.fx.chunks(this.centerPos(), 0x5a1010, 10, 9, 0.12);
+      g.fx.chunks(c, robot ? 0x2a2a2e : 0x5a1010, 10, 9, 0.12);
+      if (info.source !== 'self' && g.fx.gibBurst) {
+        if (robot) g.fx.oilBurst(c, dir, 1 + this.radius * 0.6);
+        else g.fx.gibBurst(c, dir, bc, this.flying ? 0.7 : 1);
+      }
+      if (gore && !robot && info.source !== 'self') g.audio.play('gib', c, 0.5);
       g.scene.remove(this.group);
     } else {
-      // headshot kills pop the head clean off; the rest collapses
+      const J = this.joints;
+      const pt = info.point;
+      const rel = pt ? (pt.y - this.pos.y) / Math.max(0.5, this.headY0 || this.headY) : 0.6;
+      const lx = Math.cos(this.yaw) * dir.x - Math.sin(this.yaw) * dir.z; // the shot pushes toward this local side
+      const side = lx > 0.15 ? 'L' : lx < -0.15 ? 'R' : (Math.random() < 0.5 ? 'L' : 'R');
+      const heavy = kd >= 38 || info.source === 'slam' || info.source === 'saw' || info.source === 'punch' || force > 7;
+      const huge = kd >= 75;
+      const away = (k, up) => new THREE.Vector3(dir.x * force * k + (Math.random() - 0.5) * 3, up + Math.random() * 3, dir.z * force * k + (Math.random() - 0.5) * 3);
+      let style = null;
+      // headshot kills pop the head clean off; the neck fountains while the body drops
       if (info.part === 'head' && this.headMesh && this.headMesh.parent) {
         this.decapitated = true;
-        g.fx.addCorpsePiece(this.headMesh, new THREE.Vector3(dir.x * 3 + (Math.random() - 0.5) * 2, 6 + Math.random() * 2, dir.z * 3 + (Math.random() - 0.5) * 2), new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14));
-        g.fx.blood(this.headPos(), new THREE.Vector3(0, 1, 0), 2, this.bloodColor);
+        if (J && J.head) this.sever('head', new THREE.Vector3(dir.x * 3 + (Math.random() - 0.5) * 2, 6 + Math.random() * 2, dir.z * 3 + (Math.random() - 0.5) * 2), 'torso');
+        else g.fx.addCorpsePiece(this.headMesh, new THREE.Vector3(dir.x * 3, 6 + Math.random() * 2, dir.z * 3), new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14));
+        g.fx.blood(this.headPos(), V2.set(0, 1, 0), 2, bc);
+        style = Math.random() < 0.6 ? 'kneel' : null;
       }
-      // a heavy killing blow tears an arm off at the shoulder; the stump sprays
-      const J = this.joints;
-      const heavy = (info.killDmg || 0) >= 38 || info.source === 'slam' || info.source === 'saw' || info.source === 'punch' || force > 7;
-      if (heavy && J && J.armL && J.armR && g.settings.get('gore') !== false) {
-        const right = Math.cos(this.yaw) * dir.x - Math.sin(this.yaw) * dir.z; // shot came from the side it pushes away from
-        const side = right > 0.15 ? 'L' : right < -0.15 ? 'R' : (Math.random() < 0.5 ? 'L' : 'R');
-        const shoulder = J['arm' + side].getWorldPosition(new THREE.Vector3());
-        for (const piv of [J['arm' + side], J['fore' + side]]) {
-          const m = piv && piv.userData.mesh;
-          if (!m || !m.parent) continue;
-          m.userData.severed = true;
-          g.fx.addCorpsePiece(m, new THREE.Vector3(dir.x * force * 0.8 + (Math.random() - 0.5) * 3, 3 + Math.random() * 3, dir.z * force * 0.8 + (Math.random() - 0.5) * 3),
-            new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16));
+      if (gore && J && J.torso) {
+        if (info.source === 'beam' && kd >= 90 && rel > 0.3 && rel < 0.9 && J.hips) {
+          // a full railcannon charge cuts the body in two
+          if (this.sever('torso', away(0.6, 4), 'hips')) style = 'bisect';
+        } else if (heavy && rel < 0.42 && J.legL && info.part !== 'head') {
+          // low heavy hits take a leg; it topples toward the stump
+          if (this.sever('leg' + side, away(0.7, 2.5), 'hips')) { style = 'legless'; this.lostLeg = side; }
+          if (huge && J.armL) this.sever('arm' + (side === 'L' ? 'R' : 'L'), away(0.5, 3), 'torso');
+        } else if (heavy && J.armL && J.armR) {
+          // a heavy killing blow tears an arm off at the shoulder; a huge one takes both
+          this.sever('arm' + side, away(0.8, 3), 'torso');
+          if (huge) this.sever('arm' + (side === 'L' ? 'R' : 'L'), away(0.6, 4), 'torso');
         }
-        g.fx.blood(shoulder, new THREE.Vector3(dir.x, 0.8, dir.z).normalize(), 2.4, this.bloodColor);
       }
-      g.fx.chunks(this.centerPos(), 0x5a1010, 4, 4, 0.1);
-      g.enemies.collapse(this, dir, force);
+      if (!style) {
+        const r = Math.random();
+        if (force > 7) style = 'blown';
+        else if (Math.abs(lx) > 0.7 && r < 0.5) style = 'spin';
+        else if (r < 0.3) style = 'kneel';
+        else style = 'fall';
+      }
+      if (gore && !robot) g.fx.splatter(c, dir, huge ? 1.4 : 0.9, bloodHex(bc));
+      g.fx.chunks(c, robot ? 0x2a2a2e : 0x5a1010, 4, 4, 0.1);
+      if (robot) g.fx.oilBurst(c, dir, 0.7);
+      g.enemies.collapse(this, dir, force, style);
     }
-    g.fx.blood(this.centerPos(), dir.setY(0.5).normalize(), gib ? 3 : 1.6, this.bloodColor);
+    if (!robot) g.fx.blood(c, dir.setY(0.5).normalize(), gib ? 3 : 1.6, bc);
     this.cleanupExtras();
     if (this.elite === 'volatile') {
-      const p = this.centerPos().clone();
+      const p = c.clone();
       g.fx.telegraphDisc(p.x, this.pos.y, p.z, 4, 0xff9020, 0.8);
       g.audio.play('windup', p, 0.8);
       g.enemies.delayed(0.8, () => {
@@ -840,6 +1214,7 @@ class Husk extends Enemy {
     this.styleValue = 18;
     this.recoil = 0;
     this.gait = { stride: 0.7, knee: 0.9, arm: 0.2, bob: 0.05, lean: 0.12 };
+    this.windStates = new Set(['aim']);
     this.finishSetup(60);
   }
   think(dt) {
@@ -919,6 +1294,7 @@ class Ripper extends Enemy {
     this.styleValue = 22;
     this.bloodColor = [0.65, 0.05, 0.1];
     this.gait = { stride: 0.95, knee: 1.25, arm: 0.25, bob: 0.07, lean: 0.35 };
+    this.windStates = new Set(['windup']); this.tell = { bone: J.foreR, at: new THREE.Vector3(0, -0.62, 0.1) }; this.tellSize = 1.2;
     this.finishSetup(45);
   }
   think(dt) {
@@ -1030,6 +1406,7 @@ class Gunner extends Enemy {
     this.styleValue = 30;
     this.spin = 0; this.spinV = 0;
     this.gait = { stride: 0.5, knee: 0.7, arm: 0.15, bob: 0.06, lean: 0.06 };
+    this.windStates = new Set(['windup']);
     this.finishSetup(95);
   }
   think(dt) {
@@ -1126,6 +1503,7 @@ class Lancer extends Enemy {
     this.styleValue = 30;
     this.aim = new THREE.Vector3();
     this.gait = { stride: 0.65, knee: 0.8, arm: 0.2, bob: 0.04, lean: 0.06 };
+    this.windStates = new Set(['aim', 'lock']); this.tellSize = 0.8;
     this.finishSetup(55);
   }
   think(dt) {
@@ -1243,6 +1621,7 @@ class Bulwark extends Enemy {
     this.styleValue = 45;
     this.gait = { stride: 0.45, knee: 0.6, arm: 0.2, bob: 0.08, lean: 0.06 };
     this.stepT = 0;
+    this.windStates = new Set(['slamWind', 'mortarWind']); this.tell = { bone: J.foreR, at: new THREE.Vector3(0, -0.32, 0.05) }; this.tellSize = 1.5;
     this.finishSetup(280);
   }
   armorFactor(info) {
@@ -1443,6 +1822,7 @@ class Wisp extends Enemy {
     this.bloodColor = [0.9, 0.6, 0.2];
     this.attackCd = 2.5 + Math.random() * 2;
     this.pos.y = this.hoverH;
+    this.windStates = new Set(['windup']); this.robot = true;
     this.finishSetup(28);
   }
   centerPos() { return this.c.set(this.pos.x, this.pos.y, this.pos.z); }
@@ -1578,6 +1958,7 @@ class Swarmer extends Enemy {
     this.bloodColor = [0.75, 0.3, 0.08];
     this.flankA = (Math.random() - 0.5) * 2.4;
     this.attackCd = 0.6 + Math.random();
+    this.windStates = new Set(['crouch']); this.tellSize = 0.7;
     this.finishSetup(16);
   }
   think(dt) {
@@ -1678,6 +2059,7 @@ class Sentry extends Enemy {
     this.attackCd = 1.2 + Math.random();
     this.state = 'scan';
     this.from = new THREE.Vector3(); this.end = new THREE.Vector3();
+    this.windStates = new Set(['charge']); this.tellSize = 1.6; this.robot = true;
     this.finishSetup(130);
   }
   armorFactor(info) {
@@ -1820,6 +2202,7 @@ class Stalker extends Enemy {
     this.gait = { stride: 0.8, knee: 1.1, arm: 0.2, bob: 0.04, lean: 0.4 };
     this.state = 'stalk';
     this.cloakK = 1; this.stepT = 0;
+    this.windStates = new Set(['reveal']);
     this.finishSetup(75);
     this.applySkin(true);
   }
@@ -1972,6 +2355,7 @@ class Cantor extends Enemy {
     this.halo = new THREE.Mesh(haloGeometry(), wardMat);
     this.halo.visible = false;
     game.scene.add(this.tether, this.halo);
+    this.windStates = new Set(['cast']); this.tellSize = 1.3;
     this.finishSetup(65);
   }
   extraCleanup() { this.game.scene.remove(this.tether, this.halo); if (this.ally) this.ally.wardT = Math.min(this.ally.wardT, 0.01); this.ally = null; }
@@ -2127,6 +2511,7 @@ class MirrorKnight extends Enemy {
     this.gait = { stride: 0.55, knee: 0.7, arm: 0.2, bob: 0.06, lean: 0.06 };
     this.reflectT = 0; this.reflectAcc = 0; this.flareCd = 3 + Math.random() * 2;
     this.state = 'advance';
+    this.windStates = new Set(['bashWind', 'flareWind']); this.tellSize = 1.4;
     this.finishSetup(170);
   }
   get guarding() { return this.state === 'advance' || this.state === 'bashWind' || this.state === 'bashRec'; }
@@ -2261,6 +2646,7 @@ class Leech extends Enemy {
     this.bloodColor = [0.55, 0.12, 0.3];
     this.state = 'crawl';
     this.latched = false; this.drainT = 0; this.latchT = 0;
+    this.windStates = new Set(['rear']); this.tellSize = 0.8;
     this.finishSetup(34);
   }
   think(dt) {
@@ -2423,6 +2809,7 @@ class Bomber extends Enemy {
     this.pos.y = Math.max(this.pos.y, this.hoverH);
     this.state = 'cruise'; this.attackCd = 1.5 + Math.random();
     this.runDir = new THREE.Vector3(); this.runStart = new THREE.Vector3();
+    this.robot = true;
     this.bank = 0;
     this.finishSetup(60);
   }
@@ -2579,6 +2966,7 @@ class Charger extends Enemy {
     this.lane.visible = false;
     game.scene.add(this.lane);
     this.stepT = 0;
+    this.windStates = new Set(['paw']); this.tellSize = 1.6;
     this.finishSetup(230);
   }
   extraCleanup() { this.game.scene.remove(this.lane); this.lane.material.dispose(); }
@@ -2738,6 +3126,7 @@ export class Enemies {
     this.waves = [];
     this.timers = [];
     this.dying = [];
+    this.spurts = [];
   }
   spawn(type, pos, opts = {}) {
     const C = TYPES[type];
@@ -2756,16 +3145,34 @@ export class Enemies {
     this.waves.push({ c: center.clone(), r: 0, maxR, speed, dmg, hit: false, cause, tip, ring: it, ring2: it2 });
   }
 
-  // grounded deaths keep the body for a short ragdoll-ish collapse before it becomes debris
-  collapse(e, dir, force) {
+  // grounded deaths keep the body for a short ragdoll-ish collapse before it becomes debris.
+  // style: fall (default), kneel (drops to the knees, then face-first), blown (thrown back by a
+  // big hit), spin (twists down from a side hit), legless (topples toward a lost leg), bisect
+  // (only the legs are left to fold).
+  collapse(e, dir, force, style = 'fall') {
     const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
     let lz = dir.x * fx + dir.z * fz, lx = dir.x * fz - dir.z * fx;
     const l = Math.hypot(lx, lz);
     if (l < 0.2) { lz = -1; lx = (Math.random() - 0.5) * 0.6; } else { lx /= l; lz /= l; }
+    let twist = (Math.random() - 0.5) * 0.6, dur = 0.5 + Math.random() * 0.15;
+    if (style === 'kneel') { lz = 0.85; lx = (Math.random() - 0.5) * 0.5; dur = 1.05; }
+    else if (style === 'blown') dur = 0.42;
+    else if (style === 'spin') { twist = (lx > 0 ? 1 : -1) * (1.6 + Math.random()); dur = 0.75; }
+    else if (style === 'legless') { lx = e.lostLeg === 'L' ? -1 : 1; lz = (Math.random() - 0.5) * 0.4; dur = 0.48; }
+    else if (style === 'bisect') dur = 0.55;
     if (e.type === 'charger') { lx = lx >= 0 ? 1 : -1; lz = 0; } // big bodies roll onto a side
-    const push = Math.min(5, force * 0.45);
+    const push = Math.min(5, force * (style === 'blown' ? 0.7 : 0.45));
     e.body.vel.set(dir.x * push, 0, dir.z * push);
-    this.dying.push({ e, t: 0, dur: 0.5 + Math.random() * 0.15, lx, lz, twist: (Math.random() - 0.5) * 0.6 });
+    this.dying.push({ e, t: 0, dur, lx, lz, twist, style, flop: 0 });
+  }
+
+  // tilt of the whole body for a collapse style at progress k (0..1)
+  static tilt(d, k) {
+    if (d.style === 'kneel') { const b = Math.max(0, (k - 0.45) / 0.55); return b * b * 1.45; }
+    if (d.style === 'blown') { const b = Math.min(1, k * 1.5); return Math.pow(b, 1.4) * 1.5; }
+    if (d.style === 'legless') { const b = Math.min(1, k * 1.25); return b * b * 1.5; }
+    if (d.style === 'bisect') return k * 0.15;
+    return k * k * 1.5; // accelerates like a falling plank
   }
 
   updateDying(dt) {
@@ -2779,24 +3186,71 @@ export class Enemies {
       const damp = Math.exp(-5 * dt);
       b.vel.x *= damp; b.vel.z *= damp; b.vel.y -= 25 * dt;
       moveBody(b, b.vel.x * dt, b.vel.y * dt, b.vel.z * dt, g.level.colliders);
-      const f = k * k * 1.5; // accelerates like a falling plank
+      // after the impact the body rocks once and the loose limbs flop
+      const after = Math.max(0, d.t - d.dur);
+      const bounce = after > 0 ? Math.sin(after * 24) * Math.exp(-after * 10) : 0;
+      d.flop = bounce * 0.12;
+      const f = Enemies.tilt(d, k) + (d.style === 'bisect' ? 0 : bounce * 0.07);
       e.group.position.copy(e.pos);
       e.group.rotation.set(d.lz * f, e.yaw + d.twist * k, -d.lx * f);
       e.deathPose(k, d);
-      if (d.t >= d.dur + 0.08) {
+      if (!d.hit && k >= 1) { d.hit = true; if (d.style !== 'bisect') e.landFx(0.8); }
+      if (d.t >= d.dur + 0.3) {
         d.done = true;
         e.group.updateMatrixWorld(true);
-        for (const m of e.meshes) if (m.parent && !m.userData.noCorpse && !m.userData.severed && !(e.decapitated && m === e.headMesh)) g.fx.addCorpsePiece(m, ZERO, ZERO);
+        // only what is still attached (severed limbs and heads are already flying)
+        for (const m of e.meshes) if (m.parent && !m.userData.noCorpse && onBody(m, e.group)) g.fx.addCorpsePiece(m, ZERO, ZERO);
         g.scene.remove(e.group);
-        // a pool spreads where the body came to rest
+        // a pool spreads where the body came to rest (oil under machines)
         if (g.settings.get('gore') !== false && e.bloodColor) {
-          const bc = e.bloodColor;
-          const col = (Math.round(bc[0] * 120) << 16) | (Math.round(bc[1] * 120) << 8) | Math.round(bc[2] * 120);
-          g.fx.decals.add(e.pos.x + d.lx * 0.4, e.pos.y + 0.012, e.pos.z - d.lz * 0.4, 0, 1, 0, 1.1 + Math.random() * 0.7, col);
+          const big = e.decapitated || d.style === 'bisect' || d.style === 'legless' ? 0.6 : 0;
+          const col = e.robot ? 0x0b0a08 : bloodHex(e.bloodColor, 0.47);
+          const x = e.pos.x + d.lx * 0.4, z = e.pos.z - d.lz * 0.4;
+          if (g.fx.pool) g.fx.pool(x, e.pos.y + 0.004, z, 1.1 + big + Math.random() * 0.7, col, 2.4);
+          else g.fx.decals.add(x, e.pos.y + 0.012, z, 0, 1, 0, 1.1 + Math.random() * 0.7, col);
         }
       }
     }
     this.dying = this.dying.filter((d) => !d.done);
+  }
+
+  // A wound that keeps spraying for a moment (neck, shoulder, hip): rides on the body part it
+  // was cut from, pulses like a heartbeat and paints the floor where the drops land.
+  addSpurt(host, at, dir, color, robot) {
+    if (!host || (!robot && this.game.settings.get('gore') === false)) return;
+    host.updateWorldMatrix(true, false);
+    const inv = _m4.copy(host.matrixWorld).invert();
+    const fx = this.game.fx;
+    const floor = (fx.floorAt ? fx.floorAt(at.x, at.z, at.y) : 0) + 0.02;
+    this.spurts.push({ host, lp: at.clone().applyMatrix4(inv), ld: dir.clone().transformDirection(inv), t: 0, life: robot ? 0.9 : 1.6, color, robot, acc: 0, floor });
+    if (this.spurts.length > 6) this.spurts.shift();
+  }
+
+  updateSpurts(dt) {
+    if (!this.spurts.length) return;
+    const fx = this.game.fx;
+    for (const s of this.spurts) {
+      s.t += dt;
+      const k = 1 - s.t / s.life;
+      if (k <= 0) continue;
+      s.acc += dt * (s.robot ? 22 : 30) * (0.3 + 0.7 * k);
+      if (s.acc < 1) continue;
+      const p = V1.copy(s.lp).applyMatrix4(s.host.matrixWorld);
+      const d = V2.copy(s.ld).transformDirection(s.host.matrixWorld);
+      const pulse = 0.55 + 0.45 * Math.max(0, Math.sin(s.t * 13));
+      while (s.acc >= 1) {
+        s.acc -= 1;
+        if (s.robot) {
+          const sp = 2 + Math.random() * 3;
+          fx.sparks.spawn(p.x, p.y, p.z, d.x * sp + (Math.random() - 0.5) * 2, d.y * sp + 1, d.z * sp + (Math.random() - 0.5) * 2, 1, 0.75, 0.35, 1, 0.08, 0.4, 12, 0.5);
+        } else {
+          const sp = (2.2 + Math.random() * 2.6) * pulse * (0.45 + 0.55 * k), c = s.color;
+          const i = fx.dust.spawn(p.x, p.y, p.z, d.x * sp + (Math.random() - 0.5) * 0.8, d.y * sp + 0.6, d.z * sp + (Math.random() - 0.5) * 0.8, c[0], c[1], c[2], 1, 0.07 + Math.random() * 0.06, 1.2, 16, 0.4, s.floor);
+          if (Math.random() < 0.3) { fx.dust.stick[i] = 1; fx.dust.life[i] = fx.dust.max[i] = 2.5; }
+        }
+      }
+    }
+    this.spurts = this.spurts.filter((s) => s.t < s.life);
   }
 
   update(dt) {
@@ -2810,6 +3264,7 @@ export class Enemies {
     }
     for (const e of this.list) if (e.alive) e.update(dt);
     this.updateDying(dt);
+    this.updateSpurts(dt);
     // safety nets: free enemies wedged inside geometry, and mark stragglers if a fight drags on
     this.checkT = (this.checkT || 0) - dt;
     if (this.checkT <= 0 && room) {
@@ -2854,6 +3309,7 @@ export class Enemies {
     for (const d of this.dying) this.game.scene.remove(d.e.group);
     this.list = [];
     this.dying = [];
+    this.spurts = [];
     this.waves = [];
     this.timers = [];
   }
