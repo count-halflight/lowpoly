@@ -743,6 +743,10 @@ const GEN = {
     s.movers.push({ kind: 'plat', x: sx2, y: 0, z: g2 + d2 / 2 + 0.2, w: 2.8, d: 2.8, ax: 0, ay: 0, az: -(d2 + 0.4), period: 7, pause: 1.6, phase: rng.next() * 7 });
     s.anchors.push({ x: sx2 - side * 4, y: 6.5, z: g2 });
     girder(s, (x2a + x2b) / 2 - side * 5 - 0.8, g2 - d2 / 2 - 0.4, (x2a + x2b) / 2 - side * 5 + 0.8, g2 + d2 / 2 + 0.4);
+    // a billboard hung along the parapet over the light-well: the fast way across is to run on it
+    const rz0 = g2 - d2 / 2 - 3, rz1 = g2 + d2 / 2 + 3, rx = side * (s.W / 2);
+    prop(s, rx - side * 0.4, 1.3, rz0, rx, 5.2, rz1, 'trim', 'metal', { runwall: true, side: -side, keep: true, noNav: true });
+    for (const z of [rz0 + 0.3, rz1 - 0.3]) prop(s, rx - side * 0.35, 0, z - 0.2, rx - side * 0.05, 1.3, z + 0.2, 'trim', 'metal', { tint: 0.5, post: true, keep: true });
     // roof clutter: AC units, vent stacks, skylights, antenna masts, a water tower
     scatter(s, rng, 7, (x, z) => {
       if (s.holes.some((h) => x > h.x0 - 2.2 && x < h.x1 + 2.2 && z > h.z0 - 2.2 && z < h.z1 + 2.2)) return false;
@@ -844,11 +848,14 @@ const GEN = {
       prop(s, x - 3, 3.9, (iz0 + iz1) / 2 - 2.2, x + 3, 4.1, (iz0 + iz1) / 2 + 2.2, 'trim', 'metal', { canopy: true, tint: 0.7 });
     }
     for (let k = 0; k < 4; k++) {
-      const x = rng.range(-W / 2 + 5, W / 2 - 5), z = rng.chance(0.5) ? iz0 + 1.2 : iz1 - 1.2;
+      const x = rng.range(-W / 2 + 7, W / 2 - 7), z = rng.chance(0.5) ? iz0 + 1.2 : iz1 - 1.2;
       if (rng.chance(0.5)) bcrate(s, rng, x, z, 1.1, 1); else prop(s, x - 1, 0.4, z - 0.25, x + 1, 0.85, z + 0.25, 'crate', 'wood', { tint: 0.55, bench: true });
     }
     // cover near the walls (outside the tracks)
     for (const z of [D / 2 - 5.5, -D / 2 + 5.5]) for (const sx of [-1, 1]) breakable(s, 'cover', sx * (W / 2 - 6) - 1.4, 0, z - 0.3, sx * (W / 2 - 6) + 1.4, 1.15, z + 0.3);
+    // a freight dock on one side wall between the tracks: 1.7 m, vault straight up or take the steps
+    const dsx = rng.sign(), dz = (iz0 + iz1) / 2;
+    platform(s, rng, dsx > 0 ? W / 2 - 2.8 : -W / 2, dz - 3.2, dsx > 0 ? W / 2 : -W / 2 + 2.8, dz + 3.2, 1.7, dsx > 0 ? 'west' : 'east');
     lightGrid(s, rng, 3, 3);
     s.lightMood = 'yard';
     s.cachePos = { x: 0, z: (iz0 + iz1) / 2 + 2.6 };
@@ -1029,7 +1036,7 @@ export function generateSpec(arch, rng, ctx) {
     // (tiers, mezzanines), with the console standing on the deck instead of buried in it
     let t = null, first = null;
     const wallBusy = (side, z) => nearSecret(side, z, 1.4) || s.switches.some((sw) => sw.side === side && Math.abs(sw.z - z) < 2.2) ||
-      s.falls.some((f) => Math.abs(f.z - z) < 2.6 && Math.sign(f.x) === side) || s.cyl.some((c) => Math.abs(c.x - side * (s.W / 2 - 0.6)) < c.r + 1 && Math.abs(c.z - z) < c.r + 1);
+      s.falls.some((f) => Math.abs(f.z - z) < 2.6 && Math.sign(f.x) === side) || s.decor.some((d) => d.x !== undefined && d.z !== undefined && Math.abs(d.x - side * s.W / 2) < 2.6 && Math.abs(d.z - z) < (d.type === 'billboard' ? 4 : 2.2)) || s.cyl.some((c) => Math.abs(c.x - side * (s.W / 2 - 0.6)) < c.r + 1 && Math.abs(c.z - z) < c.r + 1);
     const floorOk = (c) => {
       const side = c.x < 0 ? -1 : 1, fx = side * (s.W / 2 - 1.2);
       return !(inHole(c.x, c.z, 1.2) || wallBusy(side, c.z) || s.water.some((w) => inRect(w, c.x, c.z, 0.5)) ||
@@ -1124,7 +1131,7 @@ function mirrorSpec(s) {
   const fx = (x) => -x;
   s.entX = fx(s.entX);
   s.exits = s.exits.map(fx);
-  for (const p of s.props) { const a = fx(p.x1), b = fx(p.x0); p.x0 = a; p.x1 = b; }
+  for (const p of s.props) { const a = fx(p.x1), b = fx(p.x0); p.x0 = a; p.x1 = b; if (typeof p.side === 'number') p.side = -p.side; }
   for (const c of s.cyl) c.x = fx(c.x);
   for (const h of s.hazards) { const a = fx(h.x1), b = fx(h.x0); h.x0 = a; h.x1 = b; }
   for (const p of s.perches) { const a = fx(p.x1), b = fx(p.x0); p.x0 = a; p.x1 = b; }

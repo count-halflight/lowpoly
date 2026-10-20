@@ -366,7 +366,7 @@ export class Room {
       gb.box(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, m, { tint, faces: p.y0 > 0.05 ? 63 : 63 & ~FACES.NY });
       const pc = this.addCollider(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, { surface: p.surface || 'metal', nav: !p.noNav });
       if (p.girder) pc.girder = true;
-      if (p.catwalk || p.girder || p.ac || p.pew || p.terrace || p.island || p.canopy || p.step || p.lampPost) propDetail(gb, M, p);
+      if (p.catwalk || p.girder || p.ac || p.pew || p.terrace || p.island || p.canopy || p.step || p.lampPost || p.runwall) propDetail(gb, M, p);
       if (p.trimTop) gb.box(p.x0 - 0.04, p.y1, p.z0 - 0.04, p.x1 + 0.04, p.y1 + 0.08, p.z1 + 0.04, M.trim, { faces: 63 & ~FACES.NY });
       if (p.platform) {
         // railing posts + edge accent
