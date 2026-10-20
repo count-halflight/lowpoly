@@ -53,8 +53,10 @@ export class Tutorial {
     this.counts = {};
     this.done = false;
     this.deadAt = null;
+    this.peak = 0;
     this.room = room;
     this.startPos = g.player.body.pos.clone();
+    g.enemies.lastKill = g.time;
     room.state = 'tutorial';
     for (const d of room.exitDoors) room.setDoor(d, 'locked');
     room.setSign(room.exitDoors[0], ['SEALED', STATIONS[n].name], '#ff3150');
@@ -109,6 +111,8 @@ export class Tutorial {
         break;
       default: break;
     }
+    // give() auto-equips and emits 'swap': the station's own setup must not tick its objectives
+    this.counts = {};
     this.update(0);
   }
 
@@ -136,7 +140,13 @@ export class Tutorial {
       case 2: {
         // any coin shot out of the air counts (a ricochet with no target left still proves it)
         const sw = (c.swap || 0) > 0, rs = (c.ricoshot || 0) + (c.coinhit || 0) > 0;
-        obj = !sw ? 'SWITCH WEAPONS' : !rs ? 'FLIP A COIN, THEN SHOOT IT MID-AIR' + (c.coin ? '  · ' + c.coin + ' FLIPS' : '') : 'DONE';
+        // re-pressing the held weapon's key cycles the Hammer to PIERCER, which has no coin
+        const noCoin = g.weapons.variantId('hammer') !== 'marksman';
+        const w = g.weapons, onHammer = (w.switchTo || w.current) === 'hammer';
+        obj = !sw ? 'SWITCH WEAPONS' : rs ? 'DONE'
+          : !onHammer && !c.coin ? this.t('SWITCH TO THE HAMMER TO FLIP COINS', 'SWITCH TO THE HAMMER (1) TO FLIP COINS')
+            : noCoin ? this.t('TAP THE HAMMER AGAIN: MARKSMAN FLIPS COINS', 'PRESS 1 ON THE HAMMER: MARKSMAN FLIPS COINS')
+              : 'FLIP A COIN, THEN SHOOT IT MID-AIR' + (c.coin ? '  · ' + c.coin + ' FLIPS' : '');
         ok = sw && rs;
         this.respawnDummy(0, -8, { hpMul: 3 });
         break;
@@ -160,7 +170,8 @@ export class Tutorial {
         break;
       }
       case 8: {
-        const pad = (c.pad || 0) > 0, hook = c.hook || 0;
+        // getting over the ledge some other way (hook, wall tech) counts: never ask to go back
+        const pad = (c.pad || 0) > 0 || lz < -2, hook = c.hook || 0;
         obj = !pad ? 'USE THE LAUNCH PAD' : hook < 2 ? 'FIRE THE HOOK  ' + hook + ' / 2' : 'CROSS THE LEDGE';
         ok = pad && hook >= 2 && lz < -2;
         break;
@@ -169,6 +180,8 @@ export class Tutorial {
         const left = this.dummies.filter((e) => e.alive).length;
         obj = 'CLEAR THE ROOM  ' + left + ' LEFT';
         ok = left === 0;
+        // the room is not in 'combat' state, so the straggler hunt never kicks in on its own
+        if (!ok && g.time - (g.enemies.lastKill || 0) > 15) for (const e of this.dummies) if (e.alive && !e.flying) e.hunt = true;
         break;
       }
       default: break;

@@ -959,9 +959,12 @@ class Game {
       else if (this.state === 'terminal') this.closeTerminal();
       else if (this.menus.current === 'settings' || this.menus.current === 'controls' || this.menus.current === 'codex' || this.menus.current === 'medals' || this.menus.current === 'levels' || this.menus.current === 'endless') this.menus.pop();
     }
-    if (this.state === 'terminal' && (input.wasPressed('use') || input.wasPressed('confirm'))) this.closeTerminal();
-    if (this.state === 'reward' && input.slot >= 0 && input.slot < 3) this.chooseReward(input.slot);
-    if (this.state === 'dead' && (input.wasPressed('reload') || input.wasPressed('confirm'))) this.restart();
+    // menu keys are consumed so the gameplay step that may follow in this same tick does not
+    // see them too (E re-opened the terminal it just closed; '1' on a reward card also cycled
+    // the Hammer's variant)
+    if (this.state === 'terminal' && (input.wasPressed('use') || input.wasPressed('confirm'))) { this.closeTerminal(); input.pressed.use = input.pressed.confirm = false; }
+    if (this.state === 'reward' && input.slot >= 0 && input.slot < 3) { this.chooseReward(input.slot); input.slot = -1; }
+    if (this.state === 'dead' && (input.wasPressed('reload') || input.wasPressed('confirm'))) { this.restart(); input.pressed.reload = input.pressed.confirm = false; }
     if (this.state === 'results' && input.wasPressed('confirm')) this.nextLevel();
     // medal popups + periodic save
     const medal = this.profile.popMedal();
