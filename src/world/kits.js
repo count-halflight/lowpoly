@@ -725,6 +725,34 @@ export function buildDecor(room, gb, M, d, rng) {
       gb.box(d.x - 0.3, H - 0.2 - len * 0.6, d.z - 0.03, d.x + 0.3, H - 0.2 - len * 0.3, d.z + 0.03, M.accent, { tint: 0.9 });
       break;
     }
+    case 'shrine': {
+      // dais with a lit rim
+      gb.cylinder(d.x, 0.1, d.z, 2.5, 0.2, 'y', 12, M.trim, { tint: 0.75 });
+      gb.cylinder(d.x, 0.19, d.z, 2.53, 0.05, 'y', 12, M.accent, { caps: false, tint: 0.8 });
+      gb.cylinder(d.x, 0.205, d.z, 2.1, 0.01, 'y', 12, M.dark, { tint: 0.7 });
+      // conduits: floor strips from each wall to the dais, rising up the walls and back across the ceiling
+      const W2 = s.W / 2, D2 = s.D / 2, y = 0.012, w = 0.16;
+      const legs = [[-W2 + 0.15, d.x - 2.5, 'x'], [d.x + 2.5, W2 - 0.15, 'x']];
+      for (const [a, b] of legs) {
+        gb.box(a, 0, d.z - w, b, y, d.z + w, M.trim, { faces: FACES.PY, tint: 0.5 });
+        gb.box(a, y, d.z - w * 0.4, b, y + 0.004, d.z + w * 0.4, M.accent, { faces: FACES.PY, tint: 0.7 });
+      }
+      for (const sx of [-1, 1]) {
+        const wx = sx * (W2 - 0.04);
+        gb.box(Math.min(wx, wx - sx * 0.06), 0, d.z - w * 0.5, Math.max(wx, wx - sx * 0.06), H, d.z + w * 0.5, M.accent, { faces: sx > 0 ? FACES.NX : FACES.PX, tint: 0.65 });
+        gb.box(Math.min(sx * W2, d.x + sx * 1.7), H - 0.08, d.z - w, Math.max(sx * W2, d.x + sx * 1.7), H, d.z + w, M.trim, { faces: FACES.NY, tint: 0.5 });
+        gb.box(Math.min(sx * W2, d.x + sx * 1.7), H - 0.1, d.z - w * 0.4, Math.max(sx * W2, d.x + sx * 1.7), H - 0.08, d.z + w * 0.4, M.accent, { faces: FACES.NY, tint: 0.8 });
+      }
+      // a run toward the exit wall too, so the eye follows it onward
+      gb.box(d.x - w, 0, -D2 + 0.2, d.x + w, y, d.z - 2.5, M.trim, { faces: FACES.PY, tint: 0.5 });
+      gb.box(d.x - w * 0.4, y, -D2 + 0.2, d.x + w * 0.4, y + 0.004, d.z - 2.5, M.accent, { faces: FACES.PY, tint: 0.7 });
+      // halo over the beacon on four rods
+      gb.cylinder(d.x, H - 0.75, d.z, 1.7, 0.16, 'y', 12, M.trim, { caps: false, tint: 0.7 });
+      gb.cylinder(d.x, H - 0.85, d.z, 1.62, 0.05, 'y', 12, M.lamp, { caps: false });
+      for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4, rx = d.x + Math.cos(a) * 1.7, rz = d.z + Math.sin(a) * 1.7; gb.box(rx - 0.03, H - 0.75, rz - 0.03, rx + 0.03, H, rz + 0.03, M.trim, { tint: 0.5 }); }
+      gb.cylinder(d.x, H - 0.05, d.z, 2.1, 0.1, 'y', 12, M.trim, { tint: 0.6 });
+      break;
+    }
     case 'pump': {
       gb.cylinder(d.x, 2.7, d.z, 1.1, 0.2, 'y', 8, M.accent, { caps: false, tint: 0.7 });
       gb.cylinder(d.x + 1.4, 1.4, d.z, 0.2, 2.6, 'y', 6, M.trim, { tint: 0.7 });
@@ -780,6 +808,11 @@ export function propDetail(gb, M, p) {
     gb.box(x0, y1 + 0.08, z1 - 0.25, x1, y1 + 0.09, z1, M.hazard, { faces: FACES.PY, uvScale: 2 });
   } else if (p.canopy) {
     gb.box(x0 + 0.4, y0 - 0.02, (z0 + z1) / 2 - 0.15, x1 - 0.4, y0, (z0 + z1) / 2 + 0.15, M.lamp, { faces: FACES.NY });
+  } else if (p.lampPost) {
+    // a lantern cap on a bollard
+    gb.box(x0 + 0.06, y1, z0 + 0.06, x1 - 0.06, y1 + 0.26, z1 - 0.06, M.lamp, { tint: 0.85, faces: 63 & ~FACES.NY });
+    gb.box(x0 - 0.04, y1 + 0.26, z0 - 0.04, x1 + 0.04, y1 + 0.34, z1 + 0.04, M.trim, { tint: 0.6 });
+    gb.box(x0 - 0.02, y1 - 0.18, z0 - 0.02, x1 + 0.02, y1 - 0.1, z1 + 0.02, M.accent, { faces: 63 & ~FACES.PY & ~FACES.NY, tint: 0.7 });
   } else if (p.step) {
     // nosing stripe on the riser
     gb.box(x0, y1 - 0.05, z0 - 0.005, x1, y1, z1 + 0.005, M.hazard, { faces: FACES.PY, uvScale: 3 });

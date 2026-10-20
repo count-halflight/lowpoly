@@ -13,7 +13,7 @@ import { GRAFFITI } from '../data/lore.js';
 
 const TMP_COL = new THREE.Color(), TMP_COL2 = new THREE.Color();
 // colour each lighting mood pulls the theme's lamp colour toward
-const MOOD_TINT = { sickly: 0x7aff8a, night: 0xffb060, water: 0x70e0ff, yard: 0xffa050, datacenter: 0x80b8ff, candle: 0xffa050, shaft: 0xc0c8ff };
+const MOOD_TINT = { sickly: 0x7aff8a, night: 0xffb060, water: 0x70e0ff, yard: 0xffa050, datacenter: 0x80b8ff, candle: 0xffa050, shaft: 0xc0c8ff, shrine: 0x7fe0b8 };
 const KIT_BY_THEME = { service: 'service', foundry: 'foundry', cryo: 'cryo', reactor: 'reactor', research: 'archive', slaughter: 'slaughter', orbital: 'orbital', choir: 'choir', breach: 'breach', core: 'core' };
 const DOOR_W = 3, DOOR_H = 3.6, WALL_T = 1, CORR_L = 8, CORR_HW = 2, CORR_H = 4.4;
 
@@ -366,7 +366,7 @@ export class Room {
       gb.box(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, m, { tint, faces: p.y0 > 0.05 ? 63 : 63 & ~FACES.NY });
       const pc = this.addCollider(p.x0, p.y0, p.z0, p.x1, p.y1, p.z1, { surface: p.surface || 'metal', nav: !p.noNav });
       if (p.girder) pc.girder = true;
-      if (p.catwalk || p.girder || p.ac || p.pew || p.terrace || p.island || p.canopy || p.step) propDetail(gb, M, p);
+      if (p.catwalk || p.girder || p.ac || p.pew || p.terrace || p.island || p.canopy || p.step || p.lampPost) propDetail(gb, M, p);
       if (p.trimTop) gb.box(p.x0 - 0.04, p.y1, p.z0 - 0.04, p.x1 + 0.04, p.y1 + 0.08, p.z1 + 0.04, M.trim, { faces: 63 & ~FACES.NY });
       if (p.platform) {
         // railing posts + edge accent
@@ -1060,7 +1060,7 @@ export class Level {
       if (mood === 'night' && i % 3 === 2) col = 0x8898ff;
       if ((mood === 'flicker' || mood === 'sickly' || mood === 'shaft' || mood === 'yard') && i === chosen.length - 1) u.mode = 1; // a dying tube
       if (mood === 'candle') u.mode = 2;
-      if (mood === 'water') u.mode = 3;
+      if (mood === 'water' || mood === 'shrine') u.mode = 3;
       if (mood === 'warning' && i === 0) { u.mode = 4; col = 0xffa020; }
       if (mood === 'race') u.mode = 5;
       if (mood === 'datacenter' && i % 2 === 0) u.mode = 6;

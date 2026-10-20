@@ -178,9 +178,11 @@ const GEN = {
     s.exits = [0];
     s.cyl.push({ x: 0, z: 0, r: 0.75, y0: 0, y1: 1.1, mat: 'trim', collide: true, core: true });
     s.decor.push({ type: 'beacon', x: 0, z: 0 });
-    for (let i = 0; i < 4; i++) { // bollards around the beacon
+    // the shrine: a low dais, glowing conduits from every wall into the beacon, a halo overhead
+    s.decor.push({ type: 'shrine', x: 0, z: 0 });
+    for (let i = 0; i < 4; i++) { // lamp bollards around the beacon
       const a = Math.PI / 4 + i * Math.PI / 2, x = Math.cos(a) * 3.6, z = Math.sin(a) * 3.6;
-      prop(s, x - 0.28, 0, z - 0.28, x + 0.28, 0.9, z + 0.28, 'trim', 'metal', { keep: true });
+      prop(s, x - 0.28, 0, z - 0.28, x + 0.28, 1.05, z + 0.28, 'trim', 'metal', { keep: true, lampPost: true });
     }
     // benches along the side walls
     prop(s, -W / 2, 0, -2.2, -W / 2 + 1.1, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
@@ -189,7 +191,8 @@ const GEN = {
     s.screens.push({ x: -s.W / 2 + 0.05, z: -5, side: 'west' });
     lightGrid(s, rng, 1, 2);
     s.keepClear.push({ x: 0, z: 0, r: 3.2 });
-    s.cachePos = { x: 0, z: 4.6 };
+    s.cachePos = { x: -(W / 2 - 2.6), z: 3.4 };
+    s.lightMood = 'shrine';
     s.calm = true;
     return s;
   },
