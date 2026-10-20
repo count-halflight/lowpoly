@@ -59,7 +59,7 @@ function crate(s, rng, x, z, size = 1.4, stack = 1) {
   if (stack > 1) {
     const o = rng.range(-0.2, 0.2);
     const s2 = size * 0.8;
-    prop(s, x - s2 / 2 + o, h, z - s2 / 2 - o, x + s2 / 2 + o, h + s2, z + s2 / 2 - o, 'crate', 'wood', { tint: rng.range(0.75, 1.1) });
+    prop(s, x - s2 / 2 + o, h, z - s2 / 2 - o, x + s2 / 2 + o, h + s2, z + s2 / 2 - o, 'crate', 'wood', { tint: rng.range(0.75, 1.1), stacked: true });
   }
 }
 function barrier(s, rng, x, z, len, axis = 'x', h = 1.15) {
@@ -1053,6 +1053,7 @@ export const COMBAT_ARCHES = ['gauntlet', 'arena', 'warehouse', 'mezzanine', 'ga
 // archetypes that need a few rooms of practice before they show up in endless runs
 export const LATE_ARCHES = { rooftop: 3, ring: 3, chapel: 4, tramyard: 3, crusher: 2, shaft: 3, sewer: 2 };
 
+const circleHit = (p, k) => Math.hypot(Math.max(p.x0, Math.min(k.x, p.x1)) - k.x, Math.max(p.z0, Math.min(k.z, p.z1)) - k.z) < k.r;
 const inRect = (r, x, z, m = 0) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
 const rectHit = (a, b, m = 0) => a.x0 < b.x1 + m && a.x1 > b.x0 - m && a.z0 < b.z1 + m && a.z1 > b.z0 - m;
 
@@ -1115,9 +1116,12 @@ export function generateSpec(arch, rng, ctx) {
     let t = null, first = null;
     const wallBusy = (side, z) => nearSecret(side, z, 1.4) || s.switches.some((sw) => sw.side === side && Math.abs(sw.z - z) < 2.2) ||
       s.falls.some((f) => Math.abs(f.z - z) < 2.6 && Math.sign(f.x) === side) || s.decor.some((d) => d.x !== undefined && d.z !== undefined && Math.abs(d.x - side * s.W / 2) < 2.6 && Math.abs(d.z - z) < (d.type === 'billboard' ? 4 : 2.2)) || s.cyl.some((c) => Math.abs(c.x - side * (s.W / 2 - 0.6)) < c.r + 1 && Math.abs(c.z - z) < c.r + 1);
+    // the clear spot in front of a floor console may only push crates aside, never a terrace,
+    // a staircase or a deck (that once deleted a whole tier and left its stairs floating)
+    const front = (side, z) => ({ x: side * (s.W / 2 - 1.1), z, r: 1.2 });
     const floorOk = (c) => {
-      const side = c.x < 0 ? -1 : 1, fx = side * (s.W / 2 - 1.2);
-      return !(inHole(c.x, c.z, 1.2) || wallBusy(side, c.z) || s.water.some((w) => inRect(w, c.x, c.z, 0.5)) ||
+      const side = c.x < 0 ? -1 : 1, fx = side * (s.W / 2 - 1.2), fk = front(side, c.z);
+      return !(inHole(c.x, c.z, 1.2) || wallBusy(side, c.z) || s.props.some((p) => p.y1 > 0.45 && p.mat !== 'crate' && circleHit(p, fk)) || s.water.some((w) => inRect(w, c.x, c.z, 0.5)) ||
         (s.hazards.some((h) => !h.on && inRect(h, fx, c.z, 1.5)) && !s.props.some((p) => p.platformFlat && inRect(p, fx, c.z, -0.4) && inRect(p, c.x, c.z, -0.4))) ||
         s.props.some((p) => p.y1 > 0.45 && inRect(p, c.x, c.z, 1)) || s.breakables.some((b) => inRect(b, c.x, c.z, 1)));
     };
@@ -1143,18 +1147,18 @@ export function generateSpec(arch, rng, ctx) {
     t = t || first;
     s.terminals.push(t);
     // nothing may stand in front of a floor console (racks, wall kit pieces, crates)
-    if (!t.y) s.keepClear.push({ x: (t.x < 0 ? -1 : 1) * (s.W / 2 - 1.1), z: t.z, r: 1.2, terminal: true });
+    if (!t.y) s.keepClear.push({ ...front(t.x < 0 ? -1 : 1, t.z), terminal: true });
   }
   // keep entrance / exit approaches clear of props
   s.keepClear.push({ x: s.entX, z: s.D / 2 - 1.8, r: 3.2 });
   for (const ex of s.exits) s.keepClear.push({ x: ex, z: -s.D / 2 + 1.8, r: 3.2 });
   s.keepClear.push({ x: s.cachePos.x, z: s.cachePos.z, r: 1.6 });
-  const clear = (p) => s.keepClear.some((k) => {
-    const cx = Math.max(p.x0, Math.min(k.x, p.x1));
-    const cz = Math.max(p.z0, Math.min(k.z, p.z1));
-    return Math.hypot(cx - k.x, cz - k.z) < k.r;
-  });
-  s.props = s.props.filter((p) => p.keep || !clear(p));
+  const clear = (p) => s.keepClear.some((k) => circleHit(p, k));
+  // slabs low enough to step onto (walkways, station islands, curbs) never block a door or the cache
+  const walkable = (p) => p.y0 <= 0.01 && p.y1 <= 0.45;
+  s.props = s.props.filter((p) => p.keep || walkable(p) || !clear(p));
+  // a stacked crate whose bottom crate was cleared away would float
+  s.props = s.props.filter((p) => !p.stacked || s.props.some((q) => q !== p && Math.abs(q.y1 - p.y0) < 0.06 && q.x0 < p.x1 && q.x1 > p.x0 && q.z0 < p.z1 && q.z1 > p.z0));
   s.cyl = s.cyl.filter((c) => c.core || !clear({ x0: c.x - c.r, x1: c.x + c.r, z0: c.z - c.r, z1: c.z + c.r }));
   // breakables: same door rule; also never inside solid props (secret panels sit in the wall itself)
   const solid = s.props.filter((p) => p.y1 > 0.6 && !p.catwalk && !p.canopy && p.y0 < 1);

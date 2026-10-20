@@ -97,6 +97,13 @@ try {
           if (pockets) issues.push(`${tag}: ${pockets} free nav cells unreachable from the entrance`);
           if (buried) issues.push(`${tag}: ${buried} free nav cells inside geometry`);
           if (free < 40) issues.push(`${tag}: only ${free} free nav cells`);
+          // nothing floats: raised props rest on something (or hang from the ceiling)
+          for (const p of s.props) {
+            if (p.y0 <= 0.05 || p.y1 >= s.H - 0.1 || p.catwalk || p.canopy || p.girder || p.sign) continue;
+            const sup = [...s.props, ...s.breakables].some((q) => q !== p && Math.abs(q.y1 - p.y0) < 0.06 && q.x0 < p.x1 && q.x1 > p.x0 && q.z0 < p.z1 && q.z1 > p.z0);
+            if (!sup) issues.push(`${tag}: ${p.mat} prop floats at y ${p.y0.toFixed(2)}`);
+          }
+          for (const c of s.cyl) if (c.y0 > 0.05 && !s.props.some((q) => Math.abs(q.y1 - c.y0) < 0.06 && q.x0 <= c.x && q.x1 >= c.x && q.z0 <= c.z && q.z1 >= c.z)) issues.push(`${tag}: ${c.mat} cylinder floats at y ${c.y0}`);
           // perches: something underneath, nothing on top
           for (const p of s.perches) {
             const x = room.wx((p.x0 + p.x1) / 2), z = room.wz((p.z0 + p.z1) / 2);
@@ -164,9 +171,11 @@ try {
               nav.flow(room.wx(s.entX), room.wz(s.D / 2 - 1.5));
               for (const e of g.enemies.list) {
                 if (!e.alive || e.flying || e.perch || !e.body || e.latched) continue;
-                const p = e.body.pos, k = nav.nearestFree(p.x, p.z, 1);
+                // walkers up on a deck (tiers, balconies, docks) can always step or drop off its edge:
+                // the edge, and free floor beyond it, is a few cells away. Nothing walkable is above 6 m.
+                const p = e.body.pos, k = nav.nearestFree(p.x, p.z, p.y > 0.5 ? 4 : 1);
                 const okCell = k >= 0 && nav.dist[k] >= 0;
-                if (!okCell || p.y > 1.3) out.violations.push(`${e.type} at ${(p.x - room.origin.x).toFixed(1)},${p.y.toFixed(2)},${(p.z - room.origin.z).toFixed(1)} ${okCell ? 'too high' : 'off-nav'} (t ${sec}s)`);
+                if (!okCell || p.y > 6) out.violations.push(`${e.type} at ${(p.x - room.origin.x).toFixed(1)},${p.y.toFixed(2)},${(p.z - room.origin.z).toFixed(1)} ${okCell ? 'too high' : 'off-nav'} (t ${sec}s)`);
               }
             }
           }
