@@ -281,7 +281,9 @@ export class Room {
       if (z < D / 2) out.push([z, D / 2]);
       return out;
     };
-    const inGap = (side, z0, z1) => this.sideGaps[side].some(([g0, g1]) => z1 > g0 - 0.2 && z0 < g1 + 0.2);
+    // secret panels and wall-run panels keep the wall clear of pilasters and vents
+    const onRun = (side, z0, z1) => s.props.some((p) => p.runwall && (side < 0 ? p.x0 <= -W / 2 + 0.01 : p.x1 >= W / 2 - 0.01) && z1 > p.z0 - 0.2 && z0 < p.z1 + 0.2);
+    const inGap = (side, z0, z1) => this.sideGaps[side].some(([g0, g1]) => z1 > g0 - 0.2 && z0 < g1 + 0.2) || onRun(side, z0, z1);
     const bb = 0.35;
     for (const [z0, z1] of segs(-1)) gb.box(-W / 2, 0, z0, -W / 2 + 0.12, bb, z1, M.trim, { faces: FACES.PX | FACES.PY });
     for (const [z0, z1] of segs(1)) gb.box(W / 2 - 0.12, 0, z0, W / 2, bb, z1, M.trim, { faces: FACES.NX | FACES.PY });

@@ -809,13 +809,14 @@ export function propDetail(gb, M, p) {
   } else if (p.canopy) {
     gb.box(x0 + 0.4, y0 - 0.02, (z0 + z1) / 2 - 0.15, x1 - 0.4, y0, (z0 + z1) / 2 + 0.15, M.lamp, { faces: FACES.NY });
   } else if (p.runwall) {
-    // lit chevrons on the face that points into the room, a lamp strip along the top
+    // a dim lit backing on the face that points into the room, bright runway dashes in front of it
+    // (one layer further out, or the backing hides them), a lamp strip along the top
     const sd = p.side || 1, fx = sd > 0 ? x1 : x0, f = sd > 0 ? FACES.PX : FACES.NX, o = sd > 0 ? 0.02 : -0.02;
     const xa = Math.min(fx, fx + o), xb = Math.max(fx, fx + o), ym = (y0 + y1) / 2;
-    gb.box(xa, y0 + 0.4, z0 + 0.3, xb, y1 - 0.4, z1 - 0.3, M.accent2, { faces: f, tint: 0.35 });
-    for (let z = z0 + 1; z < z1 - 1; z += 1.6) {
-      gb.box(xa - o, ym - 0.05, z, xb - o, ym + 0.75, z + 0.3, M.accent, { faces: f, tint: 0.9 });
-      gb.box(xa - o, ym - 0.8, z, xb - o, ym, z + 0.3, M.accent, { faces: f, tint: 0.9 });
+    gb.box(xa, y0 + 0.4, z0 + 0.3, xb, y1 - 0.4, z1 - 0.3, M.accent2, { faces: f, tint: 0.22 });
+    for (let z = z0 + 0.7; z < z1 - 1.2; z += 1.6) {
+      gb.box(xa + o, ym - 0.1, z, xb + o, ym + 0.1, z + 0.9, M.accent, { faces: f, tint: 0.95 });
+      gb.box(xa + o, ym - 0.95, z + 0.45, xb + o, ym - 0.8, z + 1.0, M.accent, { faces: f, tint: 0.7 });
     }
     gb.box(Math.min(fx, fx + o * 3), y1 - 0.18, z0, Math.max(fx, fx + o * 3), y1 - 0.06, z1, M.lamp, { faces: f });
     gb.box(Math.min(fx, fx + o * 3), y0, z0, Math.max(fx, fx + o * 3), y0 + 0.25, z1, M.hazard, { faces: f, uvScale: 2 });
