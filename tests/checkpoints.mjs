@@ -106,6 +106,8 @@ try {
     return { out, state: g.state, hp: g.player.hp };
   });
   console.log('  damage', JSON.stringify(dmg));
+  // step the death animation deterministically (real-time waits flake on a loaded machine)
+  await page.evaluate(() => { const g = window.__vg; for (let i = 0; i < 400 && g.state !== 'dead'; i++) g.tick(1 / 60, 1 / 60); });
   await page.waitForFunction(() => window.__vg.state === 'dead', null, { timeout: 15000 });
   const btns = await page.$$eval('#m-deadlist [data-a]', (els) => els.map((e) => e.dataset.a));
   ok(btns[0] === 'retryCheckpoint' && btns.includes('retryLevel'), 'death menu offers RETRY FROM CHECKPOINT first: ' + btns.join(','));
