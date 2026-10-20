@@ -233,6 +233,7 @@ export class HUD {
     if (g.state !== 'playing' && g.state !== 'cutscene' && g.state !== 'dying') return;
     c.imageSmoothingEnabled = false;
     this.textFx = !!g.settings.get('textFx');
+    this.lefty = this.touch && !!g.settings.get('leftHanded');
     const cut = g.cutscene && g.cutscene.active;
     this.topY = 22 + this.safe.t;
     if (!cut) {
@@ -456,7 +457,7 @@ export class HUD {
   drawHealth() {
     const g = this.game, p = g.player;
     const s = this.safe;
-    const x = (this.touch ? 54 * this.k : 8) + s.l; // the touch pause button sits top-left
+    const x = (this.touch && !this.lefty ? 54 * this.k : 8) + s.l; // the touch pause button sits top-left (top-right when left-handed)
     const y = this.touch ? 40 + s.t : this.V - 10 - s.b;
     const low = p.hp < p.stats.maxHp * 0.3;
     const blink = low && Math.floor(this.t * 4) % 2 === 0;
@@ -491,7 +492,7 @@ export class HUD {
     const g = this.game, w = g.weapons;
     const s = this.safe;
     const id = w.current, a = w.ammo[id], d = DEFS[id];
-    const right = this.W - 8 - s.r;
+    const right = this.W - 8 - s.r - (this.lefty ? 50 * this.k : 0);
     const y = this.touch ? 56 + s.t : this.V - 10 - s.b;
     // the weapon details show after a switch / variant change / reload, then fade away
     const vi = w.variantInfo ? w.variantInfo(id) : null;

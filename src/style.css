@@ -38,48 +38,60 @@ canvas.px, #hudc { image-rendering: pixelated; image-rendering: crisp-edges; }
 #hudc { position: absolute; inset: 0; width: 100%; height: 100%; }
 #scan { position: fixed; inset: 0; pointer-events: none; z-index: 14; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 3px); }
 
-/* ---------------------------------------------------------------- touch controls */
-#touch { position: fixed; inset: 0; z-index: 12; display: none; --btn-scale: 1; }
+/* ---------------------------------------------------------------- touch controls
+   Light by design: thin outlines, see-through fills, line icons with a tiny label. Each button is
+   placed by its centre (--x from the right / --y from the bottom) and size (--s), so the
+   left-handed layout mirrors them and the size setting grows them in place. Rarely used buttons
+   (RLD, SWAP, HOOK, USE) are smaller and dimmer. Above the HUD canvas so the rail scope never
+   hides them. */
+#touch { position: fixed; inset: 0; z-index: 15; display: none; --btn-scale: 1; }
 body.touch.playing #touch { display: block; }
 .tc-zone { position: absolute; top: 0; bottom: 0; touch-action: none; }
 .tc-move { left: 0; width: 42%; }
 .tc-look { right: 0; width: 58%; }
-.tc-stick { position: absolute; left: calc(70px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: calc(118px * var(--btn-scale)); height: calc(118px * var(--btn-scale)); border: 2px solid rgba(232,228,216,0.28); background: rgba(0,0,0,0.2); pointer-events: none; opacity: 0.6; clip-path: polygon(14% 0, 86% 0, 100% 14%, 100% 86%, 86% 100%, 14% 100%, 0 86%, 0 14%); }
+.tc-stick { position: absolute; left: calc(70px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: calc(112px * var(--btn-scale)); height: calc(112px * var(--btn-scale)); border: 1.5px solid rgba(232,228,216,0.22); border-radius: 50%; background: rgba(0,0,0,0.12); pointer-events: none; opacity: 0.5; }
 .tc-stick.active { opacity: 1; bottom: auto; }
-.tc-knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; background: rgba(127,224,184,0.5); border: 2px solid var(--mint); }
-.tc-btn { position: absolute; border: 2px solid rgba(232,228,216,0.45); background: rgba(8,10,14,0.5); color: var(--bone); font-family: var(--mono); font-size: calc(17px * var(--btn-scale)); letter-spacing: 0.05em; touch-action: none; padding: 0; display: grid; place-items: center;
-  clip-path: polygon(18% 0, 82% 0, 100% 18%, 100% 82%, 82% 100%, 18% 100%, 0 82%, 0 18%); opacity: var(--tc-alpha, 0.75); }
-.tc-btn.down { background: rgba(127,224,184,0.45); border-color: var(--mint); opacity: 1; }
-.tc-aim { width: calc(50px * var(--btn-scale)); height: calc(50px * var(--btn-scale)); right: calc(206px + var(--safe-r)); bottom: calc(224px + var(--safe-b)); border-color: rgba(143,244,228,0.7); font-size: calc(15px * var(--btn-scale)); }
-.tc-aim.on { background: rgba(64,224,255,0.4); border-color: #40e0ff; opacity: 1; }
-#touch.lefty .tc-aim { left: calc(206px + var(--safe-l)); }
-.tc-fire { width: calc(92px * var(--btn-scale)); height: calc(92px * var(--btn-scale)); right: calc(112px + var(--safe-r)); bottom: calc(100px + var(--safe-b)); border-color: rgba(255,49,80,0.85); font-size: calc(22px * var(--btn-scale)); }
-.tc-fire.down { background: rgba(255,49,80,0.45); }
-.tc-alt { width: calc(54px * var(--btn-scale)); height: calc(54px * var(--btn-scale)); right: calc(214px + var(--safe-r)); bottom: calc(162px + var(--safe-b)); border-color: rgba(255,208,96,0.7); }
-.tc-jump { width: calc(68px * var(--btn-scale)); height: calc(68px * var(--btn-scale)); right: calc(22px + var(--safe-r)); bottom: calc(86px + var(--safe-b)); }
-.tc-dash { width: calc(60px * var(--btn-scale)); height: calc(60px * var(--btn-scale)); right: calc(104px + var(--safe-r)); bottom: calc(18px + var(--safe-b)); }
-.tc-slide { width: calc(56px * var(--btn-scale)); height: calc(56px * var(--btn-scale)); right: calc(186px + var(--safe-r)); bottom: calc(14px + var(--safe-b)); }
-.tc-punch { width: calc(56px * var(--btn-scale)); height: calc(56px * var(--btn-scale)); right: calc(222px + var(--safe-r)); bottom: calc(90px + var(--safe-b)); border-color: rgba(255,226,58,0.7); }
-.tc-hook { width: calc(48px * var(--btn-scale)); height: calc(48px * var(--btn-scale)); right: calc(34px + var(--safe-r)); bottom: calc(172px + var(--safe-b)); border-color: rgba(255,208,96,0.6); }
-.tc-reload { width: calc(44px * var(--btn-scale)); height: calc(44px * var(--btn-scale)); right: calc(150px + var(--safe-r)); bottom: calc(212px + var(--safe-b)); }
-.tc-swap { width: calc(44px * var(--btn-scale)); height: calc(44px * var(--btn-scale)); right: calc(96px + var(--safe-r)); bottom: calc(212px + var(--safe-b)); }
-.tc-use { width: calc(76px * var(--btn-scale)); height: calc(40px * var(--btn-scale)); left: 50%; margin-left: calc(-38px * var(--btn-scale)); bottom: calc(110px + var(--safe-b)); border-color: var(--amber); color: var(--amber); display: none; }
-#touch.can-use .tc-use { display: grid; }
-.tc-pause { width: 40px; height: 40px; left: calc(10px + var(--safe-l)); top: calc(8px + var(--safe-t)); font-size: 20px; }
+.tc-knob { position: absolute; left: 50%; top: 50%; width: 40%; height: 40%; margin: -20% 0 0 -20%; border-radius: 50%; background: rgba(127,224,184,0.35); border: 1.5px solid rgba(127,224,184,0.8); }
+.tc-btn { --s: 54px; --x: 100px; --y: 100px; position: absolute; box-sizing: border-box;
+  width: calc(var(--s) * var(--btn-scale)); height: calc(var(--s) * var(--btn-scale));
+  right: calc(var(--x) - var(--s) * var(--btn-scale) / 2 + var(--safe-r)); bottom: calc(var(--y) - var(--s) * var(--btn-scale) / 2 + var(--safe-b));
+  border: 1.5px solid rgba(232,228,216,0.38); border-radius: 50%; background: rgba(8,10,14,0.28); color: var(--bone);
+  font-family: var(--mono); font-size: calc(11px * var(--btn-scale)); line-height: 1; letter-spacing: 0.06em; touch-action: none; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; opacity: var(--tc-alpha, 0.55); }
+.tc-btn svg { width: 42%; height: 42%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.tc-btn span { pointer-events: none; opacity: 0.85; }
+.tc-btn.down { background: rgba(127,224,184,0.38); border-color: var(--mint); opacity: 1; }
+#touch.lefty .tc-btn:not(.tc-pause):not(.tc-use) { right: auto; left: calc(var(--x) - var(--s) * var(--btn-scale) / 2 + var(--safe-l)); }
+.tc-fire { --s: 88px; --x: 158px; --y: 146px; border-color: rgba(255,49,80,0.75); font-size: calc(12px * var(--btn-scale)); }
+.tc-fire.down { background: rgba(255,49,80,0.4); border-color: #ff3150; }
+.tc-jump { --s: 64px; --x: 56px; --y: 120px; }
+.tc-dash { --s: 58px; --x: 134px; --y: 48px; }
+.tc-slide { --s: 54px; --x: 214px; --y: 42px; }
+.tc-punch { --s: 54px; --x: 250px; --y: 118px; border-color: rgba(255,226,58,0.6); }
+.tc-alt { --s: 48px; --x: 241px; --y: 189px; border-color: rgba(255,208,96,0.55); }
+.tc-aim { --s: 46px; --x: 231px; --y: 249px; border-color: rgba(143,244,228,0.6); }
+.tc-aim.on { background: rgba(64,224,255,0.38); border-color: #40e0ff; opacity: 1; }
+/* rarely used: smaller, thinner, dimmer */
+.tc-reload, .tc-swap, .tc-hook { border-width: 1px; opacity: calc(var(--tc-alpha, 0.55) * 0.75); font-size: calc(9px * var(--btn-scale)); }
+.tc-reload { --s: 38px; --x: 172px; --y: 234px; }
+.tc-swap { --s: 38px; --x: 118px; --y: 234px; }
+.tc-hook { --s: 42px; --x: 58px; --y: 196px; border-color: rgba(255,208,96,0.5); }
+#touch.minimal .tc-reload, #touch.minimal .tc-swap { display: none; }
+.tc-use { width: calc(70px * var(--btn-scale)); height: calc(34px * var(--btn-scale)); left: 50%; right: auto; margin-left: calc(-35px * var(--btn-scale)); bottom: calc(110px + var(--safe-b)); border-radius: 17px; border-color: var(--amber); color: var(--amber); flex-direction: row; gap: 4px; display: none; opacity: 0.9; }
+.tc-use svg { width: auto; height: 55%; }
+#touch.can-use .tc-use { display: flex; }
+.tc-pause { width: 36px; height: 36px; left: calc(10px + var(--safe-l)); top: calc(8px + var(--safe-t)); right: auto; bottom: auto; border-radius: 8px; border-width: 1px; }
+.tc-pause svg { width: 55%; height: 55%; }
 #touch.lefty .tc-move { left: auto; right: 0; }
 #touch.lefty .tc-look { right: auto; left: 0; }
-#touch.lefty .tc-btn:not(.tc-pause):not(.tc-use) { right: auto; }
-#touch.lefty .tc-fire { left: calc(112px + var(--safe-l)); }
-#touch.lefty .tc-alt { left: calc(214px + var(--safe-l)); }
-#touch.lefty .tc-jump { left: calc(22px + var(--safe-l)); }
-#touch.lefty .tc-dash { left: calc(104px + var(--safe-l)); }
-#touch.lefty .tc-slide { left: calc(186px + var(--safe-l)); }
-#touch.lefty .tc-punch { left: calc(222px + var(--safe-l)); }
-#touch.lefty .tc-hook { left: calc(34px + var(--safe-l)); }
-#touch.lefty .tc-reload { left: calc(150px + var(--safe-l)); }
-#touch.lefty .tc-swap { left: calc(96px + var(--safe-l)); }
 #touch.lefty .tc-stick { left: auto; right: calc(70px + var(--safe-r)); }
 #touch.lefty .tc-pause { left: auto; right: calc(10px + var(--safe-r)); }
+/* RUSH: only while the meter is full */
+.tc-rush { --s: 54px; --x: 300px; --y: 200px; border-color: #ff3df0; color: #ff9cf6; display: none; }
+#touch.rush-ready .tc-rush { display: flex; animation: tc-rush-pulse 0.7s steps(2) infinite; }
+.tc-rush.down { background: rgba(255,61,240,0.5); }
+@keyframes tc-rush-pulse { 50% { background: rgba(255,61,240,0.32); } }
+@media (prefers-reduced-motion: reduce) { #touch.rush-ready .tc-rush { animation: none; background: rgba(255,61,240,0.3); } }
 
 /* ---------------------------------------------------------------- menus */
 #menus { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
@@ -227,11 +239,3 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
   .mi .tag { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .card { animation: none; } .credits-roll { animation-duration: 90s; } }
-
-/* ---------------------------------------------------------------- mechanics: RUSH touch button (append-only block) */
-.tc-rush { width: calc(58px * var(--btn-scale)); height: calc(58px * var(--btn-scale)); right: calc(290px + var(--safe-r)); bottom: calc(110px + var(--safe-b)); border-color: #ff3df0; color: #ff9cf6; font-size: calc(15px * var(--btn-scale)); display: none; }
-#touch.rush-ready .tc-rush { display: grid; animation: tc-rush-pulse 0.7s steps(2) infinite; }
-.tc-rush.down { background: rgba(255,61,240,0.5); }
-#touch.lefty .tc-rush { left: calc(290px + var(--safe-l)); }
-@keyframes tc-rush-pulse { 50% { background: rgba(255,61,240,0.35); } }
-@media (prefers-reduced-motion: reduce) { #touch.rush-ready .tc-rush { animation: none; background: rgba(255,61,240,0.3); } }
