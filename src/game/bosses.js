@@ -32,6 +32,47 @@ function box(w, h, d, mat, x = 0, y = 0, z = 0) {
   return m;
 }
 
+// ---- shared body language for the bespoke bosses (visual only: hitboxes come from pos/yaw)
+// frame-rate independent ease toward a target
+const ez = (cur, target, rate, dt) => cur + (target - cur) * Math.min(1, rate * dt);
+const smooth = (k) => k * k * (3 - 2 * k);
+const _bv = new THREE.Vector3();
+const WRECK = { own: true }, WRECK_SPARK = { own: true, spark: true };
+let wreckMat = null;
+// Boot: dormant through the intro (the establishing shot), lights stutter on, then it rises
+// and roars as the hero shot cuts in. Returns 0..1.
+function bootStep(b, dt) {
+  if (b.boot >= 1) return 1;
+  b.boot = Math.min(1, (b.boot || 0) + dt * (b.state === 'intro' ? 1 / 2.4 : 3));
+  const on = b.boot >= 1 || (b.boot > 0.45 && Math.random() < (b.boot - 0.35) * 1.6);
+  for (const m of b.glows) m.visible = on;
+  if (b.boot >= 1) b.roarT = b.roar0 = 1.1;
+  return b.boot;
+}
+// per-frame beat every bespoke animate() runs first: boot, roar (intro and phase changes,
+// sparks off the body, lands with a dust ring) and a jolt when shot. Returns the roar 0..1.
+function bodyBeat(b, dt) {
+  const g = b.game;
+  bootStep(b, dt);
+  let roar = 0;
+  if (b.roarT > 0) {
+    b.roarT -= dt;
+    roar = Math.sin(clamp(b.roarT / b.roar0, 0, 1) * Math.PI);
+    if (Math.random() < 0.45) {
+      const p = b.deathPoint(_bv);
+      g.fx.sparks.spawn(p.x, p.y, p.z, (Math.random() - 0.5) * 7, 3 + Math.random() * 4, (Math.random() - 0.5) * 7, 1, 0.85, 0.5, 1, 0.1, 0.5, 12, 0.5);
+    }
+    if (b.roarT <= 0) {
+      const gy = b.room.floorAt(b.pos.x, b.pos.z);
+      g.fx.ring(b.pos.x, gy + 0.1, b.pos.z, 4 + b.size * 2, b.color, 0.45, 0.1);
+      for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2; g.fx.dust.spawn(b.pos.x + Math.cos(a) * b.radius, gy + 0.1, b.pos.z + Math.sin(a) * b.radius, Math.cos(a) * 4, 0.6, Math.sin(a) * 4, 0.35, 0.33, 0.3, 0.7, 0.3, 0.7, -0.3, 2.5); }
+    }
+  }
+  b.joltT = Math.max(0, (b.joltT || 0) - dt * 6);
+  if (b.joltT > 0 && b.alive) { const j = b.joltT * 0.07 * b.size; b.group.position.x += (Math.random() - 0.5) * j; b.group.position.z += (Math.random() - 0.5) * j; }
+  return roar;
+}
+
 // ---------------------------------------------------------------------------------------
 export class Boss {
   constructor(game, room, type, tier, info) {
@@ -136,6 +177,8 @@ export class Boss {
   }
   finish() {
     this.group.traverse((o) => { if (o.isMesh) { if (!o.userData.mat) o.userData.mat = o.material; this.meshes.push(o); } });
+    // lit parts (they stutter on while it boots, and go dark as wreckage)
+    this.glows = this.meshes.filter((m) => m.userData.mat.isMeshBasicMaterial && !m.userData.mat.transparent);
     this.game.scene.add(this.group);
     this.sync();
   }
@@ -147,6 +190,7 @@ export class Boss {
     if (part.pylon) return this.damagePart(part, amount);
     this.hp -= amount;
     this.flashT = 0.06;
+    this.joltT = Math.min(1, (this.joltT || 0) + 0.2 + amount / Math.max(1, this.maxHp) * 20);
     if (this.phase === 1 && this.hp < this.maxHp * 0.5) this.enterPhase2();
     else if (this.phase === 2 && this.maxPhase >= 3 && this.hp < this.maxHp * 0.22) this.enterPhase3 && this.enterPhase3();
     if (this.hp <= 0) { this.hp = 0; this.defeat(); }
@@ -167,6 +211,7 @@ export class Boss {
     g.hud.banner('PHASE II', this.info.name + ' IS ENRAGED', this.info.color);
     g.fx.sparksBurst(this.center(), 0xffffff, 40, 14, 0.8, 0.15);
     this.sigT = Math.min(this.sigT, 3);
+    this.roarT = this.roar0 = 1.4;
   }
 
   // bespoke bosses get a third phase in NG+ and on overclocked tiers (kit bosses override)
@@ -187,6 +232,7 @@ export class Boss {
     g.fx.sparksBurst(this.center(), 0xff3050, 40, 14, 0.8, 0.15);
     g.fx.ring(this.pos.x, this.groundY + 0.2, this.pos.z, 12, 0xff3050, 0.6, 0.05);
     this.sigT = Math.min(this.sigT, 1.5);
+    this.roarT = this.roar0 = 1.4;
   }
 
   center() { return this.tmp.set(this.pos.x, this.pos.y + 2, this.pos.z); }
@@ -229,8 +275,20 @@ export class Boss {
     const drop = this.flying ? Math.max(0, this.deathY0 - floor - 0.6) : this.height * 0.18;
     this.group.position.set(this.pos.x + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5), this.deathY0 - drop * k * k - (this.sinkY || 0), this.pos.z + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5));
     this.group.rotation.set(0, this.yaw, 0);
-    this.group.rotateZ(this.deathTilt * k * k * 0.45);
-    this.group.rotateX(-k * 0.2);
+    // it staggers: sways, catches itself, then the lean wins
+    this.group.rotateZ(this.deathTilt * k * k * 0.45 + Math.sin(this.deathT * 6.5) * 0.09 * (1 - k));
+    this.group.rotateX(-k * 0.2 + Math.sin(this.deathT * 4.3) * 0.05 * (1 - k));
+    // the lights fail: glow parts stutter and go dark toward the end
+    if (this.ch && this.ch.glowMat) {
+      if (Math.random() < 0.35) this.ch.glowMat.color.copy(this.ch.baseGlow).multiplyScalar(Math.random() < 0.25 + k * 0.6 ? 0.08 : 1.2);
+    } else if (this.glows && Math.random() < 0.35) {
+      const off = Math.random() < 0.25 + k * 0.6;
+      for (const m of this.glows) m.visible = !off;
+    }
+    if (Math.random() < 0.6) {
+      const vp = this.deathPoint(new THREE.Vector3());
+      g.fx.sparks.spawn(vp.x, vp.y, vp.z, (Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7, 1, 0.8, 0.4, 1, 0.1, 0.5, 14, 0.5);
+    }
     if (this.flashing) { this.flashing = false; for (const m of this.meshes) m.material = m.userData.mat; }
     if (this.onDeathTick) this.onDeathTick(k);
     this.deathPop -= dt;
@@ -262,8 +320,29 @@ export class Boss {
       g.addShake(1.0);
       g.flash(0xffffff, 0.3);
       g.hitstop(0.12);
+      if (this.onDeathEnd) this.onDeathEnd(c, floor);
       this.dying = false;
       this.remove();
+    }
+  }
+
+  // the final blast tears the body apart: a handful of parts fly out and litter the arena
+  // (bespoke bosses own their geometry, so the pieces free it when they are cleared)
+  onDeathEnd(c) {
+    const g = this.game;
+    if (!wreckMat) wreckMat = psxify(new THREE.MeshLambertMaterial({ map: getTexture('gun'), color: 0x1c1a1a }));
+    this.group.updateMatrixWorld(true);
+    const parts = this.meshes.filter((m) => m.visible && m.parent && m.geometry && !m.userData.shared && !m.userData.mat.transparent);
+    const n = Math.min(parts.length, g.lowPower ? 10 : 18);
+    for (let i = 0; i < n; i++) {
+      const m = parts.splice(Math.floor(Math.random() * parts.length), 1)[0];
+      if (m.userData.mat.isMeshBasicMaterial) m.userData.mat = wreckMat;
+      m.material = m.userData.mat;
+      m.getWorldPosition(_bv);
+      const dx = _bv.x - c.x, dz = _bv.z - c.z, l = Math.hypot(dx, dz) || 1, sp = 5 + Math.random() * 8;
+      const v = new THREE.Vector3(dx / l * sp + (Math.random() - 0.5) * 3, 4 + Math.random() * 7, dz / l * sp + (Math.random() - 0.5) * 3);
+      const w = new THREE.Vector3((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+      g.fx.addCorpsePiece(m, v, w, i < 4 ? WRECK_SPARK : WRECK);
     }
   }
 
@@ -509,13 +588,52 @@ class Grindhammer extends Boss {
     moveBody(this.body, Math.sin(this.yaw) * speed * dt, 0, Math.cos(this.yaw) * speed * dt, this.game.level.colliders);
     this.stride = (this.stride || 0) + dt * speed * 1.2;
   }
-  animate() {
+  // A heavy trotting bull: diagonal leg pairs, a plodding bob and roll; it paws the floor and
+  // squats before a charge, gallops nose-down, rears up before a slam, sags when stunned.
+  // Owns the chassis pose every frame (think() only sets state).
+  animate(dt = 0.016) {
+    const g = this.game, t = g.time, st = this.state, an = this.anim;
+    const P = this.pose || (this.pose = { pitch: 0, roll: 0, lift: 0, fl: 0, splay: 0, paw: 0 });
+    const roar = bodyBeat(this, dt);
+    const charging = st === 'charging' || (st === 'module' && an.act && an.mod === 'charge');
+    if (charging || (st === 'module' && an.moving)) this.stride = (this.stride || 0) + dt * (charging ? 22 : 8);
     const s = this.stride || 0;
-    const running = this.state === 'charging' || (this.state === 'module' && this.anim.moving);
-    this.legs.forEach((l, i) => { l.rotation.x = Math.sin(s + (i % 2) * Math.PI) * (running ? 0.8 : 0.35); });
-    if (running) this.stride = (this.stride || 0) + 0.6;
-    if (this.state === 'module') this.chassis.rotation.x = this.anim.wind ? -0.1 : 0;
-    this.mouth.scale.y = this.anim.wind ? 1 + Math.random() : this.state === 'spewWind' ? this.mouth.scale.y : 1;
+    let pitch = 0, roll = 0, lift = 0, fl = 0, splay = 0, paw = 0;
+    if (st === 'chargeWind' || (st === 'module' && an.wind)) { pitch = -0.1; lift = -0.18; paw = 1; roll = Math.sin(t * 40) * 0.015; }
+    else if (charging) { pitch = 0.12; lift = Math.abs(Math.sin(s)) * 0.2; }
+    else if (st === 'slamWind') { const k = 1 - clamp(this.stateT / (0.85 * this.cdMul), 0, 1); pitch = -0.42 * k; lift = 0.9 * k; fl = -0.9 * k; }
+    else if (st === 'recover') { pitch = 0.07; lift = -0.15; }
+    else if (st === 'spewWind') { pitch = 0.08; roll = Math.sin(t * 50) * 0.02; }
+    else if (st === 'stunned' || st === 'modstun') { pitch = 0.16; lift = -0.45; splay = 0.35; roll = Math.sin(t * 30) * 0.03; }
+    else { lift = Math.abs(Math.sin(s)) * 0.07 + Math.sin(t * 1.8) * 0.03; roll = Math.sin(s) * 0.035; }
+    if (this.boot < 1) { const d = 1 - smooth(clamp((this.boot - 0.55) / 0.4, 0, 1)); pitch += 0.22 * d; lift -= 0.75 * d; splay += 0.35 * d; }
+    pitch -= roar * 0.35; lift += roar * 0.55; fl -= roar * 0.8; roll += roar * Math.sin(t * 38) * 0.03;
+    const r = st === 'slamWind' ? 30 : 12;
+    P.pitch = ez(P.pitch, pitch, r, dt); P.roll = ez(P.roll, roll, 20, dt); P.lift = ez(P.lift, lift, r, dt);
+    P.fl = ez(P.fl, fl, r, dt); P.splay = ez(P.splay, splay, 8, dt); P.paw = ez(P.paw, paw, 10, dt);
+    this.chassis.rotation.set(P.pitch, 0, P.roll);
+    this.chassis.position.y = P.lift;
+    const amp = charging ? 0.9 : 0.35;
+    this.legs.forEach((l, i) => {
+      let a = Math.sin(s + (i === 0 || i === 3 ? 0 : Math.PI)) * amp;
+      if (i < 2) a += P.fl;
+      // the front-left hoof scrapes back and forth
+      if (i === 0) a += P.paw * (-0.45 + Math.sin(t * 11) * 0.5);
+      l.rotation.x = a;
+      l.rotation.z = (i % 2 ? 1 : -1) * P.splay;
+    });
+    if (paw && Math.random() < 0.25) {
+      this.legs[0].localToWorld(_bv.set(0, -1.4, 0));
+      g.fx.dust.spawn(_bv.x, this.pos.y + 0.15, _bv.z, -Math.sin(this.yaw) * 2 + (Math.random() - 0.5), 0.8, -Math.cos(this.yaw) * 2 + (Math.random() - 0.5), 0.3, 0.26, 0.22, 0.7, 0.35, 0.6, 0.5, 1.5);
+    }
+    this.mouth.scale.y = an.wind ? 1 + Math.random() : st === 'spewWind' ? this.mouth.scale.y : 1 + roar * Math.random() * 1.5;
+  }
+  onDeathTick(k) {
+    // the legs give out: it sags onto its belly with the legs splayed
+    const e = smooth(Math.min(1, k * 1.6));
+    this.legs.forEach((l, i) => { l.rotation.z = (i % 2 ? 1 : -1) * 0.7 * e; l.rotation.x = (i < 2 ? -0.3 : 0.3) * e; });
+    this.chassis.position.y = -0.8 * e;
+    this.mouth.scale.y = Math.random() < 0.3 ? 0.2 : 1;
   }
 }
 
@@ -702,11 +820,50 @@ class Vesper extends Boss {
     g.hud.toast('BARRIER UP - FLANK IT OR BREAK IT', '#40c8ff');
     this.state = 'fanWind'; this.stateT = 0.8; this.volleys = 2;
   }
-  animate() {
-    const t = this.game.time;
-    this.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (0.2 + Math.sin(t * 3) * 0.15); });
-    this.rig.rotation.x = this.state === 'sweep' ? 0.3 : 0.1;
-    if (this.state === 'module') { this.armL.rotation.z = this.anim.wind ? -1.2 : 0; this.armR.rotation.z = this.anim.wind ? 1.2 : 0; this.armR.rotation.x = this.anim.act ? -1.4 : 0; }
+  // A hunting bird: wingbeats that quicken with effort (the body lifts on each down-stroke),
+  // banks into her strafes, spreads her arms to fan, raises one to loose seekers, folds
+  // thin before a blink and turns her whole body along the sweep laser.
+  animate(dt = 0.016) {
+    const g = this.game, t = g.time, st = this.state, an = this.anim;
+    const P = this.pose || (this.pose = { bank: 0, pitch: 0, aLz: 0, aRz: 0, aRx: 0, aLx: 0, fold: 0, look: 0, head: 0, px: this.pos.x, pz: this.pos.z, ph: 0, thin: 0 });
+    const roar = bodyBeat(this, dt);
+    const idt = 1 / Math.max(dt, 1e-4);
+    const vx = clamp((this.pos.x - P.px) * idt, -20, 20), vz = clamp((this.pos.z - P.pz) * idt, -20, 20);
+    P.px = this.pos.x; P.pz = this.pos.z;
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const vf = vx * sy + vz * cy, vl = vx * cy - vz * sy;
+    const busy = st === 'fanWind' || st === 'seekWind' || st === 'sweepWind' || st === 'sweep' || an.wind;
+    const rate = busy ? 9 : 4 + Math.min(4, Math.hypot(vx, vz) * 0.5);
+    P.ph += dt * rate;
+    let aLz = 0, aRz = 0, aRx = 0, aLx = 0, fold = 0, look = 0, head = 0, thin = 0;
+    if (st === 'fanWind' || (st === 'module' && an.wind)) { aLz = -1.2; aRz = 1.2; }
+    else if (st === 'seekWind') { aRx = -2.4; aRz = 0.3; }
+    else if (st === 'sweepWind' || st === 'sweep') { aRx = -1.5; aLx = -1.5; look = angleDiff(this.yaw, this.sweepA || this.yaw); head = 0.3; }
+    else if (st === 'blinkWind') { fold = 1; thin = 1; }
+    else if (st === 'module' && an.act) { aRx = -1.4; }
+    if (this.boot < 1) { const d = 1 - smooth(clamp((this.boot - 0.5) / 0.45, 0, 1)); fold = Math.max(fold, d); head += 0.6 * d; }
+    aLz -= roar * 1.3; aRz += roar * 1.3; aRx -= roar * 0.6; aLx -= roar * 0.6; head -= roar * 0.5;
+    P.bank = ez(P.bank, clamp(-vl * 0.045, -0.45, 0.45), 4, dt);
+    P.pitch = ez(P.pitch, clamp(vf * 0.025, -0.3, 0.3) + (st === 'sweep' ? 0.2 : 0.1), 4, dt);
+    P.aLz = ez(P.aLz, aLz, 12, dt); P.aRz = ez(P.aRz, aRz, 12, dt); P.aRx = ez(P.aRx, aRx, 12, dt); P.aLx = ez(P.aLx, aLx, 12, dt);
+    P.fold = ez(P.fold, fold, 12, dt); P.head = ez(P.head, head, 12, dt); P.thin = ez(P.thin, thin, 12, dt);
+    P.look = ez(P.look, look, 10, dt);
+    const flap = Math.sin(P.ph);
+    // folded wings hang straight down; open ones beat
+    this.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * ((0.15 + flap * (busy ? 0.35 : 0.25)) * (1 - P.fold) + 1.25 * P.fold); });
+    this.rig.position.y = -Math.cos(P.ph) * 0.08 * (1 - P.fold) - 0.5 * (this.boot < 1 ? 1 - this.boot : 0);
+    this.rig.rotation.set(P.pitch, P.look, P.bank + roar * Math.sin(t * 36) * 0.05);
+    this.rig.scale.set(1.4 * (1 - 0.6 * P.thin), 1.4 * (1 + 0.25 * P.thin), 1.4 * (1 - 0.6 * P.thin));
+    this.head.rotation.x = P.head;
+    this.armL.rotation.set(P.aLx, 0, P.aLz); this.armR.rotation.set(P.aRx, 0, P.aRz);
+  }
+  onDeathTick(k) {
+    // the wings go limp and it falls nose-first
+    const e = smooth(Math.min(1, k * 1.4));
+    this.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (1.3 * e + Math.sin(this.deathT * 20) * 0.1 * (1 - e)); });
+    this.rig.rotation.x = 0.1 + 0.8 * e;
+    this.armL.rotation.set(-0.3 * e, 0, 0); this.armR.rotation.set(-0.3 * e, 0, 0);
+    this.head.rotation.x = 0.7 * e;
   }
   extraRemove() {
     for (const b of this.game.bosses.barriers) { this.game.scene.remove(b.mesh); b.mesh.geometry.dispose(); }
@@ -731,6 +888,19 @@ class Crucible extends Boss {
     this.shieldMesh.userData.mat = this.shieldMesh.material;
     this.coreY = 5;
     this.group.add(this.core, this.coreGlow, this.shieldMesh);
+    // a ring of slag shards orbits the core: it speeds up as the core works and flares out when it roars
+    this.shards = [];
+    const shardGeo = new THREE.OctahedronGeometry(0.45, 0), shardMat = M(0x5a8a64, 'panel');
+    for (let i = 0; i < 7; i++) {
+      const sh = new THREE.Mesh(shardGeo, shardMat);
+      sh.userData.mat = shardMat;
+      sh.userData.shared = true; // one geometry for all seven: freed once in extraRemove
+      sh.scale.set(0.7, 1.6, 0.7);
+      this.shards.push(sh);
+      this.group.add(sh);
+    }
+    this.shardGeo = shardGeo;
+    this.orbitA = 0;
     this.pylons = [];
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
@@ -889,13 +1059,33 @@ class Crucible extends Boss {
     }
     this.pushPlayer(2.4);
   }
-  animate(dt) {
-    const t = this.game.time;
-    this.core.position.y = this.coreY;
-    this.coreGlow.position.y = this.coreY;
-    this.shieldMesh.position.y = this.coreY;
-    this.core.rotation.y = t * 0.6; this.core.rotation.x = Math.sin(t * 0.5) * 0.3;
+  // The core rests on the floor until it boots, then floats up; its spin and the shard ring
+  // speed up while it fires, it swells before a pulse and recoils with every mortar.
+  animate(dt = 0.016) {
+    const t = this.game.time, st = this.state;
+    const P = this.pose || (this.pose = { spin: 0.6, swell: 0, flare: 0, cy: 0 });
+    const roar = bodyBeat(this, dt);
+    const boot = smooth(clamp((this.boot - 0.5) / 0.45, 0, 1));
+    const work = st === 'spiral' ? 3.5 : st === 'pulseWind' ? 2.2 : st === 'volley' ? 1.6 : st === 'module' ? 2 : 0.6;
+    P.spin = ez(P.spin, work * (0.3 + 0.7 * boot), 3, dt);
+    P.swell = ez(P.swell, st === 'pulseWind' ? 0.25 : 0, 6, dt);
+    P.flare = ez(P.flare, roar + (this.exposedT > 0 ? 0.4 : 0), 6, dt);
+    // mortar recoil: the volley timer resets per shot
+    const kick = st === 'volley' ? Math.max(0, this.stateT - 0.35) * 2.5 : 0;
+    P.cy = this.coreY - (1 - boot) * 3.4 + Math.sin(t * 1.3) * 0.15 + kick * 0.4;
+    this.core.position.y = P.cy;
+    this.coreGlow.position.y = P.cy;
+    this.shieldMesh.position.y = P.cy;
+    this.core.rotation.y += P.spin * dt; this.core.rotation.x = Math.sin(t * 0.5) * 0.3;
+    this.core.scale.setScalar(1 + P.swell + roar * 0.12 - kick * 0.1);
     this.coreGlow.rotation.y = -t * 1.5;
+    this.orbitA += dt * (0.5 + P.spin * 0.8);
+    const n = this.shards.length, rad = 3.2 + P.flare * 2.2 + P.swell * 2;
+    for (let i = 0; i < n; i++) {
+      const sh = this.shards[i], a = this.orbitA + i / n * Math.PI * 2;
+      sh.position.set(Math.cos(a) * rad, P.cy + Math.sin(a * 2 + t) * 0.6 - (1 - boot) * 0.6, Math.sin(a) * rad);
+      sh.rotation.set(t * 2 + i, a, 0.4);
+    }
     this.shieldMesh.visible = this.shielded;
     this.shieldMesh.rotation.y = t * 0.3;
     for (const p of this.pylons) {
@@ -912,6 +1102,22 @@ class Crucible extends Boss {
   }
   extraRemove() {
     for (const p of this.pylons) { this.game.scene.remove(p.beam); p.beam.geometry.dispose(); p.beam.material.dispose(); }
+    this.shardGeo.dispose();
+  }
+  onDeathTick(k) {
+    // the core loses lift and drops; the shard ring spins down and falls
+    const e = smooth(Math.min(1, k * 1.3)), P = this.pose;
+    const cy = (P ? P.cy : this.coreY) * (1 - e) + 1.6 * e;
+    this.core.position.y = cy; this.coreGlow.position.y = cy; this.shieldMesh.visible = false;
+    this.core.rotation.z = e * 0.6;
+    this.coreGlow.scale.setScalar(Math.random() < 0.3 + k * 0.5 ? 0.3 : 1);
+    this.orbitA += 0.016 * 3 * (1 - e);
+    const n = this.shards.length, rad = 3.2 + e * 1.5;
+    for (let i = 0; i < n; i++) {
+      const sh = this.shards[i], a = this.orbitA + i / n * Math.PI * 2;
+      sh.position.set(Math.cos(a) * rad, cy * (1 - e) + 0.4 * e, Math.sin(a) * rad);
+      sh.rotation.z = 0.4 + e * 1.1;
+    }
   }
   center() { return this.tmp.set(this.pos.x, this.coreY, this.pos.z); }
 }
@@ -1062,12 +1268,50 @@ class Scythewright extends Boss {
     this.pushPlayer(1.7);
     this.clampArena(1.8);
   }
-  animate() {
+  // A mantis: it stalks with a low, swaying gait and blades held up; folds into a crouch with
+  // the blades cocked overhead before a lunge and strikes down through it; spreads both blades
+  // flat for the spin; cocks one back to throw; buckles and hangs its arms while it overheats.
+  animate(dt = 0.016) {
+    const g = this.game, t = g.time, st = this.state, an = this.anim;
+    const P = this.pose || (this.pose = { tx: 0, ty: 0, crouch: 0, a0x: -0.6, a1x: -0.6, a0z: 0, a1z: 0, leg: 0, px: this.pos.x, pz: this.pos.z });
+    const roar = bodyBeat(this, dt);
+    const moved = Math.hypot(this.pos.x - P.px, this.pos.z - P.pz) / Math.max(dt, 1e-4);
+    P.px = this.pos.x; P.pz = this.pos.z;
     const s = this.stride || 0;
-    this.legs.forEach((l, i) => { l.rotation.x = Math.sin(s + i * Math.PI) * 0.5; });
-    if (this.state === 'idle') this.arms.forEach((a, i) => { a.rotation.x = -0.6 + Math.sin(s + i) * 0.2; });
-    if (this.state === 'module') this.arms.forEach((a) => { a.rotation.x = this.anim.wind ? -2.3 : this.anim.act ? 0.5 : -0.6; });
-    if (this.state === 'modstun') this.coreMesh.scale.setScalar(1.3 + Math.sin(this.game.time * 14) * 0.3);
+    const walking = st === 'idle' && moved > 1;
+    let tx = 0.15, ty = 0, crouch = 0, a0x = -0.7 + Math.sin(s + 1) * 0.15, a1x = -0.7 + Math.sin(s) * 0.15, a0z = 0, a1z = 0, leg = walking ? 0.55 : 0.08;
+    let rate = 12;
+    if (st === 'lungeWind') { tx = 0.55; crouch = 0.35; a0x = a1x = -2.4; leg = 0; }
+    else if (st === 'lunge') { tx = 0.75; crouch = 0.15; a0x = a1x = 0.6; leg = 0.9; rate = 30; }
+    else if (st === 'sweepWind' || st === 'sweep') { tx = 0.1; crouch = 0.25; a0x = a1x = -1.5; a0z = 1.3; a1z = -1.3; leg = 0; rate = 20; }
+    else if (st === 'throwWind') { tx = 0.05; ty = -0.45; a1x = -2.7; a0x = -0.4; leg = 0; }
+    else if (st === 'stuck') { tx = 0.65; crouch = 0.1; a0x = a1x = 0.9; leg = 0; }
+    else if (st === 'overheat' || st === 'modstun') { tx = -0.25; crouch = 0.4; a0x = a1x = 0.3; a0z = -0.2; a1z = 0.2; leg = 0; }
+    else if (st === 'recover') { tx = 0.3; crouch = 0.1; a0x = a1x = -0.2; leg = 0; }
+    else if (st === 'module') { if (an.wind) { tx = 0.45; crouch = 0.3; a0x = a1x = -2.3; } else if (an.act) { tx = 0.6; a0x = a1x = 0.5; rate = 30; } }
+    if (this.boot < 1) { const d = 1 - smooth(clamp((this.boot - 0.5) / 0.45, 0, 1)); tx += 0.85 * d; crouch += 0.5 * d; a0x += 0.9 * d; a1x += 0.9 * d; }
+    tx -= roar * 0.6; a0x -= roar * 1.8; a1x -= roar * 1.8; a0z += roar * 0.6; a1z -= roar * 0.6;
+    P.tx = ez(P.tx, tx, rate, dt); P.ty = ez(P.ty, ty, rate, dt); P.crouch = ez(P.crouch, crouch, rate, dt);
+    P.a0x = ez(P.a0x, a0x, rate, dt); P.a1x = ez(P.a1x, a1x, rate, dt); P.a0z = ez(P.a0z, a0z, rate, dt); P.a1z = ez(P.a1z, a1z, rate, dt);
+    P.leg = ez(P.leg, leg, 8, dt);
+    const shiver = st === 'stuck' || st === 'overheat' ? Math.sin(t * 45) * 0.04 : roar * Math.sin(t * 36) * 0.05;
+    this.torso.rotation.set(P.tx + shiver, P.ty + (walking ? Math.sin(s) * 0.12 : 0), walking ? Math.sin(s) * 0.05 : 0);
+    // crouching drops the hips; the straight legs splay fore and aft so the feet stay planted
+    const hip = 1.6 - P.crouch * 0.6, stance = Math.acos(clamp(hip / 1.6, 0, 1));
+    this.torso.position.y = hip + (walking ? Math.abs(Math.cos(s)) * 0.06 : 0);
+    this.legs.forEach((l, i) => { l.rotation.x = (i ? stance : -stance) + Math.sin(s + i * Math.PI) * P.leg; l.position.y = hip; });
+    this.arms[0].rotation.set(P.a0x, 0, P.a0z); this.arms[1].rotation.set(P.a1x, 0, P.a1z);
+    if (st === 'modstun') this.coreMesh.scale.setScalar(1.3 + Math.sin(t * 14) * 0.3);
+  }
+  onDeathTick(k) {
+    // the legs fold and the blades drop
+    const e = smooth(Math.min(1, k * 1.5));
+    const hip = 1.6 - 0.8 * e, stance = Math.acos(hip / 1.6);
+    this.legs.forEach((l, i) => { l.rotation.x = i ? stance : -stance; l.position.y = hip; });
+    this.torso.position.y = hip;
+    this.torso.rotation.x = 0.15 + 0.6 * e;
+    this.arms.forEach((a, i) => a.rotation.set(0.9 * e, 0, (i ? -0.4 : 0.4) * e));
+    this.coreMesh.scale.setScalar(Math.random() < 0.3 + k * 0.5 ? 0.3 : 1);
   }
 }
 

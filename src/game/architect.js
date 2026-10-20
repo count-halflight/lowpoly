@@ -16,6 +16,9 @@ import { BOSSES } from '../data/bossdata.js';
 const lam = (tex, color, emissive = 0) => psxify(new THREE.MeshLambertMaterial({ map: getTexture(tex), color, emissive: new THREE.Color(color).multiplyScalar(emissive) }));
 const basic = (color, extra = {}) => new THREE.MeshBasicMaterial({ color, ...extra });
 const mesh = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.userData.mat = mat; return m; };
+// halo segments shed as it dies: their geometry is theirs alone, freed when the debris clears
+const SHED = { own: true, spark: true };
+const _dv = new THREE.Vector3();
 
 export class Architect extends Boss {
   constructor(game, room, tier, opts = {}) {
@@ -248,7 +251,7 @@ export class Architect extends Boss {
         colors: [0xe8e8f0, 0x202028, 0xffffff],
       };
       const pos = new THREE.Vector3(room.wx(i ? 12 : -12), 0.05, room.wz(2));
-      const e = new Miniboss(g, pos, { def, hpMul: 1, dmgMul: this.dmgMul, aggr: 0.9 });
+      const e = new Miniboss(g, pos, { def, hpMul: 1, dmgMul: this.dmgMul, aggr: 0.9, noCorrupt: true });
       e.echo = true;
       g.enemies.list.push(e);
       this.echoes.push(e);
@@ -413,7 +416,38 @@ export class Architect extends Boss {
       g.fx.explosion(p, 2 + Math.random() * 2, 0xffd27a);
       g.audio.play('explosion', p, 0.6);
     }
-    for (const h of this.hands) if (h.alive && h.grp.visible) { h.pos.y = Math.max(0.5, h.pos.y - dt * 3); }
+    for (const h of this.hands) if (h.alive && h.grp.visible) {
+      h.pos.y = Math.max(0.5, h.pos.y - dt * 3);
+      // the hands crash onto the floor and stay there
+      if (h.pos.y <= 0.5 && !h.landed) {
+        h.landed = true;
+        g.fx.ring(h.pos.x, 0.15, h.pos.z, 7, 0xffd27a, 0.5, 0.1);
+        for (let i = 0; i < 12; i++) { const a = Math.random() * Math.PI * 2; g.fx.dust.spawn(h.pos.x + Math.cos(a) * 2, 0.3, h.pos.z + Math.sin(a) * 2, Math.cos(a) * 5, 0.8, Math.sin(a) * 5, 0.4, 0.38, 0.34, 0.8, 0.5, 1, -0.3, 3); }
+        g.audio.play('slam', h.pos, 0.9);
+        g.addShake(0.5);
+      }
+    }
+    // the light goes out of it: the core sputters, the jaw hangs, the halo sheds its segments
+    const T = this.deathT;
+    if (Math.random() < 0.3) this.coreMat.color.setHex(Math.random() < Math.min(0.85, 0.2 + T * 0.12) ? 0x30303a : 0xffffff);
+    this.core.scale.setScalar(0.75 + Math.random() * 0.35 * Math.max(0, 1 - T * 0.15));
+    const jaw = this.head.children[2];
+    if (jaw) { jaw.position.y = -3.6 - Math.min(0.9, T * 0.3); jaw.rotation.x = Math.min(0.35, T * 0.1); }
+    this.shedT = (this.shedT === undefined ? 0.8 : this.shedT) - dt;
+    if (this.shedT <= 0 && T < 7 && this.halo.children.length) {
+      this.shedT = 0.3 + Math.random() * 0.35;
+      const seg = this.halo.children[Math.floor(Math.random() * this.halo.children.length)];
+      const c = this.coreWorld();
+      seg.getWorldPosition(_dv);
+      const dx = _dv.x - c.x, dy = _dv.y - c.y, l = Math.hypot(dx, dy) || 1;
+      const yaw = this.yaw, ox = Math.cos(yaw) * dx / l * 4, oz = -Math.sin(yaw) * dx / l * 4;
+      g.fx.sparksBurst(_dv.clone(), 0xffd27a, 8, 6, 0.4);
+      g.fx.addCorpsePiece(seg, new THREE.Vector3(ox, dy / l * 3 + 2, oz), new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8), SHED);
+    }
+    if (Math.random() < 0.5 && T < 8) {
+      const c = this.coreWorld();
+      g.fx.sparks.spawn(c.x + (Math.random() - 0.5) * 4, c.y - 4 - Math.random() * 3, c.z, (Math.random() - 0.5) * 3, -1 - Math.random() * 3, (Math.random() - 0.5) * 3, 1, 0.85, 0.5, 1, 0.1, 0.8, 14, 0.4);
+    }
     this.sync();
   }
 
