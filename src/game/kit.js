@@ -15,6 +15,7 @@ import { sharedMaterials } from '../render/materials.js';
 function hexToNum(h) { return typeof h === 'number' ? h : parseInt(String(h).replace('#', ''), 16); }
 
 const _w = new THREE.Vector3();
+const SPARKS = { spark: true };
 const C_WHITE = new THREE.Color(0xffffff), C_GOLD = new THREE.Color(0xffd060), C_HOT = new THREE.Color(0xff3020);
 const STAGES = [0.75, 0.5, 0.25];
 
@@ -76,8 +77,83 @@ function updateGlow(actor) {
   if (an.wind) k = 0.3 + 0.4 * (0.5 + 0.5 * Math.sin(t * 26));
   else if (an.act) k = 0.45;
   if (actor.stunT > 0 || actor.vented) { target = C_GOLD; k = 0.45 + 0.45 * Math.sin(t * 14); }
+  else if (actor.roarT > 0) { target = C_WHITE; k = 0.55 + 0.45 * Math.sin(t * 34); }
   else if ((actor.phase || 1) >= 3 && !an.wind) { target = C_HOT; k = Math.max(k, 0.45 + 0.15 * Math.sin(t * 8)); }
   ch.glowMat.color.copy(ch.baseGlow).lerp(target, clamp(k, 0, 1));
+}
+
+// Body language every chassis shares (visual only: hitboxes come from the chassis data, not
+// from this transform). Idle breathing; a squash and rear-back while winding up with a charge
+// glow swelling at the muzzle; a lunge and glint on release, then a wobble as it settles;
+// a flinch when hit; fliers bank into turns and dip their nose; a rearing, shuddering roar
+// during phase changes that lands with a dust ring.
+const _mz = new THREE.Vector3();
+function chassisMotion(actor, dt) {
+  const ch = actor.ch;
+  if (!ch) return;
+  const an = actor.anim, g = actor.game, t = g.time;
+  let m = actor.mo;
+  if (!m) m = actor.mo = { wind: 0, act: 0, settle: 0, wasWind: false, wasAct: false, windT: 0, px: actor.pos.x, pz: actor.pos.z, bank: 0, pitch: 0, hit: 0, seed: Math.random() * 10 };
+  const idt = 1 / Math.max(dt, 1e-4);
+  // velocity from the position change (kit bosses move by position, not by a body velocity)
+  const vx = clamp((actor.pos.x - m.px) * idt, -30, 30), vz = clamp((actor.pos.z - m.pz) * idt, -30, 30);
+  m.px = actor.pos.x; m.pz = actor.pos.z;
+  const sy = Math.sin(actor.yaw), cy = Math.cos(actor.yaw);
+  const vf = vx * sy + vz * cy, vl = vx * cy - vz * sy;
+  const cs = actor.chassisScale || 1;
+  m.wind += ((an.wind ? 1 : 0) - m.wind) * Math.min(1, dt * 7);
+  if (an.wind) m.windT += dt; else if (!m.wasWind) m.windT = 0;
+  if (an.act && !m.wasAct) {
+    m.act = 1;
+    if (m.wasWind && !actor.hidden && g.fx.glint) g.fx.glint(chassisWorld(actor, ch.muzzle[0], ch.muzzle[1], ch.muzzle[2], _mz), actor.color, 1.4 * cs);
+  }
+  if (!an.act && m.wasAct) m.settle = 1;
+  m.wasAct = !!an.act; m.wasWind = !!an.wind;
+  m.act = Math.max(0, m.act - dt * 3.5); m.settle = Math.max(0, m.settle - dt * 2.2); m.hit = Math.max(0, m.hit - dt * 6);
+  let roar = 0;
+  if (actor.roarT > 0) {
+    actor.roarT -= dt;
+    roar = Math.sin(Math.min(1, Math.max(0, actor.roarT) / (actor.roar0 || 1)) * Math.PI);
+    if (Math.random() < 0.35) {
+      const v = ch.vents[Math.floor(Math.random() * ch.vents.length)];
+      chassisWorld(actor, v[0], v[1], v[2], _mz);
+      g.fx.sparks.spawn(_mz.x, _mz.y, _mz.z, (Math.random() - 0.5) * 6, 3 + Math.random() * 4, (Math.random() - 0.5) * 6, 1, 0.85, 0.5, 1, 0.1, 0.5, 12, 0.5);
+    }
+    if (actor.roarT <= 0) {
+      // lands the roar: the floor rings
+      const gy = actor.groundY;
+      g.fx.ring(actor.pos.x, gy + 0.1, actor.pos.z, 4 + cs * 2, actor.color, 0.45, 0.1);
+      for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2; g.fx.dust.spawn(actor.pos.x + Math.cos(a) * actor.radius, gy + 0.1, actor.pos.z + Math.sin(a) * actor.radius, Math.cos(a) * 4, 0.6, Math.sin(a) * 4, 0.35, 0.33, 0.3, 0.7, 0.3, 0.7, -0.3, 2.5); }
+    }
+  }
+  const moving = Math.hypot(vf, vl) > 0.5;
+  const breathe = moving || an.wind ? 0 : Math.sin(t * 1.7 + m.seed) * 0.014;
+  const wob = Math.sin(m.settle * 18) * m.settle * 0.05;
+  const sY = 1 - 0.08 * m.wind + 0.07 * m.act + breathe + wob + roar * 0.08 - m.hit * 0.05;
+  const sX = 1 + 0.05 * m.wind - 0.035 * m.act - wob * 0.6 + m.hit * 0.03;
+  let rx = -0.12 * m.wind + 0.16 * m.act - roar * 0.3, rz = 0;
+  if (actor.flying) {
+    m.bank += (clamp(-vl * 0.035, -0.4, 0.4) - m.bank) * Math.min(1, dt * 4);
+    m.pitch += (clamp(vf * 0.02, -0.25, 0.25) - m.pitch) * Math.min(1, dt * 4);
+    rz += m.bank + Math.sin(t * 1.3 + m.seed) * 0.03;
+  } else m.pitch += (clamp(vf * 0.012, -0.1, 0.1) - m.pitch) * Math.min(1, dt * 3);
+  rx += m.pitch;
+  if (roar > 0) rz += Math.sin(t * 40) * 0.035 * roar;
+  ch.group.scale.set(cs * sX, cs * sY, cs * sX);
+  ch.group.rotation.x = rx; ch.group.rotation.z = rz;
+  // the charge glow swells at the muzzle for as long as the wind-up lasts
+  if (an.wind && !actor.hidden && g.fx.flare) {
+    const k = Math.min(1, m.windT / 0.8), pulse = 0.85 + 0.15 * Math.sin(t * 28);
+    g.fx.flare(chassisWorld(actor, ch.muzzle[0], ch.muzzle[1], ch.muzzle[2], _mz), actor.color, cs * (0.35 + 0.75 * k) * pulse, 0.04);
+  }
+}
+
+// lights out: glowing parts go dark as a body dies (they become debris)
+function douseGlow(actor) {
+  const ch = actor.ch;
+  if (!ch) return;
+  const dead = ch.mats.dark;
+  for (const m of ch.meshes) if (m.userData.mat === ch.glowMat || m.userData.mat === ch.mats.glow) { m.userData.mat = dead; m.material = dead; }
 }
 
 // short push-away burst on phase change (no damage: the player should feel it, not pay for it)
@@ -131,7 +207,7 @@ export class Miniboss extends Enemy {
     this.colorHex = '#' + this.color.toString(16).padStart(6, '0');
     const scale = def.scale || 1.6;
     this.chassisScale = scale;
-    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true });
+    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true, orn: def.id });
     this.ch = ch;
     this.group.add(ch.group);
     this.flying = !!ch.flying;
@@ -159,6 +235,7 @@ export class Miniboss extends Enemy {
     this.phase = 1;
     this.styleValue = 120;
     this.bloodColor = [0.3, 0.3, 0.32];
+    this.robot = true; // bleeds oil and sparks
     this.isEnemy = true;
     this.staggerable = false;
     this.stunT = 0;
@@ -209,6 +286,7 @@ export class Miniboss extends Enemy {
   }
   onHit(info, amount) {
     super.onHit(info, amount);
+    if (this.mo) this.mo.hit = Math.min(1, this.mo.hit + 0.15 + amount / Math.max(1, this.maxHp) * 25);
     if (info.source === 'parry' && this.shieldUp) {
       this.shieldUp = false; this.stun(2.2);
       this.game.hud.toast('SHIELD SHATTERED', '#ffe23a');
@@ -225,6 +303,7 @@ export class Miniboss extends Enemy {
       this.game.audio.play('bossPhase', this.pos, 0.7);
       this.game.fx.sparksBurst(this.centerPos().clone(), this.color, 24, 10, 0.5);
       phaseNova(this, this.color);
+      this.roarT = this.roar0 = 1.0;
       this.brain.onPhase(2);
     }
   }
@@ -267,6 +346,7 @@ export class Miniboss extends Enemy {
   animate(dt) {
     this.ch.animate(this.game.time, { ...this.anim, moving: this.anim.moving || Math.hypot(this.body.vel.x, this.body.vel.z) > 0.5, hp: this.hp / this.maxHp, stun: this.stunT > 0 });
     updateGlow(this);
+    chassisMotion(this, dt || 0.016);
     hurtFx(this, dt || 0.016);
   }
   die(info) {
@@ -275,6 +355,7 @@ export class Miniboss extends Enemy {
     const gy = this.groundY;
     this.brain.abort();
     this.hidden = false;
+    douseGlow(this);
     super.die({ ...info, knock: 8 });
     expireOwned(g, this);
     g.fx.explosion(c, 2 + this.size, this.color);
@@ -321,7 +402,7 @@ export class KitBoss extends Boss {
     const scale = def.scale || 2.4;
     this.chassisScale = scale;
     this.size = scale;
-    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true });
+    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true, orn: def.id });
     this.ch = ch;
     this.group.add(ch.group);
     this.flying = !!ch.flying;
@@ -487,6 +568,7 @@ export class KitBoss extends Boss {
     if (this.gimmick === 'adds' && this.game.enemies.aliveCount > 0) amount *= 0.5;
     const dealt = super.applyDamage(amount, info, part);
     if (dealt > 0 && this.alive) checkStage(this);
+    if (dealt > 0 && this.mo) this.mo.hit = Math.min(1, this.mo.hit + 0.12 + dealt / Math.max(1, this.maxHp) * 25);
     return dealt;
   }
   enterPhase2() {
@@ -499,6 +581,7 @@ export class KitBoss extends Boss {
     this.brain.abort();
     this.brain.onPhase(2);
     phaseNova(this, this.color);
+    this.roarT = this.roar0 = 1.4;
     popPlates(this, 1);
   }
   enterPhase3() {
@@ -520,6 +603,7 @@ export class KitBoss extends Boss {
     this.brain.abort();
     this.brain.onPhase(3);
     phaseNova(this, 0xff3050);
+    this.roarT = this.roar0 = 1.4;
     popPlates(this, 2);
   }
   think(dt) {
@@ -568,12 +652,15 @@ export class KitBoss extends Boss {
     super.sync();
     if (this.ch) this.ch.group.rotation.y = this.spin || 0;
     if (this.sinkY) this.group.position.y -= this.sinkY;
+    // hits shake the body for a beat
+    if (this.mo && this.mo.hit > 0 && this.alive) { const j = this.mo.hit * 0.06 * (this.chassisScale || 1); this.group.position.x += (Math.random() - 0.5) * j; this.group.position.z += (Math.random() - 0.5) * j; }
     this.group.visible = !this.hidden;
   }
-  animate() {
+  animate(dt) {
     if (!this.ch) return;
     this.ch.animate(this.game.time, { ...this.anim, hp: this.hp / this.maxHp, stun: this.stunT > 0 || !!this.vented });
     updateGlow(this);
+    chassisMotion(this, dt || 0.016);
   }
   // called every frame of the death sequence (k: 0..1)
   onDeathTick(k) {
@@ -581,6 +668,24 @@ export class KitBoss extends Boss {
     if (this.segs) {
       // the body segments drop to the floor one after another
       this.segs.forEach((s, i) => { if (k > i / this.segs.length) s.position.y = Math.max(this.room.floorAt(s.position.x, s.position.z) + 0.4, s.position.y - 0.25); });
+    }
+  }
+  // the wreck comes apart in the final blast: dark plates and limbs fly out and litter the arena
+  onDeathEnd(c) {
+    const ch = this.ch;
+    if (!ch) return;
+    douseGlow(this);
+    const g = this.game;
+    this.group.updateMatrixWorld(true);
+    const parts = ch.meshes.filter((m) => m.visible && m.parent && m.geometry);
+    const n = Math.min(parts.length, g.lowPower ? 12 : 22);
+    for (let i = 0; i < n; i++) {
+      const m = parts.splice(Math.floor(Math.random() * parts.length), 1)[0];
+      m.getWorldPosition(_w);
+      const dx = _w.x - c.x, dz = _w.z - c.z, l = Math.hypot(dx, dz) || 1, sp = 5 + Math.random() * 8;
+      const v = new THREE.Vector3(dx / l * sp + (Math.random() - 0.5) * 3, 4 + Math.random() * 7, dz / l * sp + (Math.random() - 0.5) * 3);
+      const w = new THREE.Vector3((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+      g.fx.addCorpsePiece(m, v, w, i < 5 ? SPARKS : null);
     }
   }
   deathPoint(out) {

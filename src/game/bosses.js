@@ -229,8 +229,17 @@ export class Boss {
     const drop = this.flying ? Math.max(0, this.deathY0 - floor - 0.6) : this.height * 0.18;
     this.group.position.set(this.pos.x + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5), this.deathY0 - drop * k * k - (this.sinkY || 0), this.pos.z + (Math.random() - 0.5) * 0.18 * (1 - k * 0.5));
     this.group.rotation.set(0, this.yaw, 0);
-    this.group.rotateZ(this.deathTilt * k * k * 0.45);
-    this.group.rotateX(-k * 0.2);
+    // it staggers: sways, catches itself, then the lean wins
+    this.group.rotateZ(this.deathTilt * k * k * 0.45 + Math.sin(this.deathT * 6.5) * 0.09 * (1 - k));
+    this.group.rotateX(-k * 0.2 + Math.sin(this.deathT * 4.3) * 0.05 * (1 - k));
+    // the lights fail: glow parts stutter and go dark toward the end
+    if (this.ch && this.ch.glowMat) {
+      if (Math.random() < 0.35) this.ch.glowMat.color.copy(this.ch.baseGlow).multiplyScalar(Math.random() < 0.25 + k * 0.6 ? 0.08 : 1.2);
+    }
+    if (Math.random() < 0.6) {
+      const vp = this.deathPoint(new THREE.Vector3());
+      g.fx.sparks.spawn(vp.x, vp.y, vp.z, (Math.random() - 0.5) * 7, 2 + Math.random() * 5, (Math.random() - 0.5) * 7, 1, 0.8, 0.4, 1, 0.1, 0.5, 14, 0.5);
+    }
     if (this.flashing) { this.flashing = false; for (const m of this.meshes) m.material = m.userData.mat; }
     if (this.onDeathTick) this.onDeathTick(k);
     this.deathPop -= dt;
@@ -262,6 +271,7 @@ export class Boss {
       g.addShake(1.0);
       g.flash(0xffffff, 0.3);
       g.hitstop(0.12);
+      if (this.onDeathEnd) this.onDeathEnd(c, floor);
       this.dying = false;
       this.remove();
     }
