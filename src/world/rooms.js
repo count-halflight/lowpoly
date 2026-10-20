@@ -666,18 +666,45 @@ const GEN = {
       const n = rng.pick(nb);
       seen[n] = 1; open.add(key(c, n)); stack.push(n);
     }
-    const wallSeg = (x0, z0, x1, z1, k) => {
+    const walls = [];
+    const wallSeg = (x0, z0, x1, z1, a, b) => {
       const roll = rng.next();
-      if (roll < 0.28) return; // extra loop
+      if (roll < 0.28) { open.add(key(a, b)); return; } // extra loop
       if (roll < 0.42) { breakable(s, 'brick', x0, 0, z0, x1, H, z1, { hp: 8 }); return; }
-      const low = k && roll > 0.85;
+      const low = roll > 0.85;
+      if (!low) walls.push({ x0, z0, x1, z1, a, b, at: s.props.length });
       prop(s, x0, 0, z0, x1, low ? 1.2 : H, z1, 'wall', 'concrete', { tint: 0.75, trimTop: low });
     };
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
       const c = j * nx + i;
       const x = -W / 2 + (i + 1) * cw, zA = zTop - j * cd, zB = zTop - (j + 1) * cd;
-      if (i < nx - 1 && !open.has(key(c, c + 1))) wallSeg(x - 0.3, zB + 0.3, x + 0.3, zA - 0.3, true);
-      if (j < nz - 1 && !open.has(key(c, c + nx))) wallSeg(-W / 2 + i * cw + 0.3, zB - 0.3, -W / 2 + (i + 1) * cw - 0.3, zB + 0.3, true);
+      if (i < nx - 1 && !open.has(key(c, c + 1))) wallSeg(x - 0.3, zB + 0.3, x + 0.3, zA - 0.3, c, c + 1);
+      if (j < nz - 1 && !open.has(key(c, c + nx))) wallSeg(-W / 2 + i * cw + 0.3, zB - 0.3, -W / 2 + (i + 1) * cw - 0.3, zB + 0.3, c, c + nx);
+    }
+    // the shortcut: the full wall that saves the longest walk becomes a shutter with a breaker
+    // panel on the near side. The maze stays connected without it (it was a wall all along).
+    const dist = new Int16Array(nx * nz).fill(-1);
+    const ent = Math.max(0, Math.min(nx - 1, Math.floor((s.entX + W / 2) / cw)));
+    const q = [ent]; dist[ent] = 0;
+    while (q.length) {
+      const c = q.shift(), i = c % nx, j = Math.floor(c / nx);
+      for (const n of [i > 0 ? c - 1 : -1, i < nx - 1 ? c + 1 : -1, j > 0 ? c - nx : -1, j < nz - 1 ? c + nx : -1]) {
+        if (n < 0 || dist[n] >= 0 || !open.has(key(c, n))) continue;
+        dist[n] = dist[c] + 1; q.push(n);
+      }
+    }
+    let best = null, gain = 2;
+    for (const w of walls) {
+      const g = Math.abs(dist[w.a] - dist[w.b]);
+      if (dist[w.a] >= 0 && dist[w.b] >= 0 && g > gain) { gain = g; best = w; }
+    }
+    if (best) {
+      s.props.splice(best.at, 1);
+      const near = dist[best.a] < dist[best.b] ? best.a : best.b, far = near === best.a ? best.b : best.a;
+      const alongZ = best.z1 - best.z0 > best.x1 - best.x0;
+      // the panel faces the cell nearer the entrance
+      const pn = alongZ ? Math.sign((far % nx) - (near % nx)) * -1 : Math.sign(Math.floor(far / nx) - Math.floor(near / nx));
+      s.gates.push({ x0: best.x0, z0: best.z0, x1: best.x1, z1: best.z1, h: H, pnx: alongZ ? pn : 0, pnz: alongZ ? 0 : pn, breaker: true });
     }
     // corner posts keep the maze readable
     for (let j = 1; j < nz; j++) for (let i = 1; i < nx; i++) prop(s, -W / 2 + i * cw - 0.35, 0, zTop - j * cd - 0.35, -W / 2 + i * cw + 0.35, H, zTop - j * cd + 0.35, 'concrete', 'concrete', { tint: 0.65, post: true });
@@ -1116,6 +1143,7 @@ function mirrorSpec(s) {
       if (o.x0 !== undefined && o.x1 !== undefined) { const a = fx(o.x1), b = fx(o.x0); o.x0 = a; o.x1 = b; }
       if (o.x !== undefined) o.x = fx(o.x);
       if (o.ax) o.ax = -o.ax;
+      if (o.pnx) o.pnx = -o.pnx;
       if (typeof o.side === 'number') o.side = -o.side;
       else if (o.side === 'e' || o.side === 'w') o.side = o.side === 'e' ? 'w' : 'e';
     }

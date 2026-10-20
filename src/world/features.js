@@ -294,7 +294,30 @@ export function buildFeatures(room, gb, M, rng) {
     room.group.add(built.group);
     room.disposables.push(...built.geos);
     const col = room.addCollider(gt.x0, 0, gt.z0, gt.x1, h, gt.z1, { surface: 'metal', nav: true });
-    room.gates.push({ ...gt, h, group: built.group, col, open: 0, target: 0 });
+    const gate = { ...gt, h, group: built.group, col, open: 0, target: 0, sw: null };
+    room.gates.push(gate);
+    if (gt.breaker) {
+      // a breaker panel bolted to the shutter's near face: shoot, punch or blast it to open up
+      const nx = gt.pnx || 0, nz = gt.pnz || 0, y = 1.7;
+      const cx = (gt.x0 + gt.x1) / 2 + nx * (w / 2 + 0.02), cz = (gt.z0 + gt.z1) / 2 + nz * (d / 2 + 0.02);
+      const pg = new GeoBuilder(2);
+      const lx = cx - gt.x0, lz = cz - gt.z0;
+      if (nx) pg.box(lx - (nx > 0 ? 0 : 0.12), y - 0.7, lz - 0.7, lx + (nx > 0 ? 0.12 : 0), y + 0.7, lz + 0.7, M.hazard, { uvScale: 2 });
+      else pg.box(lx - 0.7, y - 0.7, lz - (nz > 0 ? 0 : 0.12), lx + 0.7, y + 0.7, lz + (nz > 0 ? 0.12 : 0), M.hazard, { uvScale: 2 });
+      const pb = pg.build();
+      built.group.add(pb.group);
+      room.disposables.push(...pb.geos);
+      const target = new THREE.Mesh(R.targetGeo, R.warnOn);
+      target.position.set(lx + nx * 0.16, y, lz + nz * 0.16);
+      if (nz) target.rotation.y = Math.PI / 2;
+      built.group.add(target);
+      const tx = cx + nx * 0.2, tz = cz + nz * 0.2;
+      const scol = room.addCollider(tx - 0.45, y - 0.5, tz - 0.45, tx + 0.45, y + 0.5, tz + 0.45, { surface: 'metal', nav: false, tag: 'barrel', solid: false });
+      const o = { kind: 'switch', action: 'gate', gate: room.gates.length - 1, room, target, col: scol, on: false, side: 0, wp: new THREE.Vector3(room.wx(cx + nx * 0.3), y, room.wz(cz + nz * 0.3)) };
+      scol.ref = o;
+      gate.sw = o;
+      room.switches.push(o);
+    }
   }
   for (const sw of s.switches || []) {
     const side = sw.side, wx = side * s.W / 2, y = sw.y || 1.7;
@@ -603,6 +626,7 @@ export function updateFeatures(room, dt, player) {
     gt.group.position.y = gt.open * (gt.h - 0.4);
     const was = gt.col.active;
     gt.col.active = gt.open < 0.5;
+    if (gt.sw) gt.sw.col.active = gt.open < 0.1;
     if (was && !gt.col.active) room.navDirty = 0.01;
   }
 
