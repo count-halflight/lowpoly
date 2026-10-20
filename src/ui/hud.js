@@ -182,6 +182,7 @@ export class HUD {
   // ---------------------------------------------------------------- main update/draw
   update(dt) {
     this.t += dt;
+    this.dt = dt;
     const g = this.game;
     if (this.banners && !this.levelCardS) { this.banners.t += dt; if (this.banners.t > this.banners.dur) this.banners = null; }
     // queued banners wait while the level card is up, then play one after another
@@ -249,27 +250,12 @@ export class HUD {
     }
   }
 
+  // Top centre: the one line that tells you what to do now (no permanent room panel: the room name
+  // shows as a banner on entry and in the pause menu, the score lives in the style meter).
   drawTopRight() {
     const g = this.game;
     const s = this.safe;
-    const w = 196, h = 34, x = this.W - w - 6 - s.r, y = 6 + s.t;
     const c = this.ctx;
-    // panel with a slanted left edge
-    c.fillStyle = DIM;
-    c.beginPath(); c.moveTo(x + 10, y); c.lineTo(x + w, y); c.lineTo(x + w, y + h); c.lineTo(x, y + h); c.closePath(); c.fill();
-    c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(x + 10.5, y); c.lineTo(x + 0.5, y + h); c.stroke();
-    const combat = g.level.current && g.level.current.state === 'combat';
-    const score = String(Math.floor(g.style.score)).padStart(6, '0');
-    const sw = this.text(score, x + w - 6, y + 18, 18, CYAN, 'right', { ca: 0.5 });
-    this.fitText(this.room.main, x + 14, y + 17, 17, w - 30 - sw, WHITE, { ca: 0.6 });
-    const mult = g.style.rank.mult * g.style.routeMult;
-    const tag = (combat ? 'ALERT' : 'CLEAR') + (mult > 1.001 ? '  x' + mult.toFixed(1) : '');
-    c.font = font(9, 'serif', 700);
-    const tagW = c.measureText(tag).width;
-    this.fitText(this.room.sub, x + 14, y + 29, 9, w - 26 - tagW - 8, '#e0e0e0', {});
-    this.text(tag, x + w - 6, y + 29, 9, combat ? RED : '#e0e0e0', 'right');
-    if (combat) this.rect(x + 12, y + h - 1, w - 12, 1, RED);
     // objective
     const room = g.level.current;
     let obj = '';
@@ -280,9 +266,11 @@ export class HUD {
       if (o) obj = o;
     }
     if (obj) {
+      const combat = room && room.state === 'combat';
       c.font = font(11, 'mono', 400);
       const ow = c.measureText(obj).width + 12;
       this.rect(this.W / 2 - ow / 2, 5 + s.t, ow, 14, 'rgba(4,8,10,0.6)');
+      if (combat) this.rect(this.W / 2 - ow / 2, 18 + s.t, ow, 1, RED);
       this.text(obj, this.W / 2, 16 + s.t, 11, WHITE, 'center', { kind: 'mono', weight: 400 });
     }
   }
@@ -316,9 +304,12 @@ export class HUD {
 
   drawStyle() {
     const g = this.game, st = g.style, r = st.rank;
-    const x = 8 + this.safe.l, y = Math.round(this.V * (this.touch ? 0.36 : 0.42));
-    const dim = st.rankIndex === 0 && st.meter < 1 && !st.feed.length;
-    this.ctx.globalAlpha = dim ? 0.35 : 1;
+    const x = 8 + this.safe.l, y = Math.round(this.V * (this.touch ? 0.3 : 0.42));
+    // only on screen while there is style to show: fades out when idle
+    const active = st.rankIndex > 0 || st.meter >= 1 || st.feed.length > 0;
+    this.styleA = (this.styleA || 0) + ((active ? 1 : 0) - (this.styleA || 0)) * Math.min(1, (this.dt || 0.016) * (active ? 8 : 1.5));
+    if (this.styleA < 0.02) return;
+    this.ctx.globalAlpha = this.styleA;
     const w = 96, h = 30;
     this.rect(x, y, w, h, DIM);
     this.frame(x, y, w, h, 'rgba(230,240,255,0.7)');
@@ -333,8 +324,8 @@ export class HUD {
       const age = g.time - f.t;
       const a = Math.max(0, Math.min(1, 4 - age));
       const slide = Math.max(0, 0.15 - age) * 60;
-      this.text('+' + f.pts, x + 2 - slide, fy, 9, r.c, 'left', { alpha: a });
-      this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 28 - slide, fy, 9, WHITE, 'left', { alpha: a });
+      this.text('+' + f.pts, x + 2 - slide, fy, 9, r.c, 'left', { alpha: a * this.styleA });
+      this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 28 - slide, fy, 9, WHITE, 'left', { alpha: a * this.styleA });
       fy += 10;
     }
   }
@@ -416,7 +407,7 @@ export class HUD {
     this.rect(cx, cy - gap - 4, 1, 4, col); this.rect(cx, cy + gap + 1, 1, 4, col);
     this.rect(cx, cy, 1, 1, CYAN);
     // dash charges under the crosshair (like the reference's little bars)
-    const n = p.stats.dashCharges;
+    const n = p.dashCharges < p.stats.dashCharges - 0.001 ? p.stats.dashCharges : 0; // hidden when full
     for (let i = 0; i < n; i++) {
       const f = Math.max(0, Math.min(1, p.dashCharges - i));
       const bx = cx - (n * 9) / 2 + i * 9;
@@ -469,13 +460,20 @@ export class HUD {
     const s = this.safe;
     const id = w.current, a = w.ammo[id], d = DEFS[id];
     const right = this.W - 8 - s.r;
-    const y = this.touch ? 96 + s.t : this.V - 10 - s.b;
+    const y = this.touch ? 56 + s.t : this.V - 10 - s.b;
+    // the weapon details show after a switch / variant change / reload, then fade away
+    const vi = w.variantInfo ? w.variantInfo(id) : null;
+    const key = id + (vi ? vi.id : '') + w.owned.length;
+    if (key !== this.wKey || w.reloading) { this.wKey = key; this.wShowT = this.t; }
+    const wa = Math.max(0, Math.min(1, 1 - (this.t - (this.wShowT || 0) - 2.4) / 0.6));
+    const chipA = this.touch ? Math.max(0.45, wa) : wa; // chips are tap targets on touch
     // weapon icons row
     this.weaponBoxes = [];
     const owned = WEAPON_ORDER.filter((x) => w.owned.includes(x));
     const iw = 34, ih = 14;
     let ix = right - owned.length * (iw + 3) + 3;
     const iy = y - 44;
+    this.ctx.globalAlpha = chipA;
     for (const wid of owned) {
       const cur = wid === id;
       this.rect(ix, iy, iw, ih, cur ? 'rgba(143,244,228,0.25)' : DIM);
@@ -485,16 +483,28 @@ export class HUD {
       this.weaponBoxes.push({ id: wid, x: ix, y: iy, w: iw, h: ih });
       ix += iw + 3;
     }
+    this.ctx.globalAlpha = 1;
     // ammo number
     const empty = a.mag === 0;
     this.text('/', right, y, 30, d.color, 'right', { weight: 400 });
     const nw = this.text(String(a.mag), right - 12, y, 30, empty ? RED : WHITE, 'right', { ca: 0.7 });
     const lx = right - 16 - nw;
-    const vi = w.variantInfo ? w.variantInfo(id) : null;
-    this.text(d.name + (vi ? ' · ' + vi.name : ''), lx, y - 14, 10, vi && vi.color ? vi.color : d.color, 'right');
-    const rw = this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES ∞', lx, y - 3, 9, '#d8d8d8', 'right', { kind: 'mono', weight: 400 });
+    if (wa > 0) this.text(d.name + (vi ? ' · ' + vi.name : ''), lx, y - 14, 10, vi && vi.color ? vi.color : d.color, 'right', { alpha: wa });
+    // reserve: only with the weapon details, or always once it runs low
+    const low = isFinite(a.reserve) && a.reserve < d.mag;
+    let rw = 0;
+    if (wa > 0 || low) rw = this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES ∞', lx, y - 3, 9, low ? RED : '#d8d8d8', 'right', { kind: 'mono', weight: 400, alpha: low ? 1 : wa });
     if (w.reloading) this.segBar(lx - 60, y - 26, 60, 2, 1 - w.reloadT / w.reloadTotal, d.color, 10, 1);
-    if (w.altInfo) { const info = w.altInfo(); if (info) this.text(info, lx - rw - 10, y - 3, 9, '#ffd060', 'right', { kind: 'mono', weight: 400 }); }
+    // weapon state: coins as pips, live state (heat, pumps, cooldowns) as text; 'ALT: ...' reminders fade with the details
+    const sx = lx - (rw ? rw + 10 : 0);
+    if (id === 'hammer' && vi && vi.id === 'marksman') {
+      const n = Math.floor(w.coinCharges);
+      for (let i = 0; i < 4; i++) this.rect(sx - 6 - i * 6, y - 8, 4, 4, i < n ? '#ffd060' : 'rgba(255,208,96,0.22)');
+    } else if (w.altInfo) {
+      const info = w.altInfo();
+      const hint = /^(HOLD )?ALT/.test(info || '');
+      if (info && (!hint || wa > 0)) this.text(info, sx, y - 3, 9, '#ffd060', 'right', { kind: 'mono', weight: 400, alpha: hint ? wa : 1 });
+    }
   }
 
   // When only one or two enemies remain and nothing has died for a while, point at them so a
@@ -620,7 +630,7 @@ export class HUD {
   }
 
   drawToasts() {
-    let y = Math.round(this.V * 0.2) + this.safe.t + (this.banners ? 52 : 12);
+    let y = Math.round(this.V * 0.2) + this.safe.t + (this.banners ? 64 : 12); // clears the banner's subtitle plate
     if (this.levelCardS && this.cardBottom) y = this.cardBottom + 16;
     const c = this.ctx;
     for (const t of this.toasts) {

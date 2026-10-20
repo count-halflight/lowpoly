@@ -31,7 +31,7 @@ const DEFAULTS = {
   adsSens: 0.85,       // extra look sensitivity factor while aiming
   hudScale: 1.0,
   textFx: false,       // decorative glitch/scramble on HUD headlines
-  touchOpacity: 0.75,
+  touchOpacity: 0.55,
   gore: true,          // dismemberment + blood pools
 };
 
