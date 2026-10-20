@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { moveBody, clamp, damp } from '../core/collide.js';
 
-const WALK = 8.6;
+const WALK = 9.0;
 const GRAV = 25;
 const JUMP_V = 8.8;
 const DASH_SPEED = 27;
@@ -14,6 +14,8 @@ const BHOP_WINDOW = 0.11;   // seconds after landing during which a jump keeps a
 const MAX_BHOP = 27;
 const HOOK_RANGE = 40;
 const RUSH_TIME = 6;
+// wall-run: run along a wall at speed while holding forward (budget refills on the ground)
+const WALLRUN_TIME = 1.3, WALLRUN_START = 10, WALLRUN_MIN = 10.5, WALLRUN_MAX = 17;
 // damage that should never count as a dodged attack (damage-over-time ticks, hazards, self)
 const TIPS = { key: 'vg-mech-tips', seen: null };
 const NO_DODGE = /VORTEX|SURGE|ORBITAL|SINGULARITY| TETHER|LEECH|LIVE FLOOR|MOLTEN|COOLANT|VOID|YOUR OWN|OVERPUMP/;
@@ -73,11 +75,14 @@ export class Player {
     this.finisherTarget = null; this.cueT = 0;
     this.kickP = 0; this.kickPV = 0; this.kickR = 0; this.kickRV = 0;
     this.stepT = 0; this.fxT = 0;
+    this.wallRun = null; this.wallRunBudget = WALLRUN_TIME; this.wallRunCd = 0; this.wallRunRoll = 0;
+    this.mantle = null;
   }
 
   spawnAt(x, y, z, yaw) {
     this.body.pos.set(x, y, z);
     this.body.vel.set(0, 0, 0);
+    this.wallRun = null; this.mantle = null; this.wallRunRoll = 0;
     this.yaw = yaw; this.pitch = 0;
     this.hook = null;
   }
@@ -122,7 +127,7 @@ export class Player {
     if (wishLen > 0.001) wish.normalize();
 
     this.sprint = input.isHeld('dash') || input.touchSprint || input.stickSprint;
-    const speed = WALK * this.speedMul * (this.sprint && b.grounded && !this.sliding ? 1.22 : 1);
+    const speed = WALK * this.speedMul * (this.sprint && b.grounded && !this.sliding ? 1.22 : 1) * (b.grounded ? g.weapons.adsMove || 1 : 1);
 
     // ---- jump buffer / coyote / ground time
     if (input.wasPressed('jump')) this.jumpBuffer = 0.13;
@@ -155,6 +160,9 @@ export class Player {
       if (this.dodgeArmed && g.projectiles.nearMiss && g.projectiles.nearMiss(b.pos.x, b.pos.y + b.h * 0.5, b.pos.z, 0.3 + st.dodgeWindow) > 0) this.perfectDodge();
     }
 
+    // ---- ledge vault in progress: the climb owns the body for a moment
+    if (this.mantle) { this.updateMantle(dt); this.postMove(dt, input); return; }
+
     // ---- slide / slam
     const slideHeld = input.isHeld('slide');
     if (input.wasPressed('slideTap') && !b.grounded && !this.slamming && this.airTime > 0.08) {
@@ -163,14 +171,18 @@ export class Player {
       this.dashT = 0; this.hook = null;
       g.audio.play('slamDown', null, 0.8);
     }
-    if (slideHeld && b.grounded && !this.sliding && this.dashT <= 0) {
+    if (slideHeld && b.grounded && !this.sliding) {
+      // DASH SLIDE: sliding out of a ground dash keeps most of the dash speed
+      const dashSlide = this.dashT > 0;
+      if (dashSlide) { this.dashT = 0; b.vel.x = this.dashDir.x * DASH_SPEED * 0.74; b.vel.z = this.dashDir.z * DASH_SPEED * 0.74; }
       this.sliding = true;
       const hv = Math.hypot(b.vel.x, b.vel.z);
-      this.slideDir.copy(wishLen > 0.1 ? wish : (hv > 1 ? this.tmp2.set(b.vel.x, 0, b.vel.z).normalize() : this.fwd));
+      this.slideDir.copy(dashSlide ? this.dashDir : wishLen > 0.1 ? wish : (hv > 1 ? this.tmp2.set(b.vel.x, 0, b.vel.z).normalize() : this.fwd));
       // landing into a slide converts fall speed into forward speed
       const landBoost = this.landT < 0.25 ? Math.min(9, Math.abs(this.lastAirVy) * 0.35) : 0;
       this.slideSpeed = Math.min(30, Math.max(SLIDE_SPEED * this.speedMul * st.slideMul, hv) + landBoost);
       if (landBoost > 3) { g.style.add('SLIDE BOOST', 6, true); this.emit('slideboost'); }
+      if (dashSlide) { g.style.add('DASH SLIDE', 6, true); this.emit('dashslide'); this.camPunch(0.2, 0); }
       g.audio.play('slide', null, 0.7);
       this.emit('slide');
     }
@@ -230,7 +242,27 @@ export class Player {
       }
     }
 
-    // ---- jumping (incl. bhop, dash-jump, slam-jump, wall-jump)
+    // ---- wall-run: fast and mostly along a wall, holding forward -> ride it
+    this.wallRunCd -= dt;
+    if (b.grounded) { this.wallRunBudget = WALLRUN_TIME; if (this.wallRun) this.endWallRun(); }
+    if (this.wallRun) {
+      const w = this.wallRun;
+      w.t += dt; this.wallRunBudget -= dt;
+      if (this.wallContactT <= 0 || ax.y < 0.2 || this.wallRunBudget <= 0 || this.dashT > 0 || this.slamming || (this.hook && this.hook.pulling)) this.endWallRun();
+      else {
+        const along = Math.min(WALLRUN_MAX, Math.max(WALLRUN_MIN, vx * w.tx + vz * w.tz + dt * 5));
+        vx = w.tx * along - w.nx * 1.5; vz = w.tz * along - w.nz * 1.5; // lean into the wall to stay on it
+      }
+    } else if (!b.grounded && this.wallContactT > 0 && this.wallRunCd <= 0 && this.wallRunBudget > 0.25 && ax.y > 0.5 &&
+      this.dashT <= 0 && !this.slamming && !(this.hook && this.hook.pulling) && this.airTime > 0.08 && b.vel.y < 7) {
+      let tx = -this.wallNZ, tz = this.wallNX;
+      let along = vx * tx + vz * tz;
+      if (along < 0) { tx = -tx; tz = -tz; along = -along; }
+      const hv = Math.hypot(vx, vz);
+      if (hv >= WALLRUN_START && along / hv > 0.72 && Math.abs(this.fwd.x * tx + this.fwd.z * tz) > 0.6) this.startWallRun(tx, tz);
+    }
+
+    // ---- jumping (incl. bhop, dash-jump, slam-jump, wall-run jump, wall-jump)
     if (this.jumpBuffer > 0 || holdHop) {
       const hv = Math.hypot(vx, vz);
       if (this.slamJumpWindow > 0 && b.grounded) {
@@ -261,6 +293,18 @@ export class Player {
         } else this.bhopChain = 0;
         g.audio.play('jump', null, 0.6);
         this.emit('jump');
+      } else if (this.wallRun && this.jumpBuffer > 0) {
+        // jumping off a wall-run keeps the run speed and kicks away from the wall
+        const w = this.wallRun;
+        const along = Math.max(WALLRUN_MIN, vx * w.tx + vz * w.tz);
+        vx = w.tx * along * 1.06 + w.nx * 7 + wish.x * 2; vz = w.tz * along * 1.06 + w.nz * 7 + wish.z * 2;
+        b.vel.y = JUMP_V * 1.02;
+        this.jumpBuffer = 0;
+        this.endWallRun(); this.wallContactT = 0;
+        g.audio.play('jump', null, 0.8);
+        g.style.add('WALL RUN JUMP', 8, true);
+        this.camPunch(-0.3, (w.nx * this.right.x + w.nz * this.right.z) * -0.8);
+        this.emit('wallrunjump');
       } else if (this.wallContactT > 0 && this.wallJumps < 3 && this.jumpBuffer > 0) {
         this.wallJumps++;
         b.vel.y = JUMP_V * 0.95;
@@ -279,9 +323,9 @@ export class Player {
 
     // ---- gravity
     if (this.dashT <= 0 && !(this.hook && this.hook.pulling)) {
-      const gmul = (b.vel.y < 0 ? 1.25 : 1) * this.gravityMul;
+      const gmul = (b.vel.y < 0 ? 1.25 : 1) * this.gravityMul * (this.wallRun ? 0.16 : 1);
       if (!this.slamming) b.vel.y -= GRAV * gmul * dt;
-      b.vel.y = Math.max(b.vel.y, -45);
+      b.vel.y = Math.max(b.vel.y, this.wallRun ? -1.6 : -45);
     }
     if (!(this.hook && this.hook.pulling)) { b.vel.x = vx; b.vel.z = vz; }
 
@@ -295,12 +339,20 @@ export class Player {
       this.wallNX = b.wallNormalX; this.wallNZ = b.wallNormalZ;
       const l = Math.hypot(this.wallNX, this.wallNZ) || 1;
       this.wallNX /= l; this.wallNZ /= l;
+      // running into a waist-to-head-high ledge while holding forward climbs it
+      if (!this.wallRun && ax.y > 0.5 && b.vel.y < 6 && this.dashT <= 0 && !this.slamming && !this.hook && this.airTime > 0.05) this.tryMantle();
     }
     if (b.grounded) {
       if (!wasGrounded) this.onLand(this.lastVy);
       this.airTime = 0;
     } else this.airTime += dt;
 
+    this.postMove(dt, input);
+  }
+
+  // Everything after the body moved: camera feel, punch, level props, hazards, bounds.
+  postMove(dt, input) {
+    const g = this.game, b = this.body, st = this.stats;
     this.speedNow = Math.hypot(b.vel.x, b.vel.z);
 
     // ---- camera feel
@@ -312,6 +364,8 @@ export class Player {
       this.bobAmp = damp(this.bobAmp, 1, 8, dt);
     } else this.bobAmp = damp(this.bobAmp, 0, 8, dt);
     const strafe = input.axis().x;
+    const wr = this.wallRun;
+    this.wallRunRoll = damp(this.wallRunRoll, wr ? -(wr.nx * this.right.x + wr.nz * this.right.z) * 0.11 : 0, 9, dt);
     this.roll = damp(this.roll, -strafe * 0.018 + (this.sliding ? 0.04 : 0) + (this.hook && this.hook.pulling ? -strafe * 0.04 : 0), 8, dt);
     // camera punch springs (mostly roll so recoil feel never drags the aim)
     const sdt = Math.min(dt, 0.033);
@@ -343,6 +397,78 @@ export class Player {
     if (b.pos.y < -15 && room) {
       this.spawnAt(room.wx(room.spec.entX), 0.1, room.wz(room.D / 2 - 2), 0);
       this.damage(15, null, 'THE VOID', 'Stay on solid ground.');
+    }
+  }
+
+  // ---------------------------------------------------------------- wall-run + ledge vault
+  startWallRun(tx, tz) {
+    const g = this.game, b = this.body;
+    this.wallRun = { nx: this.wallNX, nz: this.wallNZ, tx, tz, t: 0 };
+    b.vel.y = Math.max(b.vel.y, 1.6);
+    this.wallJumps = 0;
+    this.bhopChain = 0;
+    g.audio.play('slide', null, 0.35);
+    g.style.add('WALL RUN', 5, true);
+    this.emit('wallrun');
+    this.tipOnce && this.tipOnce('wallrun', 'WALL RUN: hold forward along a wall at speed. Jump off it to keep your momentum.', 'WALL RUN: move fast along a wall. Jump off it to keep your momentum.');
+  }
+
+  endWallRun() {
+    this.wallRun = null;
+    this.wallRunCd = 0.3;
+  }
+
+  // Probe in front of the wall we just hit for a ledge between knee and head height with room
+  // to stand on it; if there is one, climb it over a fraction of a second.
+  tryMantle() {
+    const g = this.game, b = this.body, p = b.pos;
+    if (-(this.wallNX * this.fwd.x + this.wallNZ * this.fwd.z) < 0.55) return false; // wall not ahead
+    const px = p.x - this.wallNX * (b.r + 0.4), pz = p.z - this.wallNZ * (b.r + 0.4);
+    const cols = g.level.colliders;
+    let top = -1;
+    for (const c of cols) {
+      if (!c.active || !c.solid || c.tag === 'door') continue;
+      if (px < c.minX || px > c.maxX || pz < c.minZ || pz > c.maxZ) continue;
+      if (c.minY > p.y + 0.6) continue; // an overhang, not a ledge
+      const rise = c.maxY - p.y;
+      if (rise > 0.45 && rise <= 2.1 && c.maxY > top) top = c.maxY;
+    }
+    if (top < 0) return false;
+    const room = g.level.current;
+    if (room && top + STAND_H > room.spec.H - 0.05) return false;
+    const r = b.r;
+    for (const c of cols) {
+      if (!c.active || !c.solid || c.tag === 'door') continue;
+      // standing room on the ledge
+      if (px + r > c.minX && px - r < c.maxX && pz + r > c.minZ && pz - r < c.maxZ && top + 0.02 < c.maxY && top + STAND_H > c.minY) return false;
+      // nothing overhead on the way up
+      if (p.x + r > c.minX && p.x - r < c.maxX && p.z + r > c.minZ && p.z - r < c.maxZ && c.minY >= p.y + b.h - 0.05 && c.minY < top + STAND_H) return false;
+    }
+    const hv = Math.hypot(b.vel.x, b.vel.z);
+    const rise = top - p.y;
+    this.mantle = { t: 0, dur: 0.16 + rise * 0.07, x0: p.x, y0: p.y, z0: p.z, x1: px, y1: top + 0.02, z1: pz, carry: Math.max(5.5, hv * 0.6) };
+    b.vel.set(0, 0, 0);
+    this.sliding = false;
+    if (this.wallRun) this.endWallRun();
+    g.audio.play('land', null, 0.35);
+    this.camPunch(0.35, 0);
+    if (rise > 1.2) g.style.add('VAULT', 3, true);
+    this.emit('mantle');
+    return true;
+  }
+
+  updateMantle(dt) {
+    const m = this.mantle, b = this.body;
+    m.t += dt;
+    const k = Math.min(1, m.t / m.dur);
+    const ky = 1 - (1 - k) * (1 - k) * (1 - k); // rise first...
+    const kx = k * k; // ...then roll forward over the lip
+    b.pos.set(m.x0 + (m.x1 - m.x0) * kx, m.y0 + (m.y1 - m.y0) * ky, m.z0 + (m.z1 - m.z0) * kx);
+    b.vel.set(0, 0, 0);
+    if (k >= 1) {
+      this.mantle = null;
+      b.vel.set(this.fwd.x * m.carry, 0, this.fwd.z * m.carry);
+      this.landT = 0;
     }
   }
 
@@ -789,6 +915,6 @@ export class Player {
     const bobY = Math.sin(this.bob * 2) * 0.035 * this.bobAmp;
     cam.position.set(b.pos.x, b.pos.y + this.eye + bobY + this.landDip, b.pos.z);
     cam.rotation.order = 'YXZ';
-    cam.rotation.set(this.pitch + this.kickP, this.yaw, this.roll + this.kickR);
+    cam.rotation.set(this.pitch + this.kickP, this.yaw, this.roll + this.kickR + this.wallRunRoll);
   }
 }

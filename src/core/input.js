@@ -5,9 +5,9 @@ const KEYMAP = {
   KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   Space: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', ControlLeft: 'slide', KeyC: 'slide', KeyF: 'punch', KeyV: 'punch',
   KeyR: 'reload', KeyQ: 'lastWeapon', KeyE: 'use', KeyG: 'hook', Escape: 'pause', KeyP: 'pause', Enter: 'confirm', KeyZ: 'zoom',
-  KeyX: 'rush',
+  KeyX: 'rush', KeyT: 'altKey',
 };
-const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm', 'use', 'hook', 'altTap', 'rush']);
+const EDGE = new Set(['jump', 'dash', 'punch', 'reload', 'lastWeapon', 'pause', 'slideTap', 'confirm', 'use', 'hook', 'altTap', 'rush', 'zoom']);
 
 export class Input {
   constructor(settings, canvas) {
@@ -18,8 +18,11 @@ export class Input {
     this.lookDX = 0; this.lookDY = 0;
     this.moveX = 0; this.moveY = 0; // analog from touch
     this.fire = false; this.firePressed = false;
-    this.ads = false;
+    this.ads = false; // set by the weapons each frame: true while aiming down sights
     this.alt = false;
+    // AIM: Z (or the right mouse button when 'rmbMode' is 'aim') held, or latched in toggle mode;
+    // on touch the AIM button latches. Aiming and firing work at the same time.
+    this.aimMouse = false; this.aimLatched = false; this.touchAim = false;
     this.slot = -1; this.wheel = 0;
     this.chipTap = null; // weapon id whose HUD chip was tapped this frame (re-tap cycles variants)
     this.locked = false;
@@ -41,6 +44,8 @@ export class Input {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 9) this.slot = n - 1;
       }
+      if (a === 'altKey') { if (!this.held.altKey) this.pressed.altTap = true; this.alt = true; }
+      if (a === 'zoom' && !this.held.zoom && this.settings.get('aimToggle')) this.aimLatched = !this.aimLatched;
       if (a) {
         if (!this.held[a] && EDGE.has(a)) this.pressed[a] = true;
         if (a === 'slide' && !this.held[a]) this.pressed.slideTap = true;
@@ -52,19 +57,26 @@ export class Input {
     window.addEventListener('keyup', (e) => {
       const a = KEYMAP[e.code];
       if (a) this.held[a] = false;
+      if (a === 'altKey') this.alt = false;
     });
     window.addEventListener('blur', () => this.releaseAll());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.releaseAll(); });
     this.canvas.addEventListener('mousedown', (e) => {
       if (this.usingTouch) return;
       if (!this.locked) { if (this.enabled) this.requestLock(); return; }
+      const rmbAim = this.settings.get('rmbMode') === 'aim';
       if (e.button === 0) { this.fire = true; this.firePressed = true; }
-      if (e.button === 2) { this.alt = true; this.pressed.altTap = true; }
-      if (e.button === 3 || e.button === 4 || e.button === 1) { this.pressed.hook = true; }
+      if (e.button === 2) {
+        if (rmbAim) { this.aimMouse = true; if (this.settings.get('aimToggle')) this.aimLatched = !this.aimLatched; } else { this.alt = true; this.pressed.altTap = true; }
+      }
+      // middle button: alt-fire when the right button aims, otherwise the hook (like the side buttons)
+      if (e.button === 1 && rmbAim) { this.alt = true; this.pressed.altTap = true; this.midAlt = true; }
+      else if (e.button === 3 || e.button === 4 || e.button === 1) { this.pressed.hook = true; }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.fire = false;
-      if (e.button === 2) this.alt = false;
+      if (e.button === 2) { this.alt = false; this.aimMouse = false; }
+      if (e.button === 1 && this.midAlt) { this.alt = false; this.midAlt = false; }
     });
     window.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -73,7 +85,8 @@ export class Input {
       const mx = e.movementX || 0, my = e.movementY || 0;
       if (Math.abs(mx) > 400 || Math.abs(my) > 400) return;
       const dx = mx, dy = my;
-      const s = 0.0022 * this.settings.get('mouseSens') * (this.ads ? 0.5 : 1);
+      // aiming already slows the look through the narrower FOV; this only takes the edge off
+      const s = 0.0022 * this.settings.get('mouseSens') * (this.ads ? this.settings.get('adsSens') : 1);
       this.lookDX += dx * s;
       this.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
     });
@@ -102,6 +115,8 @@ export class Input {
   releaseAll() {
     for (const k in this.held) this.held[k] = false;
     this.fire = false; this.ads = false; this.alt = false;
+    this.aimMouse = false; this.aimLatched = false; this.touchAim = false; this.midAlt = false;
+    if (this.touch && this.touch.setAim) this.touch.setAim(false);
     this.moveX = 0; this.moveY = 0;
     this.touchSprint = false;
     if (this.touch) this.touch.reset();
@@ -127,6 +142,12 @@ export class Input {
     return { x, y };
   }
 
+  // the player wants to aim down sights right now
+  get aiming() {
+    if (this.touchAim || this.aimLatched) return true;
+    return !this.settings.get('aimToggle') && (!!this.held.zoom || this.aimMouse);
+  }
+
   isHeld(a) { return !!this.held[a]; }
   wasPressed(a) { return !!this.pressed[a]; }
   press(a) { this.pressed[a] = true; }
@@ -143,7 +164,7 @@ export class TouchControls {
     this.pointers = new Map(); // pointerId -> {role, x, y, ...}
     this.build();
     this.applyLayout();
-    settings.onChange((k) => { if (k === 'leftHanded' || k === 'buttonScale' || k === '*') this.applyLayout(); });
+    settings.onChange((k) => { if (k === 'leftHanded' || k === 'buttonScale' || k === 'touchOpacity' || k === '*') this.applyLayout(); });
   }
 
   build() {
@@ -164,7 +185,9 @@ export class TouchControls {
       <button class="tc-btn tc-use" data-act="use"><span>USE</span></button>
       <button class="tc-btn tc-pause" data-act="pause"><span>II</span></button>
       <button class="tc-btn tc-rush" data-act="rush"><span>RUSH</span></button>
+      <button class="tc-btn tc-aim" data-act="aim"><span>AIM</span></button>
     `;
+    this.aimBtn = r.querySelector('.tc-aim');
     this.stick = r.querySelector('.tc-stick');
     this.knob = r.querySelector('.tc-knob');
     const opts = { passive: false };
@@ -181,6 +204,7 @@ export class TouchControls {
   applyLayout() {
     this.root.classList.toggle('lefty', !!this.settings.get('leftHanded'));
     this.root.style.setProperty('--btn-scale', this.settings.get('buttonScale'));
+    this.root.style.setProperty('--tc-alpha', this.settings.get('touchOpacity'));
   }
 
   down(e, el) {
@@ -217,6 +241,7 @@ export class TouchControls {
       else if (act === 'swap') inp.press('lastWeapon');
       else if (act === 'pause') inp.press('pause');
       else if (act === 'rush') inp.press('rush');
+      else if (act === 'aim') this.setAim(!inp.touchAim);
     }
   }
 
@@ -240,8 +265,8 @@ export class TouchControls {
       const k = m < dz ? 0 : (m - dz) / (1 - dz) / m;
       inp.moveX = nx * k; inp.moveY = ny * k;
       inp.stickSprint = m > 0.95;
-    } else if (p.role === 'look' || p.act === 'fire' || p.act === 'alt') {
-      const s = 0.0055 * this.settings.get('touchSens') * (inp.ads ? 0.55 : 1);
+    } else if (p.role === 'look' || p.act === 'fire' || p.act === 'alt' || p.act === 'aim') {
+      const s = 0.0055 * this.settings.get('touchSens') * (inp.ads ? this.settings.get('adsSens') : 1);
       inp.lookDX += dx * s;
       inp.lookDY += dy * s * (this.settings.get('invertY') ? -1 : 1);
     }
@@ -270,6 +295,12 @@ export class TouchControls {
       else if (p.act === 'jump') inp.held.jump = false;
       else if (p.act === 'dash') inp.touchSprint = false;
     }
+  }
+
+  // AIM is a latch on touch so FIRE stays free for the other thumb
+  setAim(on) {
+    this.input.touchAim = on;
+    if (this.aimBtn) this.aimBtn.classList.toggle('on', on);
   }
 
   // RUSH button only shows while the meter is full; toggled on change, not per frame

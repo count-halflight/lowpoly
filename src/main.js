@@ -1092,7 +1092,7 @@ class Game {
     const cam = this.camera;
     // FOV (zoom, sprint)
     const base = this.settings.get('fov');
-    const ads = this.input.ads ? 0.72 : 1;
+    const ads = this.weapons.adsZoom || 1;
     const speed = this.player.speedNow > 14 ? 1 + Math.min(0.1, (this.player.speedNow - 14) * 0.006) : 1;
     const target = base * ads * speed;
     cam.fov += (target - cam.fov) * Math.min(1, realDt * 12);
@@ -1127,7 +1127,8 @@ class Game {
       u.uFlash.value = this.flashV; u.uDamage.value = 0; u.uLowHp.value = 0; u.uAlert.value = 0; u.uTime.value = this.time;
       if (u.uRush) u.uRush.value = 0;
     }
-    const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state);
+    // the railcannon scope replaces the viewmodel with the HUD scope overlay
+    const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state) && !(this.weapons.scopeK > 0.5);
     this.renderer.render(this.scene, this.camera, showVm ? this.weapons.scene : null, this.weapons.camera);
   }
 }

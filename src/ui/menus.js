@@ -16,9 +16,13 @@ const SETTINGS_SPEC = [
   { k: 'mouseSens', label: 'Mouse sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05 },
   { k: 'touchSens', label: 'Touch look sensitivity', type: 'range', min: 0.3, max: 3, step: 0.05 },
   { k: 'invertY', label: 'Invert look Y', type: 'bool' },
+  { k: 'rmbMode', label: 'Right mouse button', type: 'select', str: true, options: [['alt', 'ALT-FIRE  (aim with Z)'], ['aim', 'AIM  (alt-fire on T / middle mouse)']] },
+  { k: 'aimToggle', label: 'Aim is a toggle (not hold)', type: 'bool' },
+  { k: 'adsSens', label: 'Aiming sensitivity', type: 'range', min: 0.3, max: 1.5, step: 0.05 },
   { k: 'aimAssist', label: 'Touch aim assist', type: 'bool' },
   { k: 'leftHanded', label: 'Left-handed touch layout', type: 'bool' },
   { k: 'buttonScale', label: 'Touch button size', type: 'range', min: 0.7, max: 1.4, step: 0.05 },
+  { k: 'touchOpacity', label: 'Touch button opacity', type: 'range', min: 0.25, max: 1, step: 0.05 },
   { group: 'VIDEO' },
   { k: 'fov', label: 'Field of view', type: 'range', min: 70, max: 115, step: 1 },
   { k: 'resolution', label: 'Render resolution', type: 'select', options: [[240, '240p (crunchiest)'], [300, '300p'], [400, '400p'], [540, '540p'], [720, '720p (sharp)']] },
@@ -72,21 +76,26 @@ export class Menus {
           <div class="panel-h"><span data-px="CONTROLS"></span></div>
           <div class="controls-grid">
             <div><h4>KEYBOARD + MOUSE</h4>
-              <p><b>WASD</b> move · <b>MOUSE</b> aim · <b>LMB</b> fire · <b>RMB</b> alt-fire (coin, saw, core, scope, mine, EMP)</p>
-              <p><b>1-6 / WHEEL</b> weapons · <b>Q</b> last weapon · <b>R</b> reload · <b>Z</b> zoom</p>
+              <p><b>WASD</b> move · <b>MOUSE</b> look · <b>LMB</b> fire · <b>RMB</b> alt-fire (coin, saw, core, scope, mine, EMP)</p>
+              <p><b>Z</b> aim down sights: fire while aiming for tighter shots. Settings can put AIM on <b>RMB</b> (alt-fire moves to <b>T</b> / middle mouse) or make it a toggle.</p>
+              <p><b>QUICKSCOPE</b>: raise the sights and land the shot within about half a second (railcannon or revolver headshot) for bonus damage and style.</p>
+              <p><b>1-6 / WHEEL</b> weapons · <b>Q</b> last weapon · <b>R</b> reload · <b>X</b> RUSH when full</p>
               <p><b>SPACE</b> jump, wall-jump, hold to bunny hop · <b>SHIFT</b> dash (3 charges)</p>
               <p><b>CTRL / C</b> slide on the ground, slam in the air · jump right after a slam for a slam-jump</p>
               <p><b>F / V</b> punch · time it on an orb to <b>PARRY</b> · <b>G</b> grapple hook · <b>E</b> use terminals</p>
               <p><b>ESC / P</b> pause</p></div>
             <div><h4>TOUCH</h4>
               <p><b>Left half</b>: drag anywhere to move, push to the edge to sprint.</p>
-              <p><b>Right half</b>: drag to look. Drag on <b>FIRE</b> to aim while shooting. Tap weapon chips to switch.</p>
+              <p><b>Right half</b>: drag to look. Drag on <b>FIRE</b> to steer while shooting. Tap weapon chips to switch.</p>
+              <p><b>AIM</b> toggles aim-down-sights so FIRE stays free: tap AIM, then shoot. Tap FIRE right after AIM to quickscope.</p>
               <p><b>JUMP</b> (hold to hop), <b>DASH</b>, <b>SLIDE</b> (slam in the air), <b>PARRY</b>, <b>ALT</b>, <b>HOOK</b>, <b>RLD</b>, <b>SWAP</b>, <b>USE</b>.</p>
               <p>Settings: sensitivity, button size, left-handed layout, aim assist.</p></div>
             <div><h4>MOVEMENT TECH</h4>
               <p><b>Bunny hop</b>: jump the instant you land to keep all speed. Strafe and turn in the air to gain more.</p>
               <p><b>Slide boost</b>: land into a slide to convert fall speed into ground speed.</p>
               <p><b>Dash-jump</b> and <b>slide-jump</b> carry extra momentum. <b>Slam-jump</b> launches you high.</p>
+              <p><b>Wall-run</b>: hit a wall at speed while holding forward to run along it; jump off to keep the speed. <b>Dash-slide</b>: slide out of a dash to keep most of its speed.</p>
+              <p><b>Vault</b>: jump into a ledge up to head height while holding forward to climb it.</p>
               <p>Speed is armor. Standing still is how machines die.</p></div>
           </div>
           <div class="row-btns"><button class="btn primary" data-a="back">BACK</button></div>

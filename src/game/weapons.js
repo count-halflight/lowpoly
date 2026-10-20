@@ -80,6 +80,18 @@ export const DEFS = {
 const VFLASH = { piercer: 0x80e0ff, inferno: 0xff7a2a, pump: 0xff6a4a, splitter: 0xc070ff, freeze: 0x8ae0ff, tether: 0x7affd8 };
 const PREF_KEY = 'vg-variants';
 const PUMP_MUL = [1, 1.35, 1.75, 2.3];
+
+// Aiming down sights (any weapon, fire freely while aiming): zoom = FOV factor, spread = spread
+// factor, move = ground speed factor. The railcannon's SCOPE variant gets a real scope.
+const ADS = {
+  hammer: { zoom: 0.78, spread: 0.3, move: 1 },
+  ripsaw: { zoom: 0.8, spread: 0.4, move: 0.95 },
+  breacher: { zoom: 0.9, spread: 0.72, move: 1 },
+  lance: { zoom: 0.4, spread: 1, move: 0.85, scope: true },
+  thumper: { zoom: 0.86, spread: 1, move: 1 },
+  arc: { zoom: 0.86, spread: 1, move: 1 },
+};
+const QUICKSCOPE_WINDOW = 0.6; // seconds after the sights come up
 // ---------------------------------------------------------------------------------------
 // Viewmodels: built from boxes and cylinders, with separately animated parts.
 // ---------------------------------------------------------------------------------------
@@ -373,6 +385,7 @@ export class Weapons {
     this.freezeOn = false; this.freezeT = 0;
     this.tether = null;
     this.flourish = 0; this.finisherGlow = 0;
+    this.adsK = 0; this.adsOn = false; this.adsStart = -9; this.qsUsed = false; this.scopeK = 0;
     for (const c of this.coins) { c.alive = false; c.mesh.visible = false; }
     // remembered variant picks carry between runs; the training deck always uses the classics
     const pref = this.game.mode === 'tutorial' ? {} : this.loadPrefs();
@@ -406,6 +419,17 @@ export class Weapons {
     if (!d || !d.variants) return null;
     return d.variants[this.variant[id] || 0] || null;
   }
+  // ---------------------------------------------------------------- aiming
+  hasScope() { return this.current === 'lance' && this.variantId('lance') !== 'splitter'; }
+  // FOV factor for the camera (1 = hip fire)
+  get adsZoom() {
+    const z = this.current === 'lance' && !this.hasScope() ? 0.62 : (ADS[this.current] || ADS.hammer).zoom;
+    return 1 - (1 - z) * (this.adsK || 0);
+  }
+  get adsMove() { return 1 - (1 - (ADS[this.current] || ADS.hammer).move) * (this.adsK || 0); }
+  // inside the quick-scope window right now (sights just came up, nothing fired from it yet)
+  quickScopeLive() { return this.adsOn && !this.qsUsed && this.adsK > 0.5 && this.game.time - this.adsStart <= QUICKSCOPE_WINDOW; }
+
   variantId(id = this.current) { const v = this.variantInfo(id); return v ? v.id : ''; }
 
   cycleVariant(id = this.current) {
@@ -593,7 +617,14 @@ export class Weapons {
 
     const id = this.current, d = DEFS[id], a = this.ammo[id];
     const vid = this.variantId(id);
-    input.ads = (id === 'lance' && vid !== 'splitter' && input.alt && !this.reloading) || input.isHeld('zoom');
+    // ADS: the AIM input (or the SCOPE variant's ALT) brings the sights up; firing stays live
+    const wantAds = input.aiming || (id === 'lance' && vid !== 'splitter' && input.alt);
+    const adsOn = wantAds && !this.reloading && !this.switchTo && p.alive;
+    if (adsOn && !this.adsOn) { this.adsStart = g.time; this.qsUsed = false; }
+    this.adsOn = adsOn;
+    input.ads = adsOn;
+    this.adsK = damp(this.adsK || 0, adsOn ? 1 : 0, id === 'lance' ? 16 : 13, dt);
+    this.scopeK = this.hasScope() ? clamp((this.adsK - 0.55) / 0.35, 0, 1) : 0;
 
     if (input.wasPressed('reload')) this.startReload();
     if (this.reloading) {
@@ -651,7 +682,7 @@ export class Weapons {
     if (d.kind === 'beam') {
       if (input.fire && canFire && a.mag > 0 && !this.reloading) {
         if (!this.charging) { this.charging = true; this.charge = 0; g.audio.play('lanceCharge', null, 0.6); }
-        this.charge = Math.min(1, this.charge + dt / (d.chargeTime / p.stats.lanceCharge) * (p.rushT > 0 ? 1.3 : 1));
+        this.charge = Math.min(1, this.charge + dt / (d.chargeTime / p.stats.lanceCharge) * (p.rushT > 0 ? 1.3 : 1) * (input.ads ? 1.35 : 1));
       } else if (this.charging && (!input.fire || a.mag <= 0)) {
         if (this.charge > 0.12 && canFire && a.mag > 0) this.fireBeam(d, a, input.ads);
         this.charging = false; this.charge = 0;
@@ -1061,6 +1092,15 @@ export class Weapons {
     g.emit('ricoshot', chain + 1);
   }
 
+  // A shot fired right after the sights came up that connected: bonus style, and a heavier hit.
+  quickScoped(kill, point) {
+    const g = this.game;
+    if (kill) { g.style.add('QUICKSCOPED', 90); g.hitstop(0.05); } else g.style.add('QUICKSCOPE', 25);
+    g.audio.play('headshot', null, 0.8);
+    if (point) g.fx.sparksBurst(point, 0x9ff8ff, 10, 5, 0.25);
+    g.emit('quickscope', kill);
+  }
+
   // Trace a hitscan ray that may first strike a coin or a shootable core shell.
   trace(o, dir, range, skip) {
     const g = this.game;
@@ -1235,8 +1275,11 @@ export class Weapons {
     if (d.kind === 'arc') { this.fireArc(d, origin, base, muzzle); return; }
     const pellets = (d.pellets || 1) + (id === 'breacher' ? p.stats.shotgunPellets + pumped * 2 : 0);
     const moving = Math.min(1, p.speedNow / 8) * (p.body.grounded ? 1 : 1.5);
-    const spread = (d.spread + (d.moveSpread || 0) * moving + this.bloom) * p.stats.spreadMul * (1 + pumped * 0.15);
-    if (d.bloom) this.bloom = Math.min(d.maxBloom, this.bloom + d.bloom);
+    const adsSpread = 1 - (1 - (ADS[id] || ADS.hammer).spread) * this.adsK;
+    const spread = (d.spread + (d.moveSpread || 0) * moving * (1 - 0.5 * this.adsK) + this.bloom) * p.stats.spreadMul * (1 + pumped * 0.15) * adsSpread;
+    if (d.bloom) this.bloom = Math.min(d.maxBloom, this.bloom + d.bloom * (1 - 0.4 * this.adsK));
+    const qs = id === 'hammer' && this.quickScopeLive();
+    if (this.adsOn) this.qsUsed = true;
     const dir = new THREE.Vector3();
     const dmgMul = p.stats.dmgMul * (id === 'ripsaw' ? p.stats.rifleDmg : 1) * (p.stats.momentumDmg && p.speedNow > 14 ? 1.25 : 1) * PUMP_MUL[pumped] * this.takeCounter(muzzle);
     const hot = id === 'ripsaw' && vid === 'inferno' && this.heat >= 0.5;
@@ -1273,12 +1316,15 @@ export class Weapons {
         if (hit.kind === 'enemy') {
           const e = hit.enemy;
           if (id === 'hammer' && hit.part === 'head' && p.stats.deadeye) { dmg *= 1 + 0.5 * p.stats.deadeye; a.mag = Math.min(this.magSize(), a.mag + 1); }
+          if (qs && hit.part === 'head') dmg *= 1.25;
+          const wasAlive = e.alive;
           const knock = (d.knock ? d.knock / pellets * 3 : 1.2) * (1 + pumped * 0.5);
           g.combat.damageEnemy(e, dmg, { source: 'hitscan', part: hit.part, headMul: d.head, point: hit.point, dir: dir.clone(), knock, stagger: id === 'breacher' ? 0.12 + pumped * 0.06 : id === 'hammer' ? 0.25 : 0.05, dist: hit.t, dmg, quiet: pellets > 1 && i > 0 });
           if (hot) this.ignite(e, 2, 6 + 10 * this.heat);
           if (p.stats.explosiveEvery) this.countExplosive(hit.point);
           enemyHits++; nearest = Math.min(nearest, hit.t);
           if (hit.part === 'head') headHit = true;
+          if (qs && hit.part === 'head') this.quickScoped(wasAlive && !e.alive, hit.point);
           if (!skip) skip = new Set();
           skip.add(e);
           o = hit.point.clone().addScaledVector(dir, 0.05);
@@ -1357,13 +1403,18 @@ export class Weapons {
     const o = cam.position.clone();
     const muzzle = this.muzzleWorld().clone();
     const res = g.combat.raycastPierce(o, dir, d.range);
-    const dmg = (d.dmgMin + (d.dmgMax - d.dmgMin) * this.charge) * p.stats.dmgMul * this.takeCounter(muzzle);
-    let kills = 0;
+    const qs = scoped && this.quickScopeLive();
+    if (scoped) this.qsUsed = true;
+    const noScope = !scoped && this.adsK < 0.1 && this.charge > 0.95;
+    const dmg = (d.dmgMin + (d.dmgMax - d.dmgMin) * this.charge) * p.stats.dmgMul * this.takeCounter(muzzle) * (qs ? 1.3 : 1);
+    let kills = 0, far = 0;
     for (const h of res.hits) {
       const wasAlive = h.enemy.alive;
       g.combat.damageEnemy(h.enemy, dmg, { source: 'hitscan', part: h.part, headMul: d.head * (scoped ? 1.25 : 1), point: h.point, dir, knock: 6 * this.charge, stagger: 0.4, energy: true, pierce: true, dist: h.t });
-      if (wasAlive && !h.enemy.alive) kills++;
+      if (wasAlive && !h.enemy.alive) { kills++; far = Math.max(far, h.t); }
     }
+    if (qs && (res.hits.length || (res.bossHit && res.bossHit.t < res.end))) this.quickScoped(kills > 0, res.hits.length ? res.hits[0].point : res.bossHit.point);
+    else if (noScope && kills && far > 15) { g.style.add('NO SCOPE', 70); g.emit('noscope', far); g.audio.play('headshot', null, 0.7); }
     if (res.bossHit && res.bossHit.t < res.end) g.combat.damageBoss(g.bosses.active, dmg, { source: 'beam', part: res.bossHit.part, point: res.bossHit.point, energy: true });
     for (const c of this.coins) if (c.alive && raySphere(o.x, o.y, o.z, dir.x, dir.y, dir.z, c.pos.x, c.pos.y, c.pos.z, 0.5, res.end) >= 0) this.ricoshot(c, dmg * 0.8);
     if (kills >= 2) g.style.add('SKEWERED x' + kills, 20 * kills);
@@ -1502,7 +1553,6 @@ export class Weapons {
       rl = DEFS[this.current].reloadShell ? 0.35 + Math.sin(rk * Math.PI) * 0.25 : Math.sin(rk * Math.PI);
     }
     const fl = this.flourish > 0 ? Math.sin((1 - this.flourish / 0.32) * Math.PI) : 0;
-    this.adsK = damp(this.adsK || 0, input.ads ? 1 : 0, 12, dt);
     const sprintK = p.sprint && p.body.grounded && p.speedNow > 6 && !input.fire ? 1 : 0;
     this.sprintK = damp(this.sprintK || 0, sprintK, 8, dt);
     this.slideK = damp(this.slideK || 0, p.sliding ? 1 : 0, 10, dt);

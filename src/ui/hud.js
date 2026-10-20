@@ -336,12 +336,58 @@ export class HUD {
     this.text('UPLINK ' + pct + '%', x + w - 3, y + h - 2, 6, '#ffb0b8', 'right', { kind: 'mono', weight: 400 });
   }
 
+  // Railcannon scope: lens cut-out, reticle, charge ring, range readout and the quick-scope window.
+  drawScope() {
+    const g = this.game, w = g.weapons, c = this.ctx;
+    const k = w.scopeK;
+    const cx = Math.round(this.W / 2), cy = Math.round(this.V / 2);
+    const r = Math.round(this.V * (0.36 + 0.08 * k));
+    c.save();
+    c.globalAlpha = k;
+    c.fillStyle = '#050608';
+    c.beginPath(); c.rect(0, 0, this.W, this.V); c.arc(cx, cy, r, 0, Math.PI * 2, true); c.fill('evenodd');
+    c.strokeStyle = '#1c2a30'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke();
+    c.strokeStyle = 'rgba(64,224,255,0.55)'; c.lineWidth = 1; c.beginPath(); c.arc(cx, cy, r - 2, 0, Math.PI * 2); c.stroke();
+    // reticle: thin cross with a gap, thicker posts at the edge, mil dots
+    const ret = 'rgba(10,14,16,0.9)';
+    this.rect(cx - r, cy, r - 6, 1, ret); this.rect(cx + 6, cy, r - 6, 1, ret);
+    this.rect(cx, cy + 6, 1, r - 6, ret); this.rect(cx, cy - r, 1, r - 6, ret);
+    this.rect(cx - r, cy - 1, r * 0.35, 3, ret); this.rect(cx + r * 0.65, cy - 1, r * 0.35, 3, ret);
+    this.rect(cx - 1, cy + r * 0.65, 3, r * 0.35, ret);
+    for (let i = 1; i <= 4; i++) { const dd = i * r * 0.12; this.rect(cx + dd, cy - 1, 1, 3, ret); this.rect(cx - dd, cy - 1, 1, 3, ret); this.rect(cx - 1, cy + dd, 3, 1, ret); }
+    this.rect(cx, cy, 1, 1, '#ff3150');
+    // charge ring around the lens
+    if (w.charging) {
+      c.strokeStyle = w.charge >= 1 ? '#ffffff' : '#40e0ff'; c.lineWidth = 3;
+      c.beginPath(); c.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * w.charge); c.stroke();
+    }
+    // quick-scope window: a shrinking tick ring while the bonus is live
+    if (w.quickScopeLive()) {
+      const left = 1 - (g.time - w.adsStart) / 0.6;
+      c.strokeStyle = '#ffe23a'; c.lineWidth = 2;
+      c.beginPath(); c.arc(cx, cy, 12 + 18 * left, 0, Math.PI * 2); c.stroke();
+      this.text('QUICKSCOPE', cx, cy + r - 14, 10, '#ffe23a', 'center', { kind: 'mono', weight: 400 });
+    }
+    // range to whatever the reticle sits on
+    this.rangeT = (this.rangeT || 0) - 1;
+    if (this.rangeT <= 0) {
+      this.rangeT = 6;
+      const cam = g.camera, dir = cam.getWorldDirection(this.tmpDir || (this.tmpDir = new THREE.Vector3()));
+      const hit = g.combat.raycast(cam.position, dir, 160, {});
+      this.range = hit ? hit.t : 0;
+      this.rangeFoe = !!(hit && (hit.kind === 'enemy' || hit.kind === 'boss'));
+    }
+    this.text(this.range ? this.range.toFixed(1) + ' M' : '--.- M', cx + r * 0.5, cy - 8, 10, this.rangeFoe ? '#ff5a6a' : '#8ff4e4', 'left', { kind: 'mono', weight: 400 });
+    c.restore();
+  }
+
   drawCrosshair() {
     const g = this.game, w = g.weapons, p = g.player;
+    if (w.scopeK > 0.02) { this.drawScope(); if (w.scopeK > 0.5) return; }
     const cx = Math.round(this.W / 2), cy = Math.round(this.V / 2);
     const d = DEFS[w.current];
     const spread = (d.spread || 0.01) + w.bloom + (d.moveSpread || 0) * Math.min(1, p.speedNow / 8);
-    const gap = Math.round(Math.min(16, 2 + spread * 160 * (g.input.ads ? 0.4 : 1)));
+    const gap = Math.round(Math.min(16, 2 + spread * 160 * (1 - 0.6 * (w.adsK || 0))));
     const col = 'rgba(255,255,255,0.95)';
     this.rect(cx - gap - 4, cy, 4, 1, col); this.rect(cx + gap + 1, cy, 4, 1, col);
     this.rect(cx, cy - gap - 4, 1, 4, col); this.rect(cx, cy + gap + 1, 1, 4, col);
@@ -356,6 +402,12 @@ export class HUD {
     }
     // hook cooldown pip
     if (p.hookCd !== undefined && p.hookCd > 0) this.rect(cx - 4, cy + 18, 8 * (1 - p.hookCd / p.hookCdMax), 1, '#ffd060');
+    // aimed revolver: the quick-scope window shows as a shrinking yellow ring
+    if (w.current === 'hammer' && w.quickScopeLive && w.quickScopeLive()) {
+      const c = this.ctx, left = 1 - (g.time - w.adsStart) / 0.6;
+      c.strokeStyle = 'rgba(255,226,58,0.9)'; c.lineWidth = 1;
+      c.beginPath(); c.arc(cx + 0.5, cy + 0.5, 6 + 10 * left, 0, Math.PI * 2); c.stroke();
+    }
     // lance charge arc
     if (w.charging) {
       const c = this.ctx;
