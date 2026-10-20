@@ -159,6 +159,16 @@ export class Cutscene {
 // ---------------------------------------------------------------------------------------
 function fwdOf(yaw) { return V(Math.sin(yaw), 0, Math.cos(yaw)); }
 
+// pull a camera point in toward what it looks at until no wall or pillar stands between them
+function unblock(g, p, look) {
+  const d = p.clone().sub(look), L = d.length();
+  if (L < 0.5) return p;
+  d.divideScalar(L);
+  const hit = g.combat.rayWorld(look, d, L, true); // boss shields are not walls
+  if (hit) p.copy(look).addScaledVector(d, Math.max(1.5, hit.t - 0.6));
+  return p;
+}
+
 export function bossIntro(g, boss, def) {
   const c = boss.center().clone();
   const h = Math.max(3, boss.height || 4);
@@ -171,10 +181,12 @@ export function bossIntro(g, boss, def) {
   // 1. establishing shot: high and wide, slow push in
   const wideFrom = c.clone().addScaledVector(f, 18).addScaledVector(side, 9).setY(Math.min(room.spec.H - 1, h + 5));
   const wideTo = c.clone().addScaledVector(f, 13).addScaledVector(side, 5).setY(Math.min(room.spec.H - 1.5, h + 2.5));
+  unblock(g, wideFrom, c); unblock(g, wideTo, c);
   steps.push({ dur: 2.4, cam: { from: wideFrom, to: wideTo, look: c, fov: 62 }, sfx: 'sting', say: lines[0] ? { speaker: boss.info.name, text: stripName(lines[0], boss.info.name), color } : null });
   // 2. low-angle hero shot + name card
   const lowFrom = c.clone().addScaledVector(f, 7).addScaledVector(side, -2).setY(0.6);
   const lowTo = c.clone().addScaledVector(f, 5.5).addScaledVector(side, -1).setY(0.9);
+  unblock(g, lowFrom, c); unblock(g, lowTo, c);
   steps.push({ dur: 3.0, cam: { from: lowFrom, to: lowTo, lookFrom: c.clone().setY(c.y + h * 0.3), lookTo: c.clone().setY(c.y + h * 0.45), fov: 58 }, sfx: 'bossRoar', shake: 0.5, name: { name: boss.name, title: boss.title, color, dur: 3.2 } });
   // 3. narration over the player's shoulder
   if (lines[1]) {

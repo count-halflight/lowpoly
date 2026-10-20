@@ -55,7 +55,7 @@ try {
       g.debug.god(true);
       const room = g.level.current;
       const route = enc.kind === 'boss' ? { type: 'boss', label: 'X', sub: '', color: '#fff' } : { type: 'mini', label: 'X', sub: '', color: '#fff' };
-      const local = enc.kind === 'boss' ? 6 : 3;
+      const local = enc.kind === 'boss' ? 8 : 3; // boss room index since checkpoint rooms (campaign SEQ)
       const ctx = c.ctxFor(route, local);
       if (enc.kind === 'mini') ctx.miniDefs = [g.debug.miniById(enc.id)];
       room.chosenExit = 0;
