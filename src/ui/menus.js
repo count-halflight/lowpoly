@@ -10,13 +10,19 @@ import { MEDALS, SKINS, RANK_COLOR } from '../game/meta.js';
 import { NG_TWIST, ROMAN } from '../game/campaign.js';
 
 const SETTINGS_SPEC = [
+  { group: 'GAME' },
+  { k: 'difficulty', label: 'Difficulty (applies from the next room)', type: 'select', str: true, options: [['steady', 'STEADY  (learning the ropes)'], ['normal', 'NORMAL'], ['hard', 'HARD  (the original balance)'], ['brutal', 'BRUTAL']] },
   { group: 'CONTROLS' },
   { k: 'mouseSens', label: 'Mouse sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05 },
   { k: 'touchSens', label: 'Touch look sensitivity', type: 'range', min: 0.3, max: 3, step: 0.05 },
   { k: 'invertY', label: 'Invert look Y', type: 'bool' },
+  { k: 'rmbMode', label: 'Right mouse button', type: 'select', str: true, options: [['alt', 'ALT-FIRE  (aim with Z)'], ['aim', 'AIM  (alt-fire on T / middle mouse)']] },
+  { k: 'aimToggle', label: 'Aim is a toggle (not hold)', type: 'bool' },
+  { k: 'adsSens', label: 'Aiming sensitivity', type: 'range', min: 0.3, max: 1.5, step: 0.05 },
   { k: 'aimAssist', label: 'Touch aim assist', type: 'bool' },
   { k: 'leftHanded', label: 'Left-handed touch layout', type: 'bool' },
   { k: 'buttonScale', label: 'Touch button size', type: 'range', min: 0.7, max: 1.4, step: 0.05 },
+  { k: 'touchOpacity', label: 'Touch button opacity', type: 'range', min: 0.25, max: 1, step: 0.05 },
   { group: 'VIDEO' },
   { k: 'fov', label: 'Field of view', type: 'range', min: 70, max: 115, step: 1 },
   { k: 'resolution', label: 'Render resolution', type: 'select', options: [[240, '240p (crunchiest)'], [300, '300p'], [400, '400p'], [540, '540p'], [720, '720p (sharp)']] },
@@ -24,6 +30,9 @@ const SETTINGS_SPEC = [
   { k: 'shake', label: 'Screen shake', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { k: 'reduceFlashes', label: 'Reduce flashes', type: 'bool' },
   { k: 'cutscenes', label: 'Play boss cutscenes', type: 'bool' },
+  { k: 'gore', label: 'Gore (dismemberment, blood pools)', type: 'bool' },
+  { k: 'hudScale', label: 'HUD size', type: 'range', min: 0.8, max: 1.3, step: 0.05 },
+  { k: 'textFx', label: 'Glitchy HUD text effects', type: 'bool' },
   { k: 'showFps', label: 'Show FPS', type: 'bool' },
   { k: 'hints', label: 'Control hints', type: 'bool' },
   { group: 'AUDIO' },
@@ -70,21 +79,26 @@ export class Menus {
           <div class="panel-h"><span data-px="CONTROLS"></span></div>
           <div class="controls-grid">
             <div><h4>KEYBOARD + MOUSE</h4>
-              <p><b>WASD</b> move · <b>MOUSE</b> aim · <b>LMB</b> fire · <b>RMB</b> alt-fire (coin, saw, core, scope, mine, EMP)</p>
-              <p><b>1-6 / WHEEL</b> weapons · <b>Q</b> last weapon · <b>R</b> reload · <b>Z</b> zoom</p>
+              <p><b>WASD</b> move · <b>MOUSE</b> look · <b>LMB</b> fire · <b>RMB</b> alt-fire (coin, saw, core, scope, mine, EMP)</p>
+              <p><b>Z</b> aim down sights: fire while aiming for tighter shots. Settings can put AIM on <b>RMB</b> (alt-fire moves to <b>T</b> / middle mouse) or make it a toggle.</p>
+              <p><b>QUICKSCOPE</b>: raise the sights and land the shot within about half a second (railcannon or revolver headshot) for bonus damage and style.</p>
+              <p><b>1-6 / WHEEL</b> weapons · <b>Q</b> last weapon · <b>R</b> reload · <b>X</b> RUSH when full</p>
               <p><b>SPACE</b> jump, wall-jump, hold to bunny hop · <b>SHIFT</b> dash (3 charges)</p>
               <p><b>CTRL / C</b> slide on the ground, slam in the air · jump right after a slam for a slam-jump</p>
               <p><b>F / V</b> punch · time it on an orb to <b>PARRY</b> · <b>G</b> grapple hook · <b>E</b> use terminals</p>
               <p><b>ESC / P</b> pause</p></div>
             <div><h4>TOUCH</h4>
               <p><b>Left half</b>: drag anywhere to move, push to the edge to sprint.</p>
-              <p><b>Right half</b>: drag to look. Drag on <b>FIRE</b> to aim while shooting. Tap weapon chips to switch.</p>
+              <p><b>Right half</b>: drag to look. Drag on <b>FIRE</b> to steer while shooting. Tap weapon chips to switch.</p>
+              <p><b>AIM</b> toggles aim-down-sights so FIRE stays free: tap AIM, then shoot. Tap FIRE right after AIM to quickscope.</p>
               <p><b>JUMP</b> (hold to hop), <b>DASH</b>, <b>SLIDE</b> (slam in the air), <b>PARRY</b>, <b>ALT</b>, <b>HOOK</b>, <b>RLD</b>, <b>SWAP</b>, <b>USE</b>.</p>
               <p>Settings: sensitivity, button size, left-handed layout, aim assist.</p></div>
             <div><h4>MOVEMENT TECH</h4>
               <p><b>Bunny hop</b>: jump the instant you land to keep all speed. Strafe and turn in the air to gain more.</p>
               <p><b>Slide boost</b>: land into a slide to convert fall speed into ground speed.</p>
               <p><b>Dash-jump</b> and <b>slide-jump</b> carry extra momentum. <b>Slam-jump</b> launches you high.</p>
+              <p><b>Wall-run</b>: hit a wall at speed while holding forward to run along it; jump off to keep the speed. <b>Dash-slide</b>: slide out of a dash to keep most of its speed.</p>
+              <p><b>Vault</b>: jump into a ledge up to head height while holding forward to climb it.</p>
               <p>Speed is armor. Standing still is how machines die.</p></div>
           </div>
           <div class="row-btns"><button class="btn primary" data-a="back">BACK</button></div>
@@ -224,7 +238,7 @@ export class Menus {
     const wrap = this.$('m-logo');
     wrap.textContent = '';
     const c = pixelTextCanvas('VOLTGRAVE', { size: 34, color: '#f2f2ee', ca: 1.5 });
-    c.style.width = 'min(560px, 86vw)'; c.style.height = 'auto';
+    c.style.height = 'auto'; // width comes from style.css so short screens can shrink it
     wrap.appendChild(c);
     wrap.setAttribute('aria-label', 'VOLTGRAVE');
   }
@@ -237,7 +251,7 @@ export class Menus {
     if (save) {
       const lv = save.plan[save.levelIdx];
       const name = lv.final ? 'THE ARCHITECT' : (LEVELS.find((l) => l.id === lv.levelId) || {}).name;
-      list.push(`<button class="mi primary" data-a="continue">CONTINUE <small>${save.cycle ? 'CYCLE ' + ROMAN[save.cycle + 1] + ' · ' : ''}${lv.final ? 'X' : esc(lv.levelId)} ${esc(name || '')}</small></button>`);
+      list.push(`<button class="mi primary" data-a="continue">CONTINUE <small>${save.cycle ? 'CYCLE ' + ROMAN[save.cycle + 1] + ' · ' : ''}${lv.final ? 'X' : esc(lv.levelId)} ${esc(name || '')}${save.atRoom ? ' · CHECKPOINT' : ''}</small></button>`);
     }
     list.push(`<button class="mi${save ? '' : ' primary'}" data-a="newGame">NEW DESCENT ${p.tutorialDone ? '' : '<span class="tag">TRAINING FIRST</span>'}</button>`);
     if (p.cyclesCleared > 0) list.push(`<button class="mi" data-a="ngplus">NEW GAME + <small>CYCLE ${ROMAN[Math.min(10, p.cyclesCleared + 1)]}</small></button>`);
@@ -289,6 +303,7 @@ export class Menus {
       case 'resume': g.resume(); break;
       case 'restart': g.restart(); break;
       case 'retryLevel': g.retryLevel(); break;
+      case 'retryCheckpoint': g.retryCheckpoint(); break;
       case 'skipTraining': g.finishTutorial(true); break;
       case 'quit': g.quitToTitle(); break;
       case 'settings': this.push('settings'); break;
@@ -357,7 +372,7 @@ export class Menus {
         input = document.createElement('select');
         for (const [v, l] of spec.options) { const o = document.createElement('option'); o.value = v; o.textContent = l; input.appendChild(o); }
         input.value = s.get(spec.k);
-        input.addEventListener('change', () => s.set(spec.k, parseInt(input.value, 10)));
+        input.addEventListener('change', () => s.set(spec.k, spec.str ? input.value : parseInt(input.value, 10)));
         row.appendChild(input);
       }
       list.appendChild(row);
@@ -365,16 +380,17 @@ export class Menus {
   }
 
   // ------------------------------------------------------------------ pause
-  showPause(title, sub, statsHtml, mode) {
+  showPause(title, sub, statsHtml, mode, opts = {}) {
     this.px(this.$('m-pauseh'), title, 30);
     this.$('m-pausesub').textContent = sub || '';
     this.$('m-pausestats').innerHTML = statsHtml;
     const items = ['<button class="mi primary" data-a="resume">RESUME</button>'];
-    if (mode === 'campaign') items.push('<button class="mi" data-a="retryLevel">RESTART LEVEL <small>FROM CHECKPOINT</small></button>');
+    if (mode === 'campaign' && opts.checkpoint) items.push(`<button class="mi" data-a="retryCheckpoint">RESTART FROM CHECKPOINT <small>ROOM ${String(opts.checkpoint).padStart(2, '0')}</small></button>`);
+    if (mode === 'campaign') items.push('<button class="mi" data-a="retryLevel">RESTART LEVEL <small>FROM THE START</small></button>');
     if (mode === 'endless') items.push('<button class="mi" data-a="restart">RESTART RUN</button>');
     if (mode === 'tutorial') items.push('<button class="mi" data-a="skipTraining">SKIP TRAINING</button>');
     items.push('<button class="mi" data-a="settings">SETTINGS</button>', '<button class="mi" data-a="controls">CONTROLS</button>', '<button class="mi" data-a="fullscreen">FULLSCREEN</button>');
-    items.push(`<button class="mi danger" data-a="quit">QUIT TO TITLE${mode === 'campaign' ? ' <small>PROGRESS SAVED AT LEVEL START</small>' : ''}</button>`);
+    items.push(`<button class="mi danger" data-a="quit">QUIT TO TITLE${mode === 'campaign' ? ` <small>PROGRESS SAVED AT ${opts.checkpoint ? 'CHECKPOINT' : 'LEVEL START'}</small>` : ''}</button>`);
     this.$('m-pauselist').innerHTML = items.join('');
     this.show('pause');
   }
@@ -401,13 +417,15 @@ export class Menus {
   }
 
   // ------------------------------------------------------------------ death
-  showDeath(cause, tip, stats, mode) {
+  showDeath(cause, tip, stats, mode, opts = {}) {
     this.$('m-cause').textContent = 'KILLED BY ' + (cause || 'THE MACHINE');
     this.$('m-tip').textContent = tip || '';
-    this.$('m-deadsub').textContent = mode === 'campaign' ? 'CHECKPOINT: START OF LEVEL' : mode === 'endless' ? 'RUN OVER' : '';
+    this.$('m-deadsub').textContent = mode === 'campaign' ? (opts.checkpoint ? 'CHECKPOINT: ROOM ' + String(opts.checkpoint).padStart(2, '0') : 'CHECKPOINT: START OF LEVEL') : mode === 'endless' ? 'RUN OVER' : '';
     this.$('m-deadstats').innerHTML = stats.map(([k, v, best]) => `<div class="${best ? 'best' : ''}"><b>${esc(v)}</b>${esc(k)}${best ? ' · NEW BEST' : ''}</div>`).join('');
     const items = mode === 'campaign'
-      ? ['<button class="mi primary" data-a="retryLevel">RETRY LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>']
+      ? (opts.checkpoint
+        ? ['<button class="mi primary" data-a="retryCheckpoint">RETRY FROM CHECKPOINT</button>', '<button class="mi" data-a="retryLevel">RESTART LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>']
+        : ['<button class="mi primary" data-a="retryLevel">RETRY LEVEL</button>', '<button class="mi" data-a="quit">TITLE</button>'])
       : mode === 'tutorial'
         ? ['<button class="mi primary" data-a="retryLevel">RETRY STATION</button>', '<button class="mi" data-a="quit">TITLE</button>']
         : ['<button class="mi primary" data-a="restart">RUN IT BACK</button>', '<button class="mi" data-a="quit">TITLE</button>'];

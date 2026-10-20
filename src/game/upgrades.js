@@ -26,6 +26,12 @@ export const UPGRADES = [
   { id: 'adrenaline', name: 'ADRENALINE', rarity: 'rare', max: 2, desc: 'At style rank A or higher: +25% fire rate and move speed.', apply: (s) => { s.adrenaline += 1; } },
   { id: 'crater', name: 'SLAM CRATER', rarity: 'rare', max: 1, desc: 'Ground slam (crouch in mid-air) deals 3x damage in a bigger radius.', apply: (s) => { s.slamMul = 3; } },
   { id: 'elitekiller', name: 'GIANT SLAYER', rarity: 'rare', max: 2, desc: '+25% damage to elites and bosses.', apply: (s) => { s.elitesMul *= 1.25; } },
+  // ---- new-mechanic upgrades (finisher / perfect dodge / RUSH / punch boost)
+  { id: 'ghoststep', name: 'GHOST STEP', rarity: 'common', max: 2, desc: 'Longer dash i-frames: perfect dodges are easier and their slow-motion lasts longer.', apply: (s) => { s.dodgeWindow += 0.05; s.dodgeSlow += 0.15; } },
+  { id: 'overdrive', name: 'OVERDRIVE', rarity: 'common', max: 2, desc: 'RUSH fills 30% faster and lasts 2s longer.', apply: (s) => { s.rushRate *= 1.3; s.rushDur += 2; } },
+  { id: 'executioner', name: 'EXECUTIONER', rarity: 'rare', max: 2, desc: 'Finishers work on tougher enemies (+50% threshold), heal 15 more and stagger everything within 5m.', apply: (s) => { s.execMul *= 1.5; s.execHeal += 15; s.execBlast += 1; } },
+  { id: 'juggler', name: 'JUGGLER', rarity: 'rare', max: 2, desc: 'Airborne enemies take +20% more damage, and slide kicks (punch while sliding) launch them higher.', apply: (s) => { s.juggle += 1; } },
+  { id: 'counter', name: 'COUNTERSTRIKE', rarity: 'rare', max: 1, desc: 'After a perfect dodge, your next shot within 2s deals double damage.', apply: (s) => { s.counter = 1; } },
   // ---- weapon specific
   { id: 'buckshot', name: 'BUCKSHOT+', rarity: 'common', max: 2, weapon: 'breacher', desc: 'Breacher fires 4 extra pellets.', apply: (s) => { s.shotgunPellets += 4; } },
   { id: 'cluster', name: 'CLUSTER MUNITIONS', rarity: 'rare', max: 2, weapon: 'thumper', desc: 'Thumper grenades burst into 3 bomblets.', apply: (s) => { s.cluster += 1; } },
@@ -33,11 +39,13 @@ export const UPGRADES = [
   { id: 'deadeye', name: 'DEADEYE', rarity: 'rare', max: 2, weapon: 'hammer', desc: 'Hammer headshots refund the round and deal +50% damage.', apply: (s) => { s.deadeye += 1; } },
   { id: 'tesla', name: 'TESLA COIL', rarity: 'common', max: 2, weapon: 'arc', desc: 'Arc Caster chains to 2 more enemies.', apply: (s) => { s.arcJumps += 2; } },
   { id: 'hollow', name: 'HOLLOW POINTS', rarity: 'common', max: 2, weapon: 'ripsaw', desc: 'Ripsaw +25% damage and bullets pierce one enemy.', apply: (s) => { s.rifleDmg *= 1.25; s.riflePierce = 1; } },
+  { id: 'slugger', name: 'SLUGGER', rarity: 'common', max: 2, weapon: 'thumper', desc: 'Punching your own grenades, mines, rockets or core shells bats them for +50% more damage.', apply: (s) => { s.boostMul *= 1.5; } },
   // ---- legendary (boss / elite rewards)
   { id: 'overclock', name: 'OVERCLOCK CORE', rarity: 'legendary', max: 2, desc: '+20% damage, +20% fire rate, +10% move speed.', apply: (s) => { s.dmgMul *= 1.2; s.fireRateMul *= 1.2; s.moveMul *= 1.1; } },
   { id: 'phoenix', name: 'PHOENIX MODULE', rarity: 'legendary', max: 1, desc: 'Once per run: survive a lethal hit at 50% HP with a huge blast.', apply: (s) => { s.phoenix = 1; } },
   { id: 'vampiric', name: 'VAMPIRIC FIELD', rarity: 'legendary', max: 2, desc: '3% of all damage you deal heals you.', apply: (s) => { s.vampiric += 1; } },
   { id: 'chain', name: 'CHAIN REACTION', rarity: 'legendary', max: 1, desc: 'Enemies killed by explosions explode too.', apply: (s) => { s.chainReaction = 1; } },
+  { id: 'bloodrush', name: 'BLOOD RUSH', rarity: 'legendary', max: 1, desc: 'Every kill during RUSH extends it by half a second.', apply: (s) => { s.rushExtend = 1; } },
 ];
 
 const RARITY_W = {

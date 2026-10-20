@@ -17,6 +17,7 @@ const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 await page.goto(`http://localhost:${PORT}/`);
 await page.waitForFunction(() => window.__vg && window.__vg.debug);
+await page.evaluate((m) => { window.__BOT_MODE = m; }, process.env.MODE || 'campaign');
 const RUNS = parseInt(process.env.RUNS || '6', 10);
 const out = [];
 for (let run = 0; run < RUNS; run++) {
@@ -24,7 +25,7 @@ for (let run = 0; run < RUNS; run++) {
     const g = window.__vg;
     g.frame = () => {}; g.render = () => {};
     g.profile.v.tutorialDone = true;
-    g.newCampaign(0, true);
+    if (window.__BOT_MODE === 'endless') g.startEndless((Math.random() * 1e9) >>> 0); else g.newCampaign(0, true);
     g.player.stats.maxHp = 400; g.player.hp = 400;
     const KEYS = ['fwd', 'back', 'left', 'right', 'jump', 'slide', 'dash'];
     const report = [];
@@ -80,12 +81,13 @@ for (let run = 0; run < RUNS; run++) {
         }
       }
       const before = room;
+      if (g.input.fire && f % 9 === 0) g.input.firePressed = true; // semi-auto weapons need fresh presses
       if (f % 1800 === 0) report.push('t=' + Math.round(f / 60) + ' ' + g.state + ' room' + room.index + ':' + room.state + ' alive=' + g.enemies.aliveCount + ' minis=' + g.director.minis.map((m) => m.alive ? Math.round(m.hp) : 'dead').join('/') + ' hp=' + Math.round(g.player.hp) + ' pos=' + [g.player.body.pos.x - room.origin.x, g.player.body.pos.y, g.player.body.pos.z - room.origin.z].map((v) => v.toFixed(1)).join(',') + (g.cutscene.active ? ' CUT' + g.cutscene.idx : '') + ' wIdx=' + g.director.waveIdx + '/' + g.director.waves.length + ' act=' + g.director.active);
       g.tick(1 / 60, 1 / 60);
       f++;
       if (g.level.current !== before) { roomsDone++; report.push(g.level.current.index + ':' + g.level.current.spec.arch + (g.level.current.ctx.miniDefs ? '[' + g.level.current.ctx.miniDefs.map((m) => m.id).join(',') + ']' : '') + ' t=' + Math.round(f / 60)); }
     }
-    return { run, report, err: g.lastError, level: g.campaign.level.id };
+    return { run, report, err: g.lastError, level: g.mode === 'campaign' ? g.campaign.level.id : 'endless' };
   }, run);
   out.push(r);
   const rooms = r.report.filter((x) => typeof x === 'string' && /^\d/.test(x));

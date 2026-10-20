@@ -25,6 +25,14 @@ const DEFAULTS = {
   showFps: false,
   hints: true,
   cutscenes: true,
+  difficulty: 'normal',
+  rmbMode: 'alt',      // right mouse button: 'alt' (alt-fire) or 'aim' (aim down sights; alt moves to T / middle mouse)
+  aimToggle: false,    // AIM key/button latches instead of being held
+  adsSens: 0.85,       // extra look sensitivity factor while aiming
+  hudScale: 1.0,
+  textFx: false,       // decorative glitch/scramble on HUD headlines
+  touchOpacity: 0.75,
+  gore: true,          // dismemberment + blood pools
 };
 
 function load(key) {

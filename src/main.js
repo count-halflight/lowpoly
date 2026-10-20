@@ -17,7 +17,7 @@ import { Projectiles } from './game/projectiles.js';
 import { Enemies, ENEMY_INFO } from './game/enemies.js';
 import { BOSS_INFO } from './game/bosses.js';
 import { Bosses } from './game/bossmgr.js';
-import { Director, MODIFIERS } from './game/director.js';
+import { Director, MODIFIERS, ROUTES } from './game/director.js';
 import { Upgrades } from './game/upgrades.js';
 import { Style } from './game/style.js';
 import { Pickups } from './game/pickups.js';
@@ -102,7 +102,7 @@ class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 200));
     this.settings.onChange((k) => {
-      if (k === 'resolution' || k === 'jitter' || k === '*') this.resize();
+      if (k === 'resolution' || k === 'jitter' || k === 'hudScale' || k === '*') this.resize();
       if (k === 'master' || k === 'sfx' || k === 'music' || k === '*') this.audio.applyVolumes();
     });
     // prevent pinch zoom / scrolling gestures on iOS
@@ -225,7 +225,7 @@ class Game {
     if (this.settings.get('hints')) {
       this.hint(this.input.usingTouch
         ? 'LEFT THUMB: MOVE  ·  RIGHT THUMB: LOOK  ·  FIRE / DASH / PARRY on the right'
-        : 'WASD MOVE  ·  MOUSE AIM  ·  LMB FIRE  ·  RMB ALT  ·  SHIFT DASH  ·  CTRL SLIDE/SLAM  ·  F PARRY', 7);
+        : 'WASD MOVE  ·  MOUSE AIM  ·  LMB FIRE  ·  RMB ALT  ·  SHIFT DASH  ·  CTRL SLIDE/SLAM  ·  F PARRY  ·  X RUSH', 7);
     }
     if (this.audio.music) this.audio.music.set(0);
   }
@@ -249,8 +249,13 @@ class Game {
     if (!s) return;
     this.mode = 'campaign';
     this.resetRun(s.seed);
-    this.campaign.restore(s);
-    this.startLevel(s.levelIdx, { restored: true });
+    const c = this.campaign;
+    c.restore(s);
+    if (s.atRoom && s.levelStart) {
+      c.checkpoint = s.levelStart;
+      c.roomCheckpoint = s;
+      this.startLevel(s.levelIdx, { restored: true, atRoom: s.atRoom, lvBase: s.lvBase });
+    } else this.startLevel(s.levelIdx, { restored: true });
   }
 
   startPractice(levelId) {
@@ -276,36 +281,75 @@ class Game {
     }
     this.player.shield = this.player.stats.shieldMax;
     this.player.dashCharges = this.player.stats.dashCharges;
-    const ctx = c.baseCtx(0);
-    ctx.arch = 'lobby';
-    ctx.locked = true;
-    const room = this.level.startLobby(ctx);
-    room.route = { type: 'entry' };
+    const atRoom = opts.atRoom || 0;
+    let room;
+    if (atRoom) { // resume inside a checkpoint room
+      const ctx = c.ctxFor({ type: 'checkpoint' }, atRoom);
+      ctx.locked = true;
+      ctx.index = atRoom;
+      room = this.level.startLobby(ctx);
+      room.route = { type: 'checkpoint', ...ROUTES.checkpoint };
+      if (room.beacon) { room.beacon.lit = true; room.beacon.flare = 0.6; }
+    } else {
+      c.roomCheckpoint = null;
+      const ctx = c.baseCtx(0);
+      ctx.arch = 'lobby';
+      ctx.locked = true;
+      room = this.level.startLobby(ctx);
+      room.route = { type: 'entry' };
+    }
     this.applyRoutes(room, c.routesFor(room));
     room.state = 'cleared';
     const sp = c.spawnPoint(room);
     this.player.spawnAt(sp.x, sp.y, sp.z, 0);
     this.weapons.setTheme(room.theme);
     c.beginLevelStats();
+    if (atRoom && opts.lvBase) Object.assign(c.lv, opts.lvBase);
     const lv = c.level;
     const cond = CONDITIONS[lv.cond];
-    this.hud.setRoom(c.code() + '  ' + lv.name, c.stratumLabel());
-    this.hud.levelCard(c.code(), lv.name, c.stratumLabel(), lv.desc + (cond && cond.name ? '  [' + cond.name + ': ' + cond.desc + ']' : ''), 6);
-    if (!c.practice) {
-      this.profile.reachStratum(lv.stratum);
+    if (atRoom) {
+      this.hud.setRoom(c.code() + ' · ROOM ' + pad2(atRoom), room.spec.name + '  ·  CHECKPOINT');
+      this.hud.banner('CHECKPOINT', c.code() + ' ' + lv.name + '  ·  ROOM ' + pad2(atRoom), '#7fe0b8', 2.6);
+    } else {
+      this.hud.setRoom(c.code() + '  ' + lv.name, c.stratumLabel());
+      this.hud.levelCard(c.code(), lv.name, c.stratumLabel(), lv.desc + (cond && cond.name ? '  [' + cond.name + ': ' + cond.desc + ']' : ''), 6);
+      if (!c.practice) this.profile.reachStratum(lv.stratum);
       c.checkpoint = c.snapshot();
-      this.profile.writeSave(c.checkpoint);
-    } else c.checkpoint = c.snapshot();
-    this.audio.play('sting', null, 0.6);
+      if (!c.practice) this.profile.writeSave(c.checkpoint);
+    }
+    this.audio.play(atRoom ? 'checkpoint' : 'sting', null, 0.6);
     if (this.audio.music) this.audio.music.set(0);
     this.enterPlay();
-    if (idx === 0 && c.cycle === 0 && !c.practice && !opts.restored) this.hint('Every level ends in a boss and hides two minibosses and a green terminal. Clear rooms to open the exits.', 7);
-    if (c.cycle > 0 && idx === 0 && !opts.restored) this.hud.banner('CYCLE ' + ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][Math.min(10, c.cycle + 1)], 'THE CLIMB BEGINS', '#c060ff', 3);
+    if (idx === 0 && c.cycle === 0 && !c.practice && !opts.restored && !atRoom) this.hint('Every level ends in a boss and hides two minibosses and a green terminal. A checkpoint follows each miniboss. Clear rooms to open the exits.', 8);
+    if (c.cycle > 0 && idx === 0 && !opts.restored && !atRoom) this.hud.banner('CYCLE ' + ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][Math.min(10, c.cycle + 1)], 'THE CLIMB BEGINS', '#c060ff', 3);
+  }
+
+  // Back to the last checkpoint room of this level (falls back to the start of the level).
+  retryCheckpoint() {
+    const c = this.campaign;
+    const cp = c.roomCheckpoint;
+    if (this.mode !== 'campaign' || !cp || cp.levelIdx !== c.levelIdx || !c.checkpoint) { this.retryLevel(); return; }
+    const restarts = (c.lv ? c.lv.restarts : 0) + 1;
+    const levelStart = c.checkpoint;
+    this.resetRun(cp.seed);
+    this.mode = 'campaign';
+    c.restore(cp);
+    c.lv.restarts = restarts;
+    c.checkpoint = levelStart;
+    c.roomCheckpoint = cp;
+    this.startLevel(cp.levelIdx, { restored: true, atRoom: cp.atRoom, lvBase: cp.lvBase });
+  }
+
+  // room index of this level's active checkpoint (0 = none)
+  checkpointRoom() {
+    const c = this.campaign, cp = c.roomCheckpoint;
+    return this.mode === 'campaign' && cp && cp.levelIdx === c.levelIdx ? cp.atRoom : 0;
   }
 
   retryLevel() {
     if (this.mode === 'tutorial') { this.startTutorial(this.tutorialThen, this.tutorial.station); return; }
-    if (this.mode !== 'campaign' || !this.campaign.checkpoint) { this.restart(); return; }
+    if (this.mode !== 'campaign') { this.restart(); return; }
+    if (!this.campaign.checkpoint) { this.quitToTitle(); return; }
     const cp = this.campaign.checkpoint;
     const restarts = (this.campaign.lv ? this.campaign.lv.restarts : 0) + 1;
     this.resetRun(cp.seed);
@@ -316,7 +360,8 @@ class Game {
   }
 
   restart() {
-    if (this.mode === 'campaign') { this.retryLevel(); return; }
+    if (this.mode === 'campaign') { this.retryCheckpoint(); return; }
+    if (this.mode === 'tutorial') { this.retryLevel(); return; }
     this.startEndless(this.run.customSeed ? this.run.seed : (Math.random() * 1e9) >>> 0, this.run.customSeed, this.run.daily);
   }
 
@@ -324,6 +369,7 @@ class Game {
     const c = this.campaign;
     const res = c.results();
     this.profile.setRank(c.level.id, res.rank, res.score, res.time);
+    if (!c.practice && c.levelIdx + 1 < c.plan.length) this.profile.writeSave({ ...c.snapshot(), levelIdx: c.levelIdx + 1, restarts: 0 });
     this.setState('results');
     this.input.releaseAll();
     this.ignoreLockLoss = true;
@@ -429,7 +475,7 @@ class Game {
       sub = 'ENDLESS';
       stats = `ROOM <b>${pad2(this.level.current ? this.level.current.index : 0)}</b> · SCORE <b>${Math.floor(this.style.score)}</b> · KILLS <b>${r.kills}</b> · SEED <b>${r.seed}</b><br>UPGRADES: ${ups}`;
     }
-    this.menus.showPause(title, sub, stats, this.mode);
+    this.menus.showPause(title, sub, stats, this.mode, { checkpoint: this.checkpointRoom() });
     this.ignoreLockLoss = true;
     this.input.exitLock();
     setTimeout(() => { this.ignoreLockLoss = false; }, 100);
@@ -534,6 +580,7 @@ class Game {
       this.hud.setRoom('ROOM ' + pad2(idx), room.spec.name + (regionStart || idx === 1 ? '  ·  ' + room.theme.name : ''));
     }
     const kind = this.director.beginRoom(room);
+    if (camp && room.spec.arch === 'checkpoint') { this.enterCheckpoint(room); return; }
     if (kind === 'calm') {
       this.hud.banner(camp ? 'SUPPLY' : 'ROOM ' + pad2(idx), room.spec.name + '  ·  SAFE ROOM', '#60ff90');
       room.state = 'cleared';
@@ -561,6 +608,30 @@ class Game {
       if (room.conveyors.length) this.onceHint('conveyor', 'Conveyor belts drag you and the machines along.', 5);
       if (room.terminals.length) this.onceHint('terminal', 'A green terminal glows on a wall in this room. Read it with ' + (this.input.usingTouch ? 'USE' : 'E') + ' to recover a log.', 6);
     }
+  }
+
+  // Checkpoint room: full heal + ammo, and a save that death, RESTART and CONTINUE return to.
+  enterCheckpoint(room) {
+    const c = this.campaign;
+    room.state = 'cleared';
+    this.player.heal(this.player.stats.maxHp);
+    this.player.shield = this.player.stats.shieldMax;
+    for (const id of this.weapons.owned) this.weapons.addAmmo(id, 3);
+    c.roomCheckpoint = c.roomSnapshot(room);
+    if (!c.practice) this.profile.writeSave(c.roomCheckpoint);
+    this.hud.banner('CHECKPOINT', room.spec.name + '  ·  PROGRESS SAVED', '#7fe0b8', 2.6);
+    this.audio.play('checkpoint', null, 0.9);
+    if (this.audio.music) this.audio.music.set(0);
+    if (room.beacon) {
+      room.beacon.activate();
+      const p = room.beacon.pos;
+      this.fx.ring(p.x, 0.1, p.z, 6, 0x7fe0b8, 0.8);
+      this.fx.spawnColumn(p.x, 0, p.z, 0x7fe0b8, 0.9, room.spec.H);
+      this.fx.sparksBurst(p, 0x7fe0b8, 24, 7, 0.6, 0.08);
+    }
+    this.flash(0x7fe0b8, 0.18);
+    this.onRoomCleared(room, true);
+    this.onceHint('checkpoint', 'CHECKPOINT: health and ammo restored. If you die from here on, you restart in this room.', 6);
   }
 
   introBoss(room) {
@@ -845,7 +916,7 @@ class Game {
       this.menus.showDeath(ld.cause, ld.tip, [
         ['LEVEL', c.code() + ' ' + c.level.name], ['ROOM', pad2(this.level.current ? this.level.current.index : 0)],
         ['TIME IN LEVEL', fmtTime(r.time - (c.lv ? c.lv.t0 : 0))], ['KILLS', r.kills], ['PEAK STYLE', peak], ['RESTARTS', c.lv ? c.lv.restarts : 0],
-      ], 'campaign');
+      ], 'campaign', { checkpoint: this.checkpointRoom() });
     } else if (this.mode === 'tutorial') {
       this.menus.showDeath(ld.cause, ld.tip, [['STATION', this.tutorial.station + 1]], 'tutorial');
     } else {
@@ -1021,7 +1092,7 @@ class Game {
     const cam = this.camera;
     // FOV (zoom, sprint)
     const base = this.settings.get('fov');
-    const ads = this.input.ads ? 0.72 : 1;
+    const ads = this.weapons.adsZoom || 1;
     const speed = this.player.speedNow > 14 ? 1 + Math.min(0.1, (this.player.speedNow - 14) * 0.006) : 1;
     const target = base * ads * speed;
     cam.fov += (target - cam.fov) * Math.min(1, realDt * 12);
@@ -1046,6 +1117,7 @@ class Game {
     u.uTime.value = this.time;
     u.uAlert.value = this.level.current && this.level.current.state === 'combat' ? 1 : 0;
     u.uSlowmo.value = this.slowT > 0 ? Math.min(1, this.slowT) : 0;
+    if (u.uRush) { const pl = this.player; u.uRush.value = pl.rushT > 0 ? Math.min(1, pl.rushT * 2, 0.35 + (pl.rushMax - pl.rushT) * 3) : 0; }
   }
 
   render() {
@@ -1053,8 +1125,10 @@ class Game {
       const u = this.renderer.postMat.uniforms;
       this.flashV = Math.max(0, this.flashV - 0.02);
       u.uFlash.value = this.flashV; u.uDamage.value = 0; u.uLowHp.value = 0; u.uAlert.value = 0; u.uTime.value = this.time;
+      if (u.uRush) u.uRush.value = 0;
     }
-    const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state);
+    // the railcannon scope replaces the viewmodel with the HUD scope overlay
+    const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state) && !(this.weapons.scopeK > 0.5);
     this.renderer.render(this.scene, this.camera, showVm ? this.weapons.scene : null, this.weapons.camera);
   }
 }

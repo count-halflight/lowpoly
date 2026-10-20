@@ -32,6 +32,9 @@ export class Style {
     const gain = pts * (1 / (1 + this.rankIndex * 0.3));
     this.meter += gain;
     this.idle = 0;
+    // style feeds the RUSH overdrive meter (faster at higher ranks); RUSH itself never refills it
+    const pl = g.player;
+    if (pl && pl.addRush && name !== 'ROOM CLEAR' && name !== 'RUSH') pl.addRush(pts * 0.0019 * (1 + this.rankIndex * 0.12));
     const scored = Math.round(pts * this.rank.mult * this.routeMult);
     this.score += scored;
     while (this.meter >= 100) {
@@ -77,5 +80,8 @@ export class Style {
     }
     const now = this.game.time;
     this.feed = this.feed.filter((f) => now - f.t < 4);
+    // music layers follow the style rank (and RUSH)
+    const mus = this.game.audio && this.game.audio.music;
+    if (mus && mus.setHeat) mus.setHeat(inCombat ? this.rankIndex : 0, this.game.player.rushT > 0);
   }
 }
