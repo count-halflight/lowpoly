@@ -18,9 +18,6 @@ export class HUD {
     this.canvas.id = 'hudc';
     root.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
-    this.noise = document.createElement('canvas');
-    this.noise.width = 80; this.noise.height = 28;
-    this.nctx = this.noise.getContext('2d');
     this.toasts = [];
     this.corner = []; // medals / unlocks: a quiet lane away from the action
     this.banners = null;
@@ -28,6 +25,9 @@ export class HUD {
     this.nameCardS = null;
     this.levelCardS = null;
     this.hintText = ''; this.hintT = 0;
+    this.hintQ = []; this.hintGap = 0; // one hint at a time, queued behind banners/cards
+    this.rushA = 0;
+    this.topY = 0; // bottom of the top-centre stack (objective pill, boss bars) this frame
     this.prompt = '';
     this.hitT = 0; this.hitKind = '';
     this.dmgDirs = [];
@@ -69,9 +69,10 @@ export class HUD {
 
   // ---------------------------------------------------------------- public API
   setRoom(main, sub) { this.room = { main, sub }; }
-  // one big banner at a time: a new one waits until the current one has mostly played
+  // one big banner at a time: a new one waits until the current one has mostly played.
+  // Room-entry banners are routine, so they are the shortest.
   banner(main, sub, color = MINT, dur = 2.4) {
-    const b = { main, sub: sub || '', color, t: 0, dur: Math.min(dur, 2.2) };
+    const b = { main, sub: sub || '', color, t: 0, dur: Math.min(dur, /^ROOM \d/.test(main) ? 1.5 : 2.0) };
     // the level card is old news once something happens: fade it out and show the banner
     const L = this.levelCardS;
     if (L) L.dur = Math.min(L.dur, L.t + 0.3);
@@ -83,13 +84,30 @@ export class HUD {
   nameCard(name, title, color, dur = 3) { this.nameCardS = { name, title, color, t: 0, dur }; }
   levelCard(code, name, stratum, desc, dur = 5) { this.levelCardS = { code, name, stratum, desc, t: 0, dur }; }
   toast(text, color = WHITE, small = false) {
-    if (/^MEDAL|^UNLOCK/.test(text)) { this.corner.unshift({ text, color, t: 0, dur: 3.5 }); this.corner.length = Math.min(this.corner.length, 3); return; }
+    if (/^MEDAL|^UNLOCK/.test(text)) { this.corner.unshift({ text, color, t: 0, dur: 3.2 }); this.corner.length = Math.min(this.corner.length, 3); return; }
+    if (this.redundant(text)) return;
     const same = this.toasts.find((t) => t.text === text);
     if (same) { same.t = 0; return; }
-    this.toasts.unshift({ text, color, small, t: 0, dur: small ? 1.5 : 2.4 });
+    this.toasts.unshift({ text, color, small, t: 0, dur: small ? 1.3 : 2.0 });
     if (this.toasts.length > 2) this.toasts.pop();
   }
-  hint(text, dur = 6) { this.hintText = text || ''; this.hintT = text ? dur : 0; }
+  // toasts that repeat something another element already shows: RUSH READY (the strip under the
+  // health bar pulses), PARRY (style feed), 'WEAPON · VARIANT' (the weapon details fade in)
+  redundant(text) {
+    if (/^RUSH READY/.test(text) || text === 'PARRY') return true;
+    const w = this.game.weapons, vi = w && w.variantInfo ? w.variantInfo() : null;
+    return !!(vi && DEFS[w.current] && text === DEFS[w.current].name + ' · ' + vi.name);
+  }
+  // Hints queue: at most one on screen, never started while a banner, card, cutscene or scope is up,
+  // and situational tips that waited too long are dropped. Tutorial instructions replace each other.
+  hint(text, dur = 6) {
+    if (!text) { this.hintText = ''; this.hintT = 0; this.hintQ.length = 0; return; }
+    dur = Math.min(dur, 7);
+    if (this.game.mode === 'tutorial') { this.hintQ.length = 0; this.hintText = ''; this.hintT = 0; this.hintGap = 0; }
+    if (text === this.hintText || this.hintQ.some((q) => q.text === text)) return;
+    this.hintQ.push({ text, dur, at: this.t });
+    if (this.hintQ.length > 2) this.hintQ.shift();
+  }
   hitMarker(kind) { this.hitKind = kind; this.hitT = kind === 'kill' || kind === 'headkill' ? 0.28 : 0.13; }
   damage(amount, from) {
     const g = this.game;
@@ -103,14 +121,17 @@ export class HUD {
     }
   }
   healPulse() { this.healT = 0.5; }
-  reset() { this.toasts = []; this.corner = []; this.dmgDirs = []; this.banners = null; this.bannerQ = []; this.nameCardS = null; this.levelCardS = null; this.dmgFlash = 0; this.hintText = ''; }
+  reset() { this.toasts = []; this.corner = []; this.dmgDirs = []; this.banners = null; this.bannerQ = []; this.nameCardS = null; this.levelCardS = null; this.dmgFlash = 0; this.hintText = ''; this.hintT = 0; this.hintQ.length = 0; }
   // glitch only when the player asked for it
   scr(text, t, dur, seed) { return this.textFx ? scramble(text, t, dur, seed) : text; }
 
-  // touch: which weapon chip is at this css point?
+  // touch: which weapon chip is at this css point? The ammo counter answers 'reload' (tap to
+  // reload: the minimal touch layout has no RLD button; Weapons.select ignores unknown ids).
   weaponAt(cx, cy) {
     const x = cx * this.k, y = cy * this.k;
     for (const b of this.weaponBoxes) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+    const a = this.ammoBox;
+    if (this.touch && a && x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h) return 'reload';
     return null;
   }
 
@@ -169,16 +190,6 @@ export class HUD {
       if (f > 0) this.rect(x + i * (sw + gap), y, sw * f, h, color);
     }
   }
-  staticNoise() {
-    const n = this.nctx;
-    const img = n.createImageData(80, 28);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const v = Math.random() < 0.5 ? Math.random() * 120 : 20;
-      img.data[i] = v * 1.1; img.data[i + 1] = v * 0.5; img.data[i + 2] = v * 0.6; img.data[i + 3] = 200;
-    }
-    n.putImageData(img, 0, 0);
-  }
-
   // ---------------------------------------------------------------- main update/draw
   update(dt) {
     this.t += dt;
@@ -193,7 +204,13 @@ export class HUD {
     if (this.levelCardS) { this.levelCardS.t += dt; if (this.levelCardS.t > this.levelCardS.dur) this.levelCardS = null; }
     for (const t of this.toasts) t.t += dt;
     this.toasts = this.toasts.filter((t) => t.t < t.dur);
-    if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) this.hintText = ''; }
+    if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) { this.hintText = ''; this.hintGap = 1.2; } }
+    else if (this.hintQ.length) {
+      this.hintGap -= dt;
+      while (this.hintQ.length && this.t - this.hintQ[0].at > 12 && g.mode !== 'tutorial') this.hintQ.shift(); // stale tip
+      const busy = this.banners || this.levelCardS || this.nameCardS || g.state !== 'playing' || (g.cutscene && g.cutscene.active) || (g.weapons && g.weapons.scopeK > 0.5);
+      if (!busy && this.hintGap <= 0 && this.hintQ.length) { const q = this.hintQ.shift(); this.hintText = q.text; this.hintT = this.hintDur = q.dur; }
+    }
     this.hitT -= dt;
     for (const d of this.dmgDirs) d.t -= dt;
     this.dmgDirs = this.dmgDirs.filter((d) => d.t > 0);
@@ -212,14 +229,17 @@ export class HUD {
     c.setTransform(this.S, 0, 0, this.S, 0, 0);
     c.clearRect(0, 0, this.W, this.V);
     if (!this.visible) return;
+    // menus (pause, death, rewards, results, terminals) own the screen: nothing bleeds through them
+    if (g.state !== 'playing' && g.state !== 'cutscene' && g.state !== 'dying') return;
     c.imageSmoothingEnabled = false;
     this.textFx = !!g.settings.get('textFx');
     const cut = g.cutscene && g.cutscene.active;
+    this.topY = 22 + this.safe.t;
     if (!cut) {
-      this.drawTopRight();
+      this.drawObjective();
       this.drawBossBars();
+      if (this.touch) this.drawCorner();
       this.drawStyle();
-      this.drawUplink();
       this.drawCrosshair();
       this.drawHealth();
       this.drawAmmo();
@@ -232,12 +252,12 @@ export class HUD {
       if (!(g.bosses.active && g.bosses.active.alive)) this.drawLevelCard();
       if (!this.levelCardS) this.drawBanner();
       this.drawToasts();
-      this.drawCorner();
+      if (!this.touch) this.drawCorner();
     }
     if (cut) this.drawCutscene();
     this.drawNameCard();
     if (this.healT > 0) { c.globalAlpha = this.healT; c.strokeStyle = 'rgba(90,255,150,0.6)'; c.lineWidth = 6; c.strokeRect(3, 3, this.W - 6, this.V - 6); c.globalAlpha = 1; }
-    if (this.glitchT > 0 && !g.settings.get('reduceFlashes')) this.glitchSlices();
+    if (this.glitchT > 0 && this.textFx && !g.settings.get('reduceFlashes')) this.glitchSlices(); // displaces text: opt-in only
     if (g.settings.get('showFps') && this.fps) this.text(this.fps + ' FPS', this.W - 4 - this.safe.r, this.V - 4 - this.safe.b, 9, '#9f9', 'right', { kind: 'mono', weight: 400 });
   }
 
@@ -250,29 +270,42 @@ export class HUD {
     }
   }
 
-  // Top centre: the one line that tells you what to do now (no permanent room panel: the room name
-  // shows as a banner on entry and in the pause menu, the score lives in the style meter).
-  drawTopRight() {
-    const g = this.game;
-    const s = this.safe;
-    const c = this.ctx;
-    // objective
-    const room = g.level.current;
-    let obj = '';
+  // Top centre: the one line that tells you what to do now. Also carries the signaller's uplink
+  // (progress underline) and the straggler call-out, so neither needs a panel of its own.
+  drawObjective() {
+    const g = this.game, s = this.safe, room = g.level.current;
+    let obj = '', col = WHITE, line = null, frac = -1;
     if (room) {
-      if (room.state === 'combat' && !g.bosses.active) obj = 'HOSTILES ' + g.director.remaining();
+      const combat = room.state === 'combat';
+      const bossUp = g.bosses.active && g.bosses.active.alive;
+      if (combat && !g.bosses.active) obj = 'HOSTILES ' + g.director.remaining();
       else if (room.state === 'cleared') obj = room.chosenExit < 0 && room.exitDoors.length > 1 ? 'CHOOSE A ROUTE ^' : 'PROCEED ^';
       const o = g.currentObjective ? g.currentObjective() : '';
       if (o) obj = o;
+      if (combat) line = RED;
+      const blink = Math.floor(this.t * 3) % 2 === 0;
+      // stragglers: when one or two are left and nothing has died for a while (markers point at them)
+      if (combat && !bossUp && !o && g.time - (g.enemies.lastKill || 0) >= 5) {
+        let n = 0;
+        for (const e of g.enemies.list) if (e.alive) n++;
+        if (n && n <= 2) { obj = n === 1 ? 'LAST HOSTILE' : n + ' HOSTILES LEFT'; col = blink ? '#ffd060' : WHITE; line = '#ffd060'; }
+      }
+      const sig = g.enemies.uplink && g.enemies.uplink();
+      if (sig) {
+        obj = (obj ? obj + '  ·  ' : '') + 'UPLINK ' + Math.floor(sig.progress * 100) + '%';
+        frac = sig.progress;
+        if (sig.progress > 0.7 && blink) col = '#ff8090';
+      }
     }
-    if (obj) {
-      const combat = room && room.state === 'combat';
-      c.font = font(11, 'mono', 400);
-      const ow = c.measureText(obj).width + 12;
-      this.rect(this.W / 2 - ow / 2, 5 + s.t, ow, 14, 'rgba(4,8,10,0.6)');
-      if (combat) this.rect(this.W / 2 - ow / 2, 18 + s.t, ow, 1, RED);
-      this.text(obj, this.W / 2, 16 + s.t, 11, WHITE, 'center', { kind: 'mono', weight: 400 });
-    }
+    if (!obj) return;
+    const c = this.ctx;
+    c.font = font(11, 'mono', 400);
+    const ow = Math.min(this.W - 20, c.measureText(obj).width + 12);
+    const x = this.W / 2 - ow / 2, y = 5 + s.t;
+    this.rect(x, y, ow, 14, 'rgba(4,8,10,0.66)');
+    if (frac >= 0) { this.rect(x, y + 13, ow, 2, 'rgba(255,49,80,0.25)'); this.rect(x, y + 13, ow * frac, 2, RED); }
+    else if (line) this.rect(x, y + 13, ow, 1, line);
+    this.text(obj, this.W / 2, y + 11, 11, col, 'center', { kind: 'mono', weight: 400 });
   }
 
   drawBossBars() {
@@ -283,11 +316,11 @@ export class HUD {
       bars.push({ name: boss.name, sub: boss.phase >= 2 ? (boss.phaseName || 'PHASE ' + ['', 'I', 'II', 'III', 'IV'][boss.phase]) : boss.title, frac: boss.hp / boss.maxHp, color: boss.info?.color || '#ff8a3a', shielded: boss.shielded, big: true, segs: boss.hpSegments });
     }
     for (const e of g.enemies.list) if (e.alive && e.mini && e.targetable) bars.push({ name: e.name, sub: 'MINIBOSS' + (e.phase >= 2 ? ' · ENRAGED' : ''), frac: e.hp / e.maxHp, color: e.colorHex || '#ff5a3a', shield: e.shieldMax ? e.shield / e.shieldMax : 0 });
-    let y = 46 + this.safe.t;
+    let y = this.topY + 2;
     for (const b of bars.slice(0, 3)) {
       const w = b.big ? Math.min(330, this.W * 0.5) : Math.min(220, this.W * 0.36);
       const x = this.W / 2 - w / 2;
-      this.text(b.name, this.W / 2, y + (b.big ? 11 : 8), b.big ? 14 : 10, WHITE, 'center', { ca: b.big ? 0.6 : 0 });
+      this.text(b.name, this.W / 2, y + (b.big ? 11 : 8), b.big ? 14 : 10, WHITE, 'center');
       const by = y + (b.big ? 14 : 11);
       const h = b.big ? 6 : 4;
       this.rect(x - 1, by - 1, w + 2, h + 2, '#000');
@@ -297,9 +330,10 @@ export class HUD {
       if (b.shield) this.rect(x, by + h - 1, w * b.shield, 1, '#40c8ff');
       if (b.big) this.rect(x + w / 2, by - 2, 1, h + 4, '#fff');
       if (b.segs) for (const sgm of b.segs) this.rect(x + w * sgm, by - 2, 1, h + 4, '#fff');
-      this.text(b.sub, this.W / 2, by + h + 8, 7, '#d0d0d0', 'center');
+      this.text(b.sub, this.W / 2, by + h + 9, 8, '#d0d0d0', 'center');
       y += b.big ? 34 : 26;
     }
+    if (bars.length) this.topY = y;
   }
 
   drawStyle() {
@@ -312,7 +346,6 @@ export class HUD {
     this.ctx.globalAlpha = this.styleA;
     const w = 96, h = 30;
     this.rect(x, y, w, h, DIM);
-    this.frame(x, y, w, h, 'rgba(230,240,255,0.7)');
     this.rect(x, y, 2, h, r.c);
     this.text(r.l, x + 15, y + 25, r.l.length > 1 ? 18 : 26, r.c, 'center', { ca: 0.6 });
     this.text(r.w, x + 30, y + 12, 9, r.c, 'left');
@@ -320,34 +353,14 @@ export class HUD {
     this.segBar(x + 30, y + 23, 60, 2, Math.max(0, Math.min(1, st.meter / 100)), r.c, 8, 1);
     this.ctx.globalAlpha = 1;
     let fy = y + h + 9;
-    for (const f of st.feed.slice(0, 3)) {
-      const age = g.time - f.t;
+    for (let i = 0; i < Math.min(2, st.feed.length); i++) {
+      const f = st.feed[i], age = g.time - f.t;
       const a = Math.max(0, Math.min(1, 4 - age));
       const slide = Math.max(0, 0.15 - age) * 60;
       this.text('+' + f.pts, x + 2 - slide, fy, 9, r.c, 'left', { alpha: a * this.styleA });
       this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 28 - slide, fy, 9, WHITE, 'left', { alpha: a * this.styleA });
       fy += 10;
     }
-  }
-
-  drawUplink() {
-    const sig = this.game.enemies.uplink();
-    if (!sig) return;
-    const w = 92, h = 34;
-    const x = this.touch ? this.W / 2 - w / 2 - 110 : this.W - w - 6 - this.safe.r;
-    const y = this.touch ? 24 + this.safe.t : 46 + this.safe.t + (this.game.bosses.active ? 40 : 0);
-    this.staticNoise();
-    this.ctx.drawImage(this.noise, x, y, w, h);
-    this.frame(x, y, w, h, 'rgba(255,60,90,0.8)');
-    const pct = Math.floor(sig.progress * 100);
-    const blink = Math.floor(this.t * 3) % 2;
-    this.text('CE 07 LIVE', x + w - 3, y + 7, 6, '#ffb0b8', 'right', { kind: 'mono', weight: 400 });
-    this.text(blink ? 'CALLING BACKUP' : 'CALLING BACKU' + String.fromCharCode(65 + Math.floor(Math.random() * 26)), x + 3, y + 18, 11, WHITE, 'left', { ca: 0.7 });
-    for (let i = 0; i < 22; i++) {
-      const bh = 1 + Math.random() * 5 * (i / 22 < sig.progress ? 1 : 0.3);
-      this.rect(x + 3 + i * 4, y + 26 - bh / 2, 2, bh, i / 22 < sig.progress ? RED : 'rgba(255,80,100,0.35)');
-    }
-    this.text('UPLINK ' + pct + '%', x + w - 3, y + h - 2, 6, '#ffb0b8', 'right', { kind: 'mono', weight: 400 });
   }
 
   // Railcannon scope: lens cut-out, reticle, charge ring, range readout and the quick-scope window.
@@ -380,7 +393,7 @@ export class HUD {
       const left = 1 - (g.time - w.adsStart) / 0.6;
       c.strokeStyle = '#ffe23a'; c.lineWidth = 2;
       c.beginPath(); c.arc(cx, cy, 12 + 18 * left, 0, Math.PI * 2); c.stroke();
-      this.text('QUICKSCOPE', cx, cy + r - 14, 10, '#ffe23a', 'center', { kind: 'mono', weight: 400 });
+      this.text('QUICKSCOPE', cx, cy - r + 22, 10, '#ffe23a', 'center', { kind: 'mono', weight: 400 });
     }
     // range to whatever the reticle sits on
     this.rangeT = (this.rangeT || 0) - 1;
@@ -452,7 +465,26 @@ export class HUD {
     const hpStr = String(Math.ceil(Math.max(0, p.hp)));
     const tw = this.text(hpStr, x + 13, y, 30, blink ? RED : WHITE, 'left', { ca: 0.7 });
     this.segBar(x + 16 + tw, y - 12, 60, 4, p.hp / p.stats.maxHp, low ? RED : WHITE, 14, 1);
-    if (low) this.text('CRITICAL', x + 16 + tw, y - 1, 9, RED, 'left');
+    this.drawRush(x + 16 + tw, y - 6, 60);
+  }
+
+  // RUSH lives in the health block: a thin magenta strip under the bar that appears once the meter
+  // passes 10%, pulses with its key tag when full and drains as a countdown while active.
+  drawRush(x, y, w) {
+    const p = this.game.player;
+    const active = p.rushT > 0;
+    const f = active ? Math.max(0, p.rushT / (p.rushMax || 1)) : Math.min(1, p.rush || 0);
+    const want = active || f >= 0.1 ? 1 : 0;
+    this.rushA += (want - this.rushA) * Math.min(1, (this.dt || 0.016) * 6);
+    if (this.rushA < 0.02) return;
+    const full = !active && f >= 1;
+    const c = this.ctx;
+    c.globalAlpha = this.rushA;
+    this.rect(x, y, w, 2, 'rgba(255,61,240,0.2)');
+    c.globalAlpha = this.rushA * (full ? 0.55 + 0.45 * Math.abs(Math.sin(this.t * 5)) : 1);
+    this.rect(x, y, w * f, 2, active ? '#ffb0f8' : '#ff3df0');
+    c.globalAlpha = 1;
+    if (full || active) this.text(full && !this.touch ? 'X RUSH' : 'RUSH', x + w + 4, y + 4, 8, active ? '#ffb0f8' : '#ff3df0', 'left', { kind: 'mono', weight: 400, alpha: this.rushA * (full ? 0.6 + 0.4 * Math.abs(Math.sin(this.t * 5)) : 1) });
   }
 
   drawAmmo() {
@@ -465,7 +497,7 @@ export class HUD {
     const vi = w.variantInfo ? w.variantInfo(id) : null;
     const key = id + (vi ? vi.id : '') + w.owned.length;
     if (key !== this.wKey || w.reloading) { this.wKey = key; this.wShowT = this.t; }
-    const wa = Math.max(0, Math.min(1, 1 - (this.t - (this.wShowT || 0) - 2.4) / 0.6));
+    const wa = Math.max(0, Math.min(1, 1 - (this.t - (this.wShowT || 0) - 1.8) / 0.5));
     const chipA = this.touch ? Math.max(0.45, wa) : wa; // chips are tap targets on touch
     // weapon icons row
     this.weaponBoxes = [];
@@ -489,6 +521,8 @@ export class HUD {
     this.text('/', right, y, 30, d.color, 'right', { weight: 400 });
     const nw = this.text(String(a.mag), right - 12, y, 30, empty ? RED : WHITE, 'right', { ca: 0.7 });
     const lx = right - 16 - nw;
+    const ab = this.ammoBox || (this.ammoBox = {});
+    ab.x = lx - 4; ab.y = y - 30; ab.w = right - lx + 8; ab.h = 36;
     if (wa > 0) this.text(d.name + (vi ? ' · ' + vi.name : ''), lx, y - 14, 10, vi && vi.color ? vi.color : d.color, 'right', { alpha: wa });
     // reserve: only with the weapon details, or always once it runs low
     const low = isFinite(a.reserve) && a.reserve < d.mag;
@@ -550,7 +584,6 @@ export class HUD {
         this.text(dist + 'M', ax - dx * 14, ay - dy * 14 + 3, 7, '#ffd060', 'center', { kind: 'mono', weight: 400 });
       }
     }
-    this.text(n === 1 ? 'LAST HOSTILE' : n + ' HOSTILES LEFT', this.W / 2, 28 + this.safe.t, 8, blink ? RED : '#ffd060', 'center', { kind: 'mono', weight: 400 });
   }
 
   drawDamageDirs() {
@@ -578,23 +611,23 @@ export class HUD {
   drawHint() {
     if (!this.hintText) return;
     const c = this.ctx;
-    c.font = font(10, 'mono', 400);
-    let cx = this.W / 2, maxW = Math.min(this.W * 0.6, 340);
+    let cx = this.W / 2, maxW = Math.min(this.W * 0.56, 320);
     if (this.touch) {
       // between the move stick (left ~200 css px) and the button cluster (right ~350 css px)
       const lo = 200 * this.k + this.safe.l, hi = this.W - 350 * this.k - this.safe.r;
       maxW = Math.max(120, hi - lo - 10); cx = (lo + hi) / 2;
     }
     c.font = font(11, 'mono', 400);
-    const lines = wrap(c, this.hintText, maxW - 14);
-    const lh = 12, h = lines.length * lh + 8;
-    const y = this.touch ? this.V - h - 8 - this.safe.b : this.V - 74 - this.safe.b - Math.max(0, lines.length - 2) * lh;
-    const w = Math.min(maxW, Math.max(...lines.map((l) => c.measureText(l).width)) + 14);
-    const a = Math.min(1, this.hintT * 2);
-    c.globalAlpha = a;
-    this.rect(cx - w / 2, y, w, h, 'rgba(4,10,12,0.88)');
-    this.frame(cx - w / 2, y, w, h, 'rgba(127,224,184,0.7)');
-    lines.forEach((l, i) => this.text(l, cx, y + 12 + i * lh, 11, '#e8fff6', 'center', { kind: 'mono', weight: 400, shadow: false }));
+    const lines = wrap(c, this.hintText, maxW - 14).slice(0, 3);
+    const lh = 12, h = lines.length * lh + 7;
+    const y = this.touch ? this.V - h - 8 - this.safe.b : this.V - 70 - this.safe.b - Math.max(0, lines.length - 2) * lh;
+    let lw = 0;
+    for (const l of lines) lw = Math.max(lw, c.measureText(l).width);
+    const w = Math.min(maxW, lw + 14);
+    c.globalAlpha = Math.min(1, this.hintT * 2, ((this.hintDur || 0) - this.hintT) * 6);
+    this.rect(cx - w / 2, y, w, h, 'rgba(4,10,12,0.86)');
+    this.rect(cx - w / 2, y, 2, h, MINT);
+    lines.forEach((l, i) => this.text(l, cx, y + 11 + i * lh, 11, '#e8fff6', 'center', { kind: 'mono', weight: 400, shadow: false }));
     c.globalAlpha = 1;
   }
 
@@ -606,20 +639,22 @@ export class HUD {
     const fadeIn = Math.min(1, t * 8), fadeOut = Math.min(1, (b.dur - t) * 3);
     const a = Math.min(fadeIn, fadeOut);
     const main = this.scr(b.main, t, 0.5, b.main.length);
-    c.font = font(24, 'serif');
+    c.font = font(20, 'serif');
     const tw = c.measureText(b.main).width;
-    const w = Math.min(this.W - 20, tw + 100), h = 30;
-    const x = this.W / 2 - w / 2, y = Math.round(this.V * 0.2) + this.safe.t;
+    const w = Math.min(this.W - 20, tw + 72), h = 26;
+    // below the objective pill and any boss bars, never on top of them
+    const x = this.W / 2 - w / 2, y = Math.max(Math.round(this.V * 0.2) + this.safe.t, Math.round(this.topY + 4));
+    this.bannerBottom = y + h + (b.sub ? 14 : 0);
     const squash = 1 - Math.max(0, 0.12 - t) * 6;
     c.save();
     c.globalAlpha = a;
     c.translate(this.W / 2, y + h / 2); c.scale(1, squash); c.translate(-this.W / 2, -(y + h / 2));
     this.rect(x, y, w, h, 'rgba(6,10,12,0.88)');
-    this.stripes(x, y, 30, h, b.color, 7, 3);
-    this.stripes(x + w - 30, y, 30, h, b.color, 7, 3);
+    this.stripes(x, y, 20, h, b.color, 7, 3);
+    this.stripes(x + w - 20, y, 20, h, b.color, 7, 3);
     this.rect(x, y, w, 1, b.color); this.rect(x, y + h - 1, w, 1, b.color);
     const jitter = this.textFx && t < 0.5 ? Math.round((Math.random() - 0.5) * 3) : 0;
-    this.text(main, this.W / 2 + jitter, y + 22, 24, WHITE, 'center', { ca: 1 });
+    this.text(main, this.W / 2 + jitter, y + 19, 20, WHITE, 'center', { ca: 1 });
     if (b.sub) {
       c.font = font(10, 'serif', 700);
       const sw = Math.min(this.W - 20, c.measureText(b.sub).width + 16);
@@ -630,27 +665,31 @@ export class HUD {
   }
 
   drawToasts() {
-    let y = Math.round(this.V * 0.2) + this.safe.t + (this.banners ? 64 : 12); // clears the banner's subtitle plate
+    let y = this.banners && this.bannerBottom ? this.bannerBottom + 14 : Math.max(Math.round(this.V * 0.2) + this.safe.t, this.topY + 4) + 12;
     if (this.levelCardS && this.cardBottom) y = this.cardBottom + 16;
     const c = this.ctx;
     for (const t of this.toasts) {
       const pop = Math.max(0, 0.1 - t.t) * 3;
       const a = Math.min(1, (t.dur - t.t) * 2);
-      const size = t.small ? 10 : 12;
-      c.font = font(size, t.small ? 'mono' : 'serif', t.small ? 400 : 700);
+      let size = t.small ? 10 : 12;
+      const kind = t.small ? 'mono' : 'serif', weight = t.small ? 400 : 700;
+      c.font = font(size, kind, weight);
+      // long callouts shrink to fit instead of running off a phone screen
+      while (size > 8 && c.measureText(t.text).width > this.W - 40) { size--; c.font = font(size, kind, weight); }
       const w = c.measureText(t.text).width + 14;
       c.globalAlpha = a * 0.85;
       this.rect(this.W / 2 - w / 2, y - size, w, size + 5, 'rgba(4,8,10,0.75)');
       c.globalAlpha = 1;
-      this.text(t.text, this.W / 2, y, size * (1 + pop), t.color, 'center', { alpha: a, kind: t.small ? 'mono' : 'serif', weight: t.small ? 400 : 700 });
+      this.text(t.text, this.W / 2, y, size * (1 + pop), t.color, 'center', { alpha: a, kind, weight });
       y += size + 7;
     }
   }
 
-  // medals and unlocks: small, right edge, mid height (out of the way of combat info)
+  // medals and unlocks: small and quiet. Desktop: right edge, mid height. Touch: one at a time under
+  // the objective pill / boss bars (the right side belongs to the buttons), pushing the banner down.
   drawCorner() {
-    // touch: under the objective pill (the right side belongs to the buttons)
-    let y = this.touch ? 36 + this.safe.t + (this.game.bosses.active ? 40 : 0) : Math.round(this.V * 0.3);
+    if (!this.corner.length) return;
+    let y = this.touch ? Math.round(this.topY + 12) : Math.round(this.V * 0.3);
     const x = this.touch ? this.W / 2 + 80 : this.W - 8 - this.safe.r;
     for (const t of this.touch ? this.corner.slice(0, 1) : this.corner) {
       const a = Math.min(1, t.t * 4, (t.dur - t.t) * 2);
@@ -663,6 +702,7 @@ export class HUD {
       this.text(t.text, x - 5, y, 10, t.color, 'right', { alpha: a });
       y += 18;
     }
+    if (this.touch) this.topY = y - 14;
   }
 
   drawLevelCard() {
@@ -675,7 +715,7 @@ export class HUD {
     c.font = font(11, 'mono', 400);
     const lines = wrap(c, L.desc, cw - 20).slice(0, 2);
     const ch = 44 + lines.length * 12;
-    const x = this.W / 2 - cw / 2, y = Math.round(this.V * 0.16) + this.safe.t;
+    const x = this.W / 2 - cw / 2, y = Math.max(Math.round(this.V * 0.16) + this.safe.t, Math.round(this.topY + 4));
     this.rect(x, y, cw, ch, 'rgba(4,6,10,0.88)');
     this.rect(x, y, cw, 2, MINT);
     this.text(L.stratum, this.W / 2, y + 13, 9, MINT, 'center');
