@@ -15,6 +15,7 @@ const CHUNK = { crate: 0x8a6a4a, cover: 0x9a9a9a, rack: 0x303440, wall: 0x8a8a96
 const tmpV = new THREE.Vector3();
 const NONE = [];
 const tmpV2 = new THREE.Vector3();
+const MV = [0, 0, 0]; // placeMover's per-frame delta, reused (no allocation per mover per frame)
 
 // ---------------------------------------------------------------- shared resources
 export function featureRes(level) {
@@ -527,7 +528,8 @@ function placeMover(room, m, dt) {
     m.speed = Math.hypot(dx, dy, dz) / dt;
     m.dirX = l > 1e-5 ? dx / l : 0; m.dirZ = l > 1e-5 ? dz / l : 0;
   }
-  return [dx, dy, dz];
+  MV[0] = dx; MV[1] = dy; MV[2] = dz;
+  return MV;
 }
 
 // ---------------------------------------------------------------- update
@@ -558,7 +560,7 @@ export function updateFeatures(room, dt, player) {
   // movers: move, carry riders, push / ram anything in the way
   for (const m of room.movers) {
     if (!powered && m.kind === 'tram') { m.speed = 0; continue; }
-    const [dx, dy, dz] = placeMover(room, m, dt);
+    const d = placeMover(room, m, dt), dx = d[0], dy = d[1], dz = d[2];
     if (m.lamp) {
       const wait = moverWait(m, room.time);
       const warn = wait < 1.0;
@@ -590,20 +592,14 @@ export function updateFeatures(room, dt, player) {
       if (!was) g.audio.play('sizzle', tmpV.set(v.wx, 0.5, v.wz), 0.7);
       if (Math.random() < 0.6) g.fx.sparks.spawn(v.wx + (Math.random() - 0.5) * 0.8, v.y + 0.3, v.wz + (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.5, 7 + Math.random() * 5, (Math.random() - 0.5) * 1.5, 0.75, 0.8, 0.85, 0.8, 0.35, 0.5, -2, 1.5);
       v.cd -= dt;
-      const launch = (body, power) => {
-        const p = body.pos;
-        if (Math.hypot(p.x - v.wx, p.z - v.wz) > 1.1 || p.y > v.y + 1.2 || p.y < v.y - 0.3 || body.vel.y > power * 0.6) return false;
-        body.vel.y = power; body.grounded = false;
-        return true;
-      };
-      if (live && v.cd <= 0 && launch(pb, v.power * (room.cond === 'lowgrav' ? 0.75 : 1))) {
+      if (live && v.cd <= 0 && ventLaunch(v, pb, v.power * (room.cond === 'lowgrav' ? 0.75 : 1))) {
         v.cd = 0.4;
         player.sliding = false;
         g.audio.play('pad', null, 0.8);
         g.fx.ring(v.wx, 0.2, v.wz, 2.0, 0xd8e8f0, 0.35);
         if (player.emit) player.emit('pad');
       }
-      for (const e of enemies) if (e.alive && e.body && !e.flying && !e.mini && !e.heavy && launch(e.body, v.power * 0.75)) e.stagger = Math.max(e.stagger || 0, 0.8);
+      for (const e of enemies) if (e.alive && e.body && !e.flying && !e.mini && !e.heavy && ventLaunch(v, e.body, v.power * 0.75)) e.stagger = Math.max(e.stagger || 0, 0.8);
     } else if (warn && Math.random() < 0.25) {
       g.fx.sparks.spawn(v.wx + (Math.random() - 0.5) * 0.6, 0.15, v.wz + (Math.random() - 0.5) * 0.6, 0, 2 + Math.random() * 2, 0, 0.6, 0.65, 0.7, 0.7, 0.25, 0.4, -1, 1);
     }
@@ -749,6 +745,14 @@ function moveBodyLite(body, dx, dz, cols) {
       p.z = dz > 0 ? b.minZ - body.r - 0.001 : b.maxZ + body.r + 0.001;
     }
   }
+}
+
+// a vent's jet throws whoever stands over it (unless they are already flying up faster)
+function ventLaunch(v, body, power) {
+  const p = body.pos;
+  if (Math.hypot(p.x - v.wx, p.z - v.wz) > 1.1 || p.y > v.y + 1.2 || p.y < v.y - 0.3 || body.vel.y > power * 0.6) return false;
+  body.vel.y = power; body.grounded = false;
+  return true;
 }
 
 function updateCrusher(room, c, dt, pb, enemies, powered, live) {
