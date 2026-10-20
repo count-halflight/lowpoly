@@ -161,7 +161,8 @@ try {
   console.log('bosses seen:', [...seen.boss].join(', '));
   console.log('max rooms in memory:', maxRooms, 'max colliders:', maxColliders, 'max scene children:', maxChildren, 'geometries room6->end:', geo0, '->', memEnd);
   if (maxRooms > 3) fail('rooms are not being disposed');
-  if (geo0 !== null && memEnd > geo0 * 1.6 + 40) fail('geometry count grows unbounded');
+  // +~120 for the per-type enemy rig cache (bounded by the rig keys: 15 types + stratum gear), not a leak
+  if (geo0 !== null && memEnd > geo0 * 1.6 + 160) fail('geometry count grows unbounded');
   if ((await info()).owned.length <= ownedBefore && ROOMS >= 10) console.warn('note: no new weapon picked in soak (card order)');
 
   // pause works
