@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GeoBuilder, FACES } from './builder.js';
-import { generateSpec, COMBAT_ARCHES } from './rooms.js';
+import { generateSpec, COMBAT_ARCHES, LATE_ARCHES } from './rooms.js';
+import { STRATA } from '../data/world.js';
 import { THEMES, themeMaterials, sharedMaterials } from '../render/materials.js';
 import { makeBox, moveBody } from '../core/collide.js';
 import { RNG, hashSeed } from '../core/rng.js';
@@ -531,9 +532,11 @@ export class Room {
         }
       }
     }
-    // shaft walls: dark, banded, with lit windows on rooftops (alleys) or a faint glow in pits
-    const depth = 18, alley = !!s.open;
+    // shaft walls: dark, banded, with lit windows on rooftops (alleys) or a faint glow in pits;
+    // shallow holes (crypts) get a real floor to stand on
+    const alley = !!s.open;
     for (const h of holes) {
+      const src = s.holes[holes.indexOf(h)], depth = src.depth || 18, shallow = depth < 6;
       const faces = [
         [h.x0, -depth, h.z0, h.x0 + 0.01, 0, h.z1, FACES.PX], [h.x1 - 0.01, -depth, h.z0, h.x1, 0, h.z1, FACES.NX],
         [h.x0, -depth, h.z0, h.x1, 0, h.z0 + 0.01, FACES.PZ], [h.x0, -depth, h.z1 - 0.01, h.x1, 0, h.z1, FACES.NZ],
@@ -542,6 +545,10 @@ export class Room {
         gb.box(x0, y0, z0, x1, y1, z1, M.wall, { faces: f, tint: 0.5 });
         gb.box(x0, -0.35, z0, x1, -0.05, z1, M.hazard, { faces: f, uvScale: 2 });
         for (let y = -3; y > -depth + 2; y -= 3.2) gb.box(x0, y - 0.15, z0, x1, y, z1, M.trim, { faces: f, tint: 0.5 });
+        if (shallow && (f === FACES.PZ || f === FACES.NZ)) {
+          // ossuary niches along the crypt walls
+          for (let a = x0 + 0.8; a < x1 - 1.2; a += 1.6) gb.box(a, -depth + 0.5, z0, a + 0.9, -depth + 1.3, z1, M.dark, { faces: f, tint: 0.8 });
+        }
         if (alley) {
           // lit windows on the facades below
           const along = f === FACES.PX || f === FACES.NX ? [z0, z1] : [x0, x1];
@@ -553,7 +560,10 @@ export class Room {
           }
         }
       }
-      gb.box(h.x0, -depth - 0.1, h.z0, h.x1, -depth, h.z1, alley ? M.trim : M.accent2, { faces: FACES.PY, tint: alley ? 0.4 : 0.18 });
+      if (shallow) {
+        gb.box(h.x0, -depth - 1, h.z0, h.x1, -depth, h.z1, floorMat, { faces: FACES.PY, tint: 0.55 });
+        this.addCollider(h.x0, -depth - 1, h.z0, h.x1, -depth, h.z1, { surface: 'concrete', nav: false });
+      } else gb.box(h.x0, -depth - 0.1, h.z0, h.x1, -depth, h.z1, alley ? M.trim : M.accent2, { faces: FACES.PY, tint: alley ? 0.4 : 0.18 });
     }
   }
 
@@ -983,13 +993,17 @@ export class Level {
     const avail = COMBAT_ARCHES.filter((a) => {
       if (index <= 2 && (a === 'gallery' || a === 'movers' || a === 'mezzanine')) return false;
       if (index === 1 && a === 'reactor') return false; // keep the first fight free of hazards
+      if (LATE_ARCHES[a] && index < LATE_ARCHES[a]) return false; // set pieces once the basics are known
       return true;
     });
+    // the region's signature set piece shows up more often while you are in it
+    const st = STRATA.find((x) => x.theme === this.themeFor(index).id);
     return rng.weighted(avail, (a) => {
+      const sig = st && st.signature === a ? 2.2 : 1;
       const k = this.recentArches.lastIndexOf(a);
-      if (k === -1) return 3;
+      if (k === -1) return 3 * sig;
       const age = this.recentArches.length - k;
-      return age <= 2 ? 0.05 : age <= 4 ? 0.8 : 2;
+      return (age <= 2 ? 0.05 : age <= 4 ? 0.8 : 2) * sig;
     });
   }
 
@@ -1092,9 +1106,9 @@ export class Level {
       if (room.spec.holes && room.spec.holes.length) {
         for (const e of g.enemies.list) {
           if (!e.alive || e.flying || !e.body || e.mini) continue;
-          if (e.body.pos.y < -3.5) {
+          if (e.body.pos.y < (room.spec.crypt ? -1.2 : -3.5)) {
             g.combat.damageEnemy(e, 99999, { source: 'hazard', point: e.centerPos(), fromPlayer: false });
-            g.style.add('INTO THE ABYSS', 40);
+            g.style.add(room.spec.crypt ? 'BURIED' : 'INTO THE ABYSS', 40);
           }
         }
       }

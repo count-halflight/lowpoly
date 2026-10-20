@@ -119,8 +119,8 @@ function bcrate(s, rng, x, z, size = 1.3, stack = 1) {
   breakable(s, 'crate', x - size / 2, 0, z - size / 2, x + size / 2, size, z + size / 2, { tint: rng.range(0.75, 1.1) });
   if (stack > 1) { const s2 = size * 0.75, o = rng.range(-0.15, 0.15); breakable(s, 'crate', x - s2 / 2 + o, size, z - s2 / 2 - o, x + s2 / 2 + o, size + s2, z + s2 / 2 - o, { tint: rng.range(0.75, 1.1), nav: false }); }
 }
-function hole(s, x0, z0, x1, z1) {
-  s.holes.push({ x0: Math.min(x0, x1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), z1: Math.max(z0, z1) });
+function hole(s, x0, z0, x1, z1, extra = {}) {
+  s.holes.push({ x0: Math.min(x0, x1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), z1: Math.max(z0, z1), ...extra });
 }
 // a steel beam laid across a hole: walkable (and on the nav grid), top flush with the floor
 function girder(s, x0, z0, x1, z1) {
@@ -905,11 +905,19 @@ const GEN = {
     for (let z = D / 2 - 7; z > -D / 2 + 6; z -= 6) { pillar(s, -cx, z, 1.4, H, 'trim'); pillar(s, cx, z, 1.4, H, 'trim'); }
     // collapsing crypt band(s) across the nave
     const bands = D > 40 ? [D / 2 - 15, -2] : [rng.range(-4, 2)];
+    // a shallow crypt (2.8 m) under each band: whoever drops in walks out up the stairwells at
+    // either end, or vaults straight back up; machines that fall in are buried for good
+    s.crypt = 2.8;
     for (const bz of bands) {
-      const z0 = bz - 2, z1 = bz + 2;
-      hole(s, -cx + 0.8, z0, cx - 0.8, z1);
-      for (let x = -cx + 0.8; x < cx - 0.81; x += (2 * cx - 1.6) / 4) for (let z = z0; z < z1 - 0.01; z += 2) {
-        breakable(s, 'crumble', x, -0.5, z, x + (2 * cx - 1.6) / 4, 0, z + 2, { hp: 1, nav: false, tint: rng.range(0.8, 1) });
+      const z0 = bz - 2, z1 = bz + 2, hx0 = -cx + 0.8, hx1 = cx - 0.8, sw = 2.3;
+      hole(s, hx0, z0, hx1, z1, { depth: s.crypt });
+      steps(s, hx0, bz, 'e', z1 - z0 - 0.3, -s.crypt, 0, sw / 7);
+      steps(s, hx1, bz, 'w', z1 - z0 - 0.3, -s.crypt, 0, sw / 7);
+      // the stairwell stays open a metre past the bottom step, so there is headroom to climb out
+      const ow = sw + 1.0, tw = (hx1 - hx0 - 2 * ow) / 3;
+      for (let k = 0; k < 3; k++) for (let z = z0; z < z1 - 0.01; z += 2) {
+        const x = hx0 + ow + k * tw;
+        breakable(s, 'crumble', x, -0.5, z, x + tw, 0, z + 2, { hp: 1, nav: false, tint: rng.range(0.8, 1) });
       }
     }
     // pews outside the crypt bands

@@ -714,7 +714,10 @@ function carry(room, m, body, isPlayer, dx, dy, dz, cols, enemy) {
     if (isPlayer) {
       if (g.time - (m.hitT || -9) > 0.8) {
         m.hitT = g.time;
-        body.vel.x = m.dirX * 14; body.vel.z = m.dirZ * 14; body.vel.y = 6; body.grounded = false;
+        // thrown clear of the rails (sideways), not ahead of the tram into a second hit
+        const px = -m.dirZ, pz = m.dirX, off = (p.x - (c.minX + c.maxX) / 2) * px + (p.z - (c.minZ + c.maxZ) / 2) * pz;
+        const sd = off >= 0 ? 1 : -1;
+        body.vel.x = m.dirX * 5 + px * sd * 13; body.vel.z = m.dirZ * 5 + pz * sd * 13; body.vel.y = 6.5; body.grounded = false;
         g.player.damage(24, { x: p.x - m.dirX, z: p.z - m.dirZ }, 'TRAM', 'Trams flash red and sound a horn before they move. Stay off the rails or ride on the roof.');
         g.addShake(0.3);
       }

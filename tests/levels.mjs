@@ -188,6 +188,159 @@ try {
     }
   }
 
+  if (PHASE === 'all' || PHASE === 'features') {
+    console.log('features: lifts, crushers, trams, crumbling floors, water, vents, secrets, breakables, switches');
+    const r = await page.evaluate(() => {
+      const g = window.__vg;
+      g.frame = () => {}; g.render = () => {};
+      const out = {};
+      const step = (n) => { for (let i = 0; i < n; i++) g.tick(1 / 60, 1 / 60); };
+      // build a cleared room of `arch` and stand at its entrance
+      const enter = (arch, seed = 11) => {
+        g.startEndless(seed);
+        g.debug.god(true);
+        const L = g.level, o = L.pickArch;
+        L.pickArch = () => arch;
+        g.chooseExit(0);
+        L.pickArch = o;
+        step(20);
+        const nx = L.next;
+        g.player.body.pos.set(nx.wx(nx.spec.entX), 0.1, nx.wz(nx.D / 2 - 2));
+        step(30);
+        g.director.active = false;
+        for (const e of g.enemies.list) if (e.alive) g.combat.damageEnemy(e, 1e6, { source: 'hazard', fromPlayer: false });
+        step(20);
+        g.player.invuln = 0;
+        return L.current;
+      };
+      const P = g.player, b = P.body;
+      // lift: stand on a lift at the bottom, ride it to the catwalk
+      {
+        const room = enter('shaft');
+        const m = room.movers.find((x) => x.kind === 'lift');
+        const t0 = room.time;
+        // wait for the bottom of the cycle, then step on
+        let k = 0;
+        while (m.ly > 0.05 && k++ < 900) step(1);
+        b.pos.set(m.col.minX + m.w / 2, m.col.maxY + 0.05, m.col.minZ + m.d / 2); b.vel.set(0, 0, 0);
+        let top = 0;
+        for (let i = 0; i < 9 * 60; i++) { step(1); top = Math.max(top, b.pos.y); }
+        out.lift = { top: +top.toFixed(2), liftTop: m.y + m.ay, waited: k, dt: +(room.time - t0).toFixed(1) };
+      }
+      // crusher: stand under a head just before it drops
+      {
+        const room = enter('crusher');
+        const c = room.crushers[0];
+        let k = 0;
+        const P0 = c.period;
+        while (k++ < 900) { const ph = ((room.time + c.phase) % P0 + P0) % P0; if (ph > P0 - 0.5) break; step(1); }
+        b.pos.set(room.wx(c.x), 0.05, room.wz(c.z)); b.vel.set(0, 0, 0);
+        const hp0 = P.hp;
+        let inside = 0;
+        for (let i = 0; i < 90; i++) { step(1); const col = c.col; if (b.pos.x > col.minX + 0.05 && b.pos.x < col.maxX - 0.05 && b.pos.z > col.minZ + 0.05 && b.pos.z < col.maxZ - 0.05 && b.pos.y < c.bottom && b.pos.y + b.h > col.minY) inside++; }
+        out.crusher = { dmg: Math.round(hp0 - P.hp), insideFrames: inside };
+        // breaker: shoot the switch, presses stop
+        const sw = room.switches[0];
+        if (sw) { g.level.hitBarrel(sw.col.ref); step(120); out.crusher.powerOff = +room.powerOff.toFixed(1); out.crusher.headUp = room.crushers.every((x) => x.bottom > 2); }
+      }
+      // tram: stand on the rails in front of a tram that is about to leave
+      {
+        const room = enter('tramyard');
+        const m = room.movers.find((x) => x.kind === 'tram');
+        let k = 0;
+        while (k++ < 1200) { step(1); if (m.speed > 4) break; }
+        const ahead = m.dirX;
+        b.pos.set(m.col.minX + m.w / 2 + ahead * (m.w / 2 + 2.5), 0.05, m.col.minZ + m.d / 2); b.vel.set(0, 0, 0);
+        const hp0 = P.hp;
+        let inside = 0;
+        for (let i = 0; i < 120; i++) { step(1); const c = m.col; if (b.pos.x > c.minX + 0.1 && b.pos.x < c.maxX - 0.1 && b.pos.z > c.minZ + 0.1 && b.pos.z < c.maxZ - 0.1 && b.pos.y < c.maxY - 0.2) inside++; }
+        out.tram = { dmg: Math.round(hp0 - P.hp), insideFrames: inside };
+      }
+      // crumbling crypt floor: step on a tile, it gives way, it regrows later
+      {
+        const room = enter('chapel');
+        const d = room.destructibles.find((x) => x.type === 'crumble');
+        b.pos.set(d.c.x, 0.05, d.c.z); b.vel.set(0, 0, 0);
+        step(5);
+        const t0 = d.t;
+        step(60);
+        const broken = d.broken;
+        let fell = 0;
+        for (let i = 0; i < 240; i++) { step(1); fell = Math.min(fell, b.pos.y); }
+        const hp0 = P.hp;
+        step(60 * 8);
+        const regrown = !d.broken;
+        // walk out of the crypt up the stairwell at its west end
+        const h = room.spec.holes[0];
+        b.pos.set(room.wx(h.x0 + 2.0), b.pos.y, room.wz((h.z0 + h.z1) / 2)); b.vel.set(0, 0, 0);
+        P.yaw = Math.PI / 2; step(1); if (P.fwd.x > 0) P.yaw = -Math.PI / 2;
+        for (let i = 0; i < 150; i++) { g.input.held.fwd = true; step(1); }
+        g.input.held.fwd = false;
+        out.crumble = { armed: t0 > 0, broken, fell: +fell.toFixed(1), regrown, walkedOut: b.pos.y > -0.1, voidDmg: Math.round(hp0 - P.hp) };
+      }
+      // water drags
+      {
+        const room = enter('flooded');
+        const w = room.waters[0];
+        const run = (x, z) => {
+          b.pos.set(x, 0.05, z); b.vel.set(0, 0, 0); P.yaw = Math.PI / 2;
+          for (let i = 0; i < 60; i++) { g.input.held.fwd = true; step(1); }
+          g.input.held.fwd = false;
+          return Math.hypot(b.vel.x, b.vel.z);
+        };
+        const wet = run((w.wx0 + w.wx1) / 2 + 3, (w.wz0 + w.wz1) / 2 + 4);
+        const sw = room.switches[0];
+        g.level.hitBarrel(sw.col.ref);
+        step(150);
+        const drained = run((w.wx0 + w.wx1) / 2 + 3, (w.wz0 + w.wz1) / 2 + 4);
+        out.water = { wet: +wet.toFixed(1), drained: +drained.toFixed(1) };
+      }
+      // steam vent launches
+      {
+        const room = enter('shaft');
+        const v = room.vents[0];
+        let vy = 0;
+        for (let i = 0; i < 300; i++) { if (b.grounded) b.pos.set(v.wx, 0.05, v.wz); step(1); vy = Math.max(vy, b.vel.y); }
+        out.vent = { vy: +vy.toFixed(1) };
+      }
+      // secret: blast the cracked panel open, the alcove pays out
+      {
+        let room = null;
+        for (let sd = 1; sd < 30 && !(room && room.secretList.length); sd++) room = enter('sewer', sd);
+        const sc = room.secretList[0];
+        const d = room.destructibles.find((x) => x.secret === 0);
+        const ev = []; g.on('secret', () => ev.push(1));
+        const before = g.pickups.list.length;
+        g.level.hitBarrel(d.col.ref); // bullets only thunk
+        const afterShot = d.broken;
+        g.level.blastBarrels(d.c, 3);
+        g.level.blastBarrels(d.c, 3);
+        step(5);
+        out.secret = { shotProof: !afterShot, opened: d.broken, event: ev.length, pickups: g.pickups.list.length - before, side: sc.side };
+      }
+      // racks short out when broken; nav opens up
+      {
+        const room = enter('servers');
+        const d = room.destructibles.find((x) => x.type === 'rack');
+        for (let i = 0; i < 10 && !d.broken; i++) g.level.hitBarrel(d.col.ref);
+        step(30);
+        const k = room.nav.idx(d.c.x, d.c.z);
+        out.rack = { broken: d.broken, navFree: room.nav.free(k) };
+      }
+      return out;
+    });
+    console.log('  ' + JSON.stringify(r));
+    ok(r.lift.top > r.lift.liftTop - 0.3, `lift carries the player up (${r.lift.top} of ${r.lift.liftTop})`);
+    ok(r.crusher.dmg >= 30 && r.crusher.insideFrames === 0, `crusher hits and shoves clear (dmg ${r.crusher.dmg}, inside ${r.crusher.insideFrames})`);
+    ok(r.crusher.powerOff > 0 && r.crusher.headUp, `breaker stops the presses (powerOff ${r.crusher.powerOff})`);
+    ok(r.tram.dmg >= 15 && r.tram.insideFrames < 3, `tram hits and never swallows the player (dmg ${r.tram.dmg}, inside ${r.tram.insideFrames})`);
+    ok(r.crumble.armed && r.crumble.broken && r.crumble.regrown && r.crumble.fell < -2 && r.crumble.fell > -3.5 && r.crumble.walkedOut, `crypt floor crumbles into a crypt you can walk out of, then regrows (${JSON.stringify(r.crumble)})`);
+    ok(r.water.wet < r.water.drained - 1, `water slows you, draining it frees you (${r.water.wet} vs ${r.water.drained})`);
+    ok(r.vent.vy > 10, `steam vent launches (${r.vent.vy})`);
+    ok(r.secret.shotProof && r.secret.opened && r.secret.event === 1 && r.secret.pickups >= 2, `secret wall: bullet-proof, blasts open, pays out (${JSON.stringify(r.secret)})`);
+    ok(r.rack.broken && r.rack.navFree, `server racks break and free the aisle (${JSON.stringify(r.rack)})`);
+  }
+
   if (SHOTS) {
     console.log('shots -> ' + SHOTS);
     for (const arch of (ONLY || NEW)) {
