@@ -55,7 +55,7 @@ try {
         for (let t = 0; t < 10; t++) for (const mirror of [false, true]) for (let sd = 0; sd < SEEDS; sd++) {
           L.seed = 1000 + sd * 7919 + t * 31;
           const index = 1 + t * 5 + (sd % 4);
-          const ctx = { themeObj: L.themeFor(index), cond: 'none', mirror, route: { type: 'combat' }, terminal: sd === 0 ? 'svc-01' : undefined, miniDefs: [] };
+          const ctx = { themeObj: L.themeFor(index), cond: 'none', mirror, route: { type: 'combat' }, terminal: sd === 0 ? 'svc-01' : undefined, miniDefs: [], miniVariant: arch === 'miniboss' ? (t + sd * 3) % 7 : undefined };
           const origin = new V(0, 0, -400 - (n++ % 4) * 120);
           let room;
           try { room = L.createRoom(index, arch, () => origin, ctx, true); } catch (e) { issues.push(`${arch} t${t} m${+mirror} s${sd}: build threw ${e.message}`); continue; }
@@ -339,6 +339,69 @@ try {
     ok(r.vent.vy > 10, `steam vent launches (${r.vent.vy})`);
     ok(r.secret.shotProof && r.secret.opened && r.secret.event === 1 && r.secret.pickups >= 2, `secret wall: bullet-proof, blasts open, pays out (${JSON.stringify(r.secret)})`);
     ok(r.rack.broken && r.rack.navFree, `server racks break and free the aisle (${JSON.stringify(r.rack)})`);
+  }
+
+  if (PHASE === 'all' || PHASE === 'minis') {
+    console.log('minis: every miniboss arena layout with real minis (normal + mirrored)');
+    const NV = 7;
+    for (let v = 0; v < NV; v++) for (const mirror of [false, true]) {
+      const r = await page.evaluate(({ v, mirror }) => {
+        const g = window.__vg;
+        g.frame = () => {}; g.render = () => {};
+        g.profile.v.tutorialDone = true;
+        const step = (n, fn) => { for (let f = 0; f < n; f++) { if (fn) fn(f); g.tick(1 / 60, 1 / 60); } };
+        g.newCampaign(0, true);
+        g.debug.god(true);
+        const L = g.level, cb = L.createRoom.bind(L);
+        L.createRoom = (i, a, o, ctx, hc) => cb(i, a, o, { ...ctx, miniVariant: v, mirror }, hc);
+        // a different level (and so different minis and stratum) per layout
+        g.debug.goLevel(v * 4 + (mirror ? 2 : 0));
+        for (let k = 0; k < 3; k++) {
+          const room = L.current;
+          if (room.state === 'combat') { for (let t = 0; t < 40 && room.state === 'combat'; t++) { g.debug.killAll(); g.director.waveT = -99; step(20); } }
+          for (const p of g.pickups.list.slice()) if (p.kind === 'cache') { g.pickups.collect(p); while (g.state === 'reward') g.chooseReward(0); }
+          g.chooseExit(0);
+          const nx = L.next;
+          g.player.spawnAt(nx.wx(nx.spec.entX), 0.1, nx.wz(nx.D / 2 - 2), 0);
+          step(5);
+          if (g.cutscene.active) g.cutscene.finish(true);
+        }
+        L.createRoom = cb;
+        const room = L.current, s = room.spec, nav = room.nav;
+        const out = { arch: s.arch, variant: s.miniVariant, name: s.name, theme: room.theme.id, minis: [], violations: [] };
+        if (g.cutscene.active) g.cutscene.finish(true);
+        const minis = g.director.minis.slice();
+        const track = minis.map((m) => ({ id: m.def.id, x0: m.pos.x, z0: m.pos.z, moved: 0, maxY: 0 }));
+        // the player circles the middle of the arena for 24 s while the minis and escorts fight
+        step(60 * 24, (f) => {
+          const t = f / 60;
+          g.input.held.fwd = (t | 0) % 4 < 2; g.input.held.back = !g.input.held.fwd;
+          g.input.held.left = (t / 3 | 0) % 2 === 0; g.input.held.right = !g.input.held.left;
+          if (f % 60 === 0) minis.forEach((m, i) => { if (!m.alive) return; const tr = track[i]; tr.moved = Math.max(tr.moved, Math.hypot(m.pos.x - tr.x0, m.pos.z - tr.z0)); tr.maxY = Math.max(tr.maxY, m.pos.y); });
+          if (f % 240 === 120 && f > 360) {
+            nav.flow(room.wx(s.entX), room.wz(s.D / 2 - 1.5));
+            for (const e of g.enemies.list) {
+              if (!e.alive || e.flying || e.perch || !e.body || e.latched || e.hoverH) continue;
+              const k = nav.nearestFree(e.pos.x, e.pos.z, 1.5);
+              if (k < 0 || nav.dist[k] < 0) out.violations.push(`${e.mini ? 'mini ' + e.def.id : e.type} off-nav at ${(e.pos.x - room.origin.x).toFixed(1)},${(e.pos.z - room.origin.z).toFixed(1)} y ${e.pos.y.toFixed(1)}`);
+            }
+          }
+        });
+        for (const k of ['fwd', 'back', 'left', 'right']) g.input.held[k] = false;
+        out.minis = track.map((t) => ({ id: t.id, moved: +t.moved.toFixed(1), maxY: +t.maxY.toFixed(1) }));
+        out.anchoredMinis = minis.filter((m) => m.anchored || m.def.move === 'stationary').length;
+        for (const m of minis) if (m.alive) g.combat.damageEnemy(m, 1e6, { source: 'hitscan', point: m.centerPos().clone() });
+        step(60 * 4);
+        for (let t = 0; t < 20 && room.state === 'combat'; t++) { g.debug.killAll(); step(30); }
+        out.state = room.state;
+        out.door = room.exitDoors.map((d) => d.state).join(',');
+        return out;
+      }, { v, mirror });
+      const still = r.minis.filter((m) => m.moved < 1.5);
+      if (r.violations.length) console.log('    ' + r.violations.slice(0, 4).join('\n    '));
+      ok(r.arch === 'miniboss' && r.variant === v && r.state === 'cleared' && !r.violations.length && still.length <= r.anchoredMinis,
+        `mini layout ${v}${mirror ? ' M' : ''} ${r.name} (${r.theme}): ${r.minis.map((m) => `${m.id} moved ${m.moved}`).join(', ')} -> ${r.state}, doors ${r.door}`);
+    }
   }
 
   if (SHOTS) {

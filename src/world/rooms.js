@@ -157,6 +157,9 @@ function catwalk(s, x0, z0, x1, z1, y, posts = true) {
   }
 }
 
+// meltwater, tallow, slag runoff, coolant or rift-water, by stratum
+const waterTint = (th) => th === 'slaughter' ? 0xa83a34 : th === 'breach' ? 0xa060d0 : th === 'foundry' ? 0x9a8a62 : th === 'reactor' ? 0x7ad08a : 0x7ab8c8;
+
 // archetypes --------------------------------------------------------------------------
 const GEN = {
   lobby(rng) {
@@ -463,19 +466,86 @@ const GEN = {
       for (const [x, z] of [[-11, -9], [11, -9], [-11, 9], [11, 9]]) pillar(s, x, z, 3, H, 'trim');
       barrier(s, rng, -5, 0, 3.5, 'z'); barrier(s, rng, 5, 0, 3.5, 'z');
     }
+    // swing anchors high over both flanks: a way up and out of a boss's ground attacks
+    if (!big) s.anchors.push({ x: -W / 4, y: H - 3.2, z: 1.5 }, { x: W / 4, y: H - 3.2, z: 1.5 });
     lightGrid(s, rng, 3, 3);
     if (!big) s.cachePos = { x: 0, z: 8 };
     s.redLight = true;
     return s;
   },
-  miniboss(rng) {
+  // miniboss arenas: an open middle (the minis walk in at z = -D/2 + 9, x up to +-8) and a
+  // stratum-flavoured edge: pillars, a cover ring, side decks, vaultable balconies, steam vents
+  // with swing anchors, a breakable bunker ring or a flooded basin. Nothing overhangs the floor:
+  // the tallest minis stand 9 m high.
+  miniboss(rng, ctx = {}) {
     const W = rng.int(28, 32), D = rng.int(28, 32), H = 10;
     const s = base(rng, 'miniboss', W, D, H);
     s.exits = [0];
-    const variant = rng.int(0, 2);
+    const th = ctx.theme ? ctx.theme.id : '';
+    const pool = [0, 1, 2, 3, 4, 5, 6];
+    // each stratum leans toward the layouts that suit its look
+    const lean = { foundry: [5, 1], cryo: [6, 3], reactor: [4, 6], research: [5, 3], slaughter: [6, 5], orbital: [4, 2], choir: [3, 0], breach: [4, 6], core: [3, 1], service: [2, 5] }[th];
+    if (lean) pool.push(...lean, ...lean);
+    const variant = ctx.miniVariant !== undefined ? ctx.miniVariant : rng.pick(pool);
+    s.miniVariant = variant;
+    const sz = -D / 2 + 9; // where the minis stand when the fight starts
     if (variant === 0) { for (const [x, z] of [[-7, -6], [7, -6], [-7, 6], [7, 6]]) pillar(s, x, z, 2, H, 'trim'); }
     else if (variant === 1) { for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; barrier(s, rng, Math.cos(a) * 9, Math.sin(a) * 9, 3, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x'); } }
-    else { platform(s, rng, -W / 2, -4, -W / 2 + 5, 4, 2.4, 'east'); platform(s, rng, W / 2 - 5, -4, W / 2, 4, 2.4, 'west'); barrier(s, rng, 0, 3, 4, 'x'); }
+    else if (variant === 2) { platform(s, rng, -W / 2, -4, -W / 2 + 5, 4, 2.4, 'east'); platform(s, rng, W / 2 - 5, -4, W / 2, 4, 2.4, 'west'); barrier(s, rng, 0, 3, 4, 'x'); }
+    else if (variant === 3) {
+      // BALCONIES: vault-height decks down both side walls (stairs at each end for the escorts),
+      // long clean walls above them to run along, low cover in the middle
+      s.name = rng.pick(['THE BALCONIES', 'GALLERY PEN', 'THE STALLS']);
+      const lh = 1.7, lw = 4, z0 = -D / 2 + 3, z1 = D / 2 - 5.5;
+      for (const sx of [-1, 1]) {
+        const xa = sx * (W / 2 - lw), xc = sx * (W / 2);
+        prop(s, xa, 0, z0, xc, lh, z1, 'concrete', 'concrete', { trimTop: true, terrace: true, keep: true });
+        s.perches.push({ x0: Math.min(xa, xc) + 0.6, z0: z0 + 0.6, x1: Math.max(xa, xc) - 0.6, z1: z1 - 0.6, y: lh });
+        for (const zz of [z0 + 1.6, z1 - 3.5]) steps(s, xa, zz, sx > 0 ? 'w' : 'e', 2.2, 0, lh, 0.55);
+      }
+      barrier(s, rng, -4.5, 3, 3.5, 'x'); barrier(s, rng, 4.5, 3, 3.5, 'x');
+      pillar(s, 0, -1, 1.6, H, 'trim');
+    } else if (variant === 4) {
+      // BLOW-OFF CHAMBER: steam vents throw you over the fight, anchors to swing between them
+      s.name = rng.pick(['BLOW-OFF CHAMBER', 'THE KETTLE', 'PRESSURE PEN']);
+      const vx = Math.min(8, W / 2 - 5);
+      s.vents.push({ x: -vx, z: 3, on: 1.1, off: 2.4, phase: 0, power: 16 }, { x: vx, z: 3, on: 1.1, off: 2.4, phase: 1.75, power: 16 });
+      s.vents.push({ x: 0, z: 9, on: 1.1, off: 3.0, phase: 0.9, power: 14 });
+      s.anchors.push({ x: -W / 4, y: H - 2.6, z: -1 }, { x: W / 4, y: H - 2.6, z: -1 });
+      for (const [x, z] of [[-(W / 2 - 3), -D / 2 + 4], [W / 2 - 3, -D / 2 + 4], [-(W / 2 - 3), D / 2 - 7], [W / 2 - 3, D / 2 - 7]]) pillar(s, x, z, 1.8, H, 'trim');
+      barrier(s, rng, -(W / 2 - 4), 0, 3, 'z'); barrier(s, rng, W / 2 - 4, 0, 3, 'z');
+      s.lightMood = 'shaft';
+    } else if (variant === 5) {
+      // SHATTER RING: breakable cover in an arc across the player's half; it will not last
+      s.name = rng.pick(['SHATTER RING', 'THE BUNKER', 'KILLING JAR']);
+      for (const deg of [0, 45, 90, 135, 180]) {
+        const a = deg * Math.PI / 180, x = Math.cos(a) * 9, z = Math.sin(a) * 9 + 1;
+        if (Math.abs(Math.cos(a)) > 0.7) breakable(s, 'cover', x - 0.3, 0, z - 1.3, x + 0.3, 1.15, z + 1.3);
+        else breakable(s, 'cover', x - 1.3, 0, z - 0.3, x + 1.3, 1.15, z + 0.3);
+      }
+      for (const sx of [-1, 1]) { bcrate(s, rng, sx * (W / 2 - 3), -2, 1.3, 2); bcrate(s, rng, sx * (W / 2 - 4.5), 6, 1.2, 1); }
+      for (const [x, z] of [[-(W / 2 - 4), -D / 2 + 4.5], [W / 2 - 4, -D / 2 + 4.5]]) pillar(s, x, z, 2.2, H, 'concrete');
+    } else {
+      // SPILLWAY: knee-deep water drags at everyone, minis included; dry grate walkways down the
+      // sides and across the front, pump islands, and a drain breaker that empties it for a while
+      s.name = rng.pick(['SPILLWAY PEN', 'THE CISTERN', 'FLOOD CAGE']);
+      s.water.push({ x0: -W / 2, z0: -D / 2 + 3.4, x1: W / 2, z1: D / 2 - 3.4 });
+      s.waterColor = waterTint(th);
+      const wy = 0.4;
+      for (const sx of [-1, 1]) prop(s, sx * (W / 2 - 4.5), 0, -D / 2 + 3, sx * (W / 2 - 2.5), wy, D / 2 - 3, 'grate', 'metal', { platformFlat: true });
+      prop(s, -W / 2 + 2.5, 0, 5, W / 2 - 2.5, wy, 7, 'grate', 'metal', { platformFlat: true });
+      for (const sx of [-1, 1]) {
+        const px = sx * Math.min(9, W / 2 - 7.5), pz = 1.5;
+        prop(s, px - 2, 0, pz - 2, px + 2, 0.6, pz + 2, 'concrete', 'concrete', { trimTop: true });
+        s.cyl.push({ x: px, z: pz, r: 0.85, y0: 0.6, y1: 2.6, mat: 'trim', collide: true });
+        s.decor.push({ type: 'pump', x: px, z: pz });
+        s.falls.push({ x: sx * (W / 2 - 0.05), z: rng.range(-D / 4, 0), w: 1.8, y: H - 2, side: sx > 0 ? 'e' : 'w' });
+      }
+      s.switches.push({ side: rng.sign(), z: rng.range(-D / 5, D / 6), y: 1.8, action: 'drain', dur: 14 });
+      s.lightMood = 'water';
+    }
+    // the minis' start line and the middle of the fight stay open
+    for (const x of [-8, 0, 8]) s.keepClear.push({ x, z: sz, r: 2.6 });
     lightGrid(s, rng, 3, 3);
     s.cachePos = { x: 0, z: 6 };
     s.redLight = true;
@@ -775,7 +845,7 @@ const GEN = {
     s.exits = exitsFor(rng, W, 2);
     s.water.push({ x0: -W / 2, z0: -D / 2 + 3.4, x1: W / 2, z1: D / 2 - 3.4 });
     const th = ctx.theme ? ctx.theme.id : '';
-    s.waterColor = th === 'slaughter' ? 0xa83a34 : th === 'breach' ? 0xa060d0 : th === 'foundry' ? 0x9a8a62 : th === 'reactor' ? 0x7ad08a : 0x7ab8c8;
+    s.waterColor = waterTint(th);
     // walkways: raised just under a step so you can hop on from the water
     const wy = 0.4;
     for (const sx of [-1, 1]) prop(s, sx * (W / 2 - 5), 0, -D / 2 + 3, sx * (W / 2 - 3), wy, D / 2 - 3, 'grate', 'metal', { platformFlat: true });
