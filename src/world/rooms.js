@@ -544,8 +544,8 @@ const GEN = {
       s.switches.push({ side: rng.sign(), z: rng.range(-D / 5, D / 6), y: 1.8, action: 'drain', dur: 14 });
       s.lightMood = 'water';
     }
-    // the minis' start line and the middle of the fight stay open
-    for (const x of [-8, 0, 8]) s.keepClear.push({ x, z: sz, r: 2.6 });
+    // the new layouts keep the minis' start spots open (one mini at x 0; NG+ pairs at x +-4)
+    if (variant >= 3) for (const x of [-4, 0, 4]) s.keepClear.push({ x, z: sz, r: 2.6 });
     lightGrid(s, rng, 3, 3);
     s.cachePos = { x: 0, z: 6 };
     s.redLight = true;
@@ -876,11 +876,22 @@ const GEN = {
     girder(s, -pr / 2 - 0.8, -pr - 0.4, -pr / 2 + 0.8, pr + 0.4);
     s.movers.push({ kind: 'plat', x: pr / 2, y: 0, z: -pr + 1.2, w: 2.6, d: 2.6, ax: 0, ay: 0, az: pr * 2 - 2.4, period: 8, pause: 1.4, phase: rng.next() * 8 });
     s.anchors.push({ x: 0, y: 6.2, z: -pr / 2 }, { x: 0, y: 6.2, z: pr / 2 });
+    // a break in the west straight: clear it with speed, run the lit panel on the outer wall over
+    // it, or go the long way round (the loop stays connected the other way: nothing is cut off)
+    const brk = rng.chance(0.65), gz = rng.range(-2, 2), gl = rng.range(4.6, 5.4);
+    const lipW = brk ? [[-pr - 0.3, -pr, -pr, gz - gl / 2], [-pr - 0.3, gz + gl / 2, -pr, pr]] : [[-pr - 0.3, -pr, -pr, pr]];
     // pit lip
-    for (const [x0, z0, x1, z1] of [[-pr - 0.3, -pr - 0.3, pr + 0.3, -pr], [-pr - 0.3, pr, pr + 0.3, pr + 0.3], [-pr - 0.3, -pr, -pr, pr], [pr, -pr, pr + 0.3, pr]]) prop(s, x0, 0, z0, x1, 0.2, z1, 'hazard', 'metal', { lip: true });
+    for (const [x0, z0, x1, z1] of [[-pr - 0.3, -pr - 0.3, pr + 0.3, -pr], [-pr - 0.3, pr, pr + 0.3, pr + 0.3], ...lipW, [pr, -pr, pr + 0.3, pr]]) prop(s, x0, 0, z0, x1, 0.2, z1, 'hazard', 'metal', { lip: true });
     // speed gates on the long straights
     const tw = W / 2 - pr, mid = pr + tw / 2;
-    s.speedGates.push({ x: -mid, z: 0, w: tw - 1.4, axis: 'x' }, { x: mid, z: 0, w: tw - 1.4, axis: 'x' }, { x: 0, z: -mid, w: tw - 1.4, axis: 'z' });
+    s.speedGates.push({ x: mid, z: 0, w: tw - 1.4, axis: 'x' }, { x: 0, z: -mid, w: tw - 1.4, axis: 'z' });
+    if (brk) {
+      hole(s, -W / 2, gz - gl / 2, -pr, gz + gl / 2);
+      const rz0 = gz - gl / 2 - 3, rz1 = gz + gl / 2 + 3;
+      prop(s, -W / 2, 1.3, rz0, -W / 2 + 0.3, 5.2, rz1, 'trim', 'metal', { runwall: true, side: 1, keep: true, noNav: true });
+      s.speedGates.push({ x: 0, z: mid, w: tw - 1.4, axis: 'z' });
+      s.ringBreak = true;
+    } else s.speedGates.push({ x: -mid, z: 0, w: tw - 1.4, axis: 'x' });
     // chicanes: alternating low barriers to hop
     for (const sx of [-1, 1]) for (const zz of [-D / 4 - 1, D / 4 + 1]) {
       const inner = rng.chance(0.5);

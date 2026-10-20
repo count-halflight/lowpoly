@@ -99,7 +99,7 @@ try {
           if (free < 40) issues.push(`${tag}: only ${free} free nav cells`);
           // nothing floats: raised props rest on something (or hang from the ceiling)
           for (const p of s.props) {
-            if (p.y0 <= 0.05 || p.y1 >= s.H - 0.1 || p.catwalk || p.canopy || p.girder || p.sign) continue;
+            if (p.y0 <= 0.05 || p.y1 >= s.H - 0.1 || p.catwalk || p.canopy || p.girder || p.sign || p.runwall) continue; // run panels hang on the wall
             const sup = [...s.props, ...s.breakables].some((q) => q !== p && Math.abs(q.y1 - p.y0) < 0.06 && q.x0 < p.x1 && q.x1 > p.x0 && q.z0 < p.z1 && q.z1 > p.z0);
             if (!sup) issues.push(`${tag}: ${p.mat} prop floats at y ${p.y0.toFixed(2)}`);
           }
@@ -312,6 +312,26 @@ try {
         for (let i = 0; i < 300; i++) { if (b.grounded) b.pos.set(v.wx, 0.05, v.wz); step(1); vy = Math.max(vy, b.vel.y); }
         out.vent = { vy: +vy.toFixed(1) };
       }
+      // speedway break: wall-run the lit panel over the gap in the west straight, land on the far side
+      {
+        let room = null;
+        for (let sd = 1; sd < 30 && !(room && room.spec.ringBreak); sd++) room = enter('ring', sd);
+        const s = room.spec, h = s.holes.find((x) => x.x0 <= -s.W / 2 + 0.01);
+        const ev = {}; g.on('*', (e) => { ev[e] = (ev[e] || 0) + 1; });
+        const wxr = room.wx(-s.W / 2 + 0.3 + b.r + 0.05);
+        P.spawnAt(wxr + 0.3, 1.2, room.wz(h.z1 + 2.5), 0); P.yaw = 0; P.pitch = 0;
+        b.vel.set(-3, 3, -12); b.grounded = false; P.airTime = 0.2;
+        let minY = 99, ran = 0;
+        for (let f = 0; f < 120; f++) {
+          g.input.held.fwd = true; step(1);
+          const lz = b.pos.z - room.origin.z;
+          if (lz > h.z0 && lz < h.z1) minY = Math.min(minY, b.pos.y); // height while over the gap
+          if (P.wallRun) ran++;
+          if (b.grounded && f > 10) break;
+        }
+        g.input.held.fwd = false;
+        out.ringRun = { ran, minY: +minY.toFixed(2), landedZ: +(b.pos.z - room.origin.z).toFixed(1), gapZ0: +h.z0.toFixed(1), y: +b.pos.y.toFixed(2), wallrunEv: ev.wallrun || 0 };
+      }
       // secret: blast the cracked panel open, the alcove pays out
       {
         let room = null;
@@ -346,6 +366,7 @@ try {
     ok(r.crumble.armed && r.crumble.broken && r.crumble.regrown && r.crumble.fell < -2 && r.crumble.fell > -3.5 && r.crumble.walkedOut, `crypt floor crumbles into a crypt you can walk out of, then regrows (${JSON.stringify(r.crumble)})`);
     ok(r.water.wet < r.water.drained - 1, `water slows you, draining it frees you (${r.water.wet} vs ${r.water.drained})`);
     ok(r.vent.vy > 10, `steam vent launches (${r.vent.vy})`);
+    ok(r.ringRun.ran > 10 && r.ringRun.landedZ < r.ringRun.gapZ0 && r.ringRun.y > -0.1 && r.ringRun.minY > 0.5, `speedway break can be wall-run (${JSON.stringify(r.ringRun)})`);
     ok(r.secret.shotProof && r.secret.opened && r.secret.event === 1 && r.secret.pickups >= 2, `secret wall: bullet-proof, blasts open, pays out (${JSON.stringify(r.secret)})`);
     ok(r.rack.broken && r.rack.navFree, `server racks break and free the aisle (${JSON.stringify(r.rack)})`);
   }
