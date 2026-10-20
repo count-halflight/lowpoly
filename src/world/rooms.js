@@ -881,7 +881,7 @@ const GEN = {
       for (const sx of [-1, 1]) prop(s, sx * 1.3, 0, z - 0.25, sx * (cx - 1.2), 0.55, z + 0.25, 'crate', 'wood', { tint: 0.55, pew: true });
     }
     // altar dais
-    platform(s, rng, -3, -D / 2 + 3.5, 3, -D / 2 + 6.5, 0.8, 'none');
+    prop(s, -3, 0, -D / 2 + 3.5, 3, 0.8, -D / 2 + 6.5, 'trim', 'metal', { platform: true, tint: 0.9 });
     steps(s, 0, -D / 2 + 6.5, 's', 3, 0, 0.8);
     s.decor.push({ type: 'altar', x: 0, z: -D / 2 + 5 });
     s.decor.push({ type: 'rose', x: 0, z: -D / 2 + 0.02, y: H - 4.2 });
@@ -947,7 +947,7 @@ function placeSecret(s, rng) {
     const side = rng.sign(), z = rng.range(-s.D / 2 + 5, s.D / 2 - 5), w = 2.6;
     const zone = { x0: side > 0 ? s.W / 2 - 2.6 : -s.W / 2, x1: side > 0 ? s.W / 2 : -s.W / 2 + 2.6, z0: z - w / 2 - 0.6, z1: z + w / 2 + 0.6 };
     if (s.props.some((p) => rectHit(p, zone) && p.y0 < 3)) continue;
-    if (s.breakables.some((b) => rectHit(b, zone)) || s.holes.some((h) => rectHit(h, zone, 1)) || s.water.some((h) => rectHit(h, zone))) continue;
+    if (s.breakables.some((b) => rectHit(b, zone)) || s.holes.some((h) => rectHit(h, zone, 1)) || s.water.some((h) => rectHit(h, zone)) || s.hazards.some((h) => !h.on && rectHit(h, zone, 1))) continue;
     if (s.cyl.some((c) => inRect(zone, c.x, c.z, c.r)) || s.falls.some((f) => Math.abs(f.z - z) < 3) || s.switches.some((sw) => sw.side === side && Math.abs(sw.z - z) < 3)) continue;
     const i = s.secrets.length;
     s.secrets.push({ side, z, w, h: 3.0, depth: 2.4 });
@@ -995,14 +995,40 @@ export function generateSpec(arch, rng, ctx) {
   }
   if (ctx.kit && arch !== 'tutorial' && arch !== 'boss' && !s.open) decorate(s, rng, ctx.kit);
   if (ctx.terminal) {
-    let t = null;
-    for (let k = 0; k < 10 && !t; k++) {
-      const c = { x: rng.sign() * (s.W / 2 - 0.6), z: rng.range(-s.D / 4, s.D / 4), id: ctx.terminal };
-      const side = c.x < 0 ? -1 : 1;
-      if (k < 9 && (inHole(c.x, c.z, 1.2) || nearSecret(side, c.z, 1.4) || s.props.some((p) => inRect(p, c.x, c.z, 1)) || s.breakables.some((b) => inRect(b, c.x, c.z, 1)))) continue;
-      t = c;
+    // a free stretch of side wall at floor level; failing that, a raised deck along the wall
+    // (tiers, mezzanines), with the console standing on the deck instead of buried in it
+    let t = null, first = null;
+    const wallBusy = (side, z) => nearSecret(side, z, 1.4) || s.switches.some((sw) => sw.side === side && Math.abs(sw.z - z) < 2.2) ||
+      s.falls.some((f) => Math.abs(f.z - z) < 2.6 && Math.sign(f.x) === side) || s.cyl.some((c) => Math.abs(c.x - side * (s.W / 2 - 0.6)) < c.r + 1 && Math.abs(c.z - z) < c.r + 1);
+    const floorOk = (c) => {
+      const side = c.x < 0 ? -1 : 1, fx = side * (s.W / 2 - 1.2);
+      return !(inHole(c.x, c.z, 1.2) || wallBusy(side, c.z) || s.water.some((w) => inRect(w, c.x, c.z, 0.5)) ||
+        (s.hazards.some((h) => !h.on && inRect(h, fx, c.z, 1.5)) && !s.props.some((p) => p.platformFlat && inRect(p, fx, c.z, -0.4) && inRect(p, c.x, c.z, -0.4))) ||
+        s.props.some((p) => p.y1 > 0.45 && inRect(p, c.x, c.z, 1)) || s.breakables.some((b) => inRect(b, c.x, c.z, 1)));
+    };
+    for (let k = 0; k < 24 && !t; k++) {
+      const zr = k < 12 ? s.D / 4 : s.D / 2 - 4;
+      const c = { x: rng.sign() * (s.W / 2 - 0.6), z: rng.range(-zr, zr), id: ctx.terminal };
+      if (!first) first = c;
+      if (floorOk(c)) t = c;
     }
+    // narrow spots (a walkway meeting the wall) are easy to miss at random: sweep the walls
+    const sx0 = rng.sign();
+    for (let z = -s.D / 2 + 4; z < s.D / 2 - 4 && !t; z += 0.5) for (const side of [sx0, -sx0]) {
+      const c = { x: side * (s.W / 2 - 0.6), z, id: ctx.terminal };
+      if (!t && floorOk(c)) t = c;
+    }
+    for (let k = 0; k < 16 && !t; k++) {
+      const c = { x: rng.sign() * (s.W / 2 - 0.6), z: rng.range(-s.D / 2 + 4, s.D / 2 - 4), id: ctx.terminal };
+      const side = c.x < 0 ? -1 : 1;
+      const deck = s.props.find((p) => (p.terrace || p.platform) && p.y1 < 4 && inRect(p, c.x, c.z, -0.2) && inRect(p, side * (s.W / 2 - 1.6), c.z, -0.2));
+      if (!deck || wallBusy(side, c.z) || s.props.some((p) => p !== deck && p.y0 < deck.y1 + 2 && p.y1 > deck.y1 + 0.1 && inRect(p, c.x, c.z, 1.2))) continue;
+      t = { ...c, y: deck.y1 };
+    }
+    t = t || first;
     s.terminals.push(t);
+    // nothing may stand in front of a floor console (racks, wall kit pieces, crates)
+    if (!t.y) s.keepClear.push({ x: (t.x < 0 ? -1 : 1) * (s.W / 2 - 1.1), z: t.z, r: 1.2, terminal: true });
   }
   // keep entrance / exit approaches clear of props
   s.keepClear.push({ x: s.entX, z: s.D / 2 - 1.8, r: 3.2 });
@@ -1024,16 +1050,43 @@ export function generateSpec(arch, rng, ctx) {
     p.z0 = Math.max(p.z0, -s.D / 2); p.z1 = Math.min(p.z1, s.D / 2);
   }
   s.props = s.props.filter((p) => p.x1 - p.x0 > 0.05 && p.z1 - p.z0 > 0.05);
+  s.perches = fitPerches(s);
   const near = (x, z, r) => s.keepClear.some((k) => Math.hypot(k.x - x, k.z - z) < k.r + r) || s.props.some((p) => x > p.x0 - r && x < p.x1 + r && z > p.z0 - r && z < p.z1 + r) || s.hazards.some((h) => x > h.x0 - 0.5 && x < h.x1 + 0.5 && z > h.z0 - 0.5 && z < h.z1 + 0.5) ||
     s.breakables.some((b) => b.secret === undefined && inRect(b, x, z, r)) || inHole(x, z, r + 0.4) || s.movers.some((m) => Math.abs(m.x + m.ax / 2 - x) < Math.abs(m.ax) / 2 + m.w / 2 + r && Math.abs(m.z + m.az / 2 - z) < Math.abs(m.az) / 2 + m.d / 2 + r) ||
     s.crushers.some((c) => Math.abs(c.x - x) < c.w / 2 + r && Math.abs(c.z - z) < c.d / 2 + r) || s.vents.some((v) => Math.hypot(v.x - x, v.z - z) < 1.2 + r);
   s.barrels = s.barrels.filter((b) => !near(b.x, b.z, 1.0));
   s.pads = s.pads.filter((p) => !s.keepClear.some((k) => Math.hypot(k.x - p.x, k.z - p.z) < k.r + 1) && !inHole(p.x, p.z, 1.4));
-  s.kit = s.kit.filter((k) => !near(k.x, k.z, 0.9) && Math.abs(k.z) < s.D / 2 - 3 && !nearSecret(k.side, k.z, 1.8) && !s.falls.some((f) => Math.abs(f.z - k.z) < 2.4 && Math.sign(f.x) === k.side));
+  s.kit = s.kit.filter((k) => !near(k.x, k.z, 0.9) && !s.terminals.some((t) => t && Math.sign(t.x) === k.side && Math.abs(t.z - k.z) < 2.4) && Math.abs(k.z) < s.D / 2 - 3 && !nearSecret(k.side, k.z, 1.8) && !s.falls.some((f) => Math.abs(f.z - k.z) < 2.4 && Math.sign(f.x) === k.side));
   // lamps (posts on open roofs) never stand over a gap
   for (const l of s.lightSpots) for (const h of s.holes) if (inRect(h, l.x, l.z, 1)) l.z = l.z > (h.z0 + h.z1) / 2 ? h.z1 + 1.5 : h.z0 - 1.5;
   if (ctx.mirror) mirrorSpec(s);
   return s;
+}
+
+// Perches only where their platform survived the door / cache clearing, and split around
+// anything standing on them (stairs up to the next tier, catwalk supports), so a perched
+// spawn never starts inside a step or floats where a platform used to be.
+function fitPerches(s) {
+  const out = [];
+  for (const pc of s.perches) {
+    const cx = (pc.x0 + pc.x1) / 2, cz = (pc.z0 + pc.z1) / 2;
+    if (!s.props.some((p) => Math.abs(p.y1 - pc.y) < 0.12 && p.x0 <= cx && p.x1 >= cx && p.z0 <= cz && p.z1 >= cz)) continue;
+    const alongZ = pc.z1 - pc.z0 >= pc.x1 - pc.x0;
+    const a0 = alongZ ? pc.z0 : pc.x0, a1 = alongZ ? pc.z1 : pc.x1;
+    const cuts = [];
+    for (const p of [...s.props, ...s.breakables]) {
+      if (p.y0 > pc.y + 0.05 || p.y1 < pc.y + 0.3) continue;
+      if (p.x1 < pc.x0 - 0.5 || p.x0 > pc.x1 + 0.5 || p.z1 < pc.z0 - 0.5 || p.z0 > pc.z1 + 0.5) continue;
+      cuts.push(alongZ ? [p.z0 - 0.6, p.z1 + 0.6] : [p.x0 - 0.6, p.x1 + 0.6]);
+    }
+    for (const d of s.decor) if (d.type === 'altar' && inRect(pc, d.x, d.z, 1)) cuts.push(alongZ ? [d.z - 1.3, d.z + 1.3] : [d.x - 2, d.x + 2]);
+    cuts.sort((u, v) => u[0] - v[0]);
+    let a = a0;
+    const push = (b0, b1) => { if (b1 - b0 >= 1.4) out.push(alongZ ? { ...pc, z0: b0, z1: b1 } : { ...pc, x0: b0, x1: b1 }); };
+    for (const [c0, c1] of cuts) { if (c1 <= a) continue; push(a, Math.min(c0, a1)); a = Math.max(a, c1); if (a >= a1) break; }
+    push(a, a1);
+  }
+  return out;
 }
 
 // NG+: the world is rebuilt inside-out. Mirror every x coordinate in the spec.

@@ -32,7 +32,19 @@ export class NavGrid {
     this.dist = new Int16Array(this.nx * this.nz).fill(-1);
     this.queue = new Int32Array(this.nx * this.nz);
   }
-  rebuild(colliders) { this.blocked.fill(0); this.build(colliders); }
+  rebuild(colliders) { this.blocked.fill(0); this.build(colliders); if (this.sealFrom) this.seal(this.sealFrom.x, this.sealFrom.z); }
+  // Block every free cell the entrance cannot walk to (pockets behind props, between pools,
+  // inside a maze corner). Spawns and unstick moves only ever pick free cells, so nothing can
+  // start somewhere the player and the flow field cannot reach. Re-applied on rebuild, so a
+  // broken wall opens its pocket up again.
+  seal(x, z) {
+    this.sealFrom = { x, z };
+    this.flow(x, z);
+    if (this.dist[this.nearestFree(x, z, 6)] === undefined) return;
+    let n = 0;
+    for (let k = 0; k < this.blocked.length; k++) if (!this.blocked[k] && this.dist[k] < 0) { this.blocked[k] = 1; n++; }
+    this.sealed = n;
+  }
   build(colliders) {
     const pad = 0.45;
     // lifts change height all the time: always off limits
@@ -414,12 +426,12 @@ export class Room {
     }
     // terminals: a slanted console against the wall
     for (const t of s.terminals) {
-      const side = t.x < 0 ? -1 : 1;
+      const side = t.x < 0 ? -1 : 1, ty = t.y || 0;
       const x0 = side < 0 ? -W / 2 : W / 2 - 0.7, x1 = side < 0 ? -W / 2 + 0.7 : W / 2;
-      gb.box(x0, 0, t.z - 0.55, x1, 1.0, t.z + 0.55, M.trim, { tint: 0.75 });
-      gb.box(side < 0 ? -W / 2 : W / 2 - 0.25, 1.0, t.z - 0.55, side < 0 ? -W / 2 + 0.25 : W / 2, 1.7, t.z + 0.55, M.trim, { tint: 0.6 });
-      gb.box(side < 0 ? -W / 2 + 0.7 : W / 2 - 0.72, 0.1, t.z - 0.3, side < 0 ? -W / 2 + 0.72 : W / 2 - 0.7, 0.3, t.z + 0.3, M.accent, { faces: side < 0 ? FACES.PX : FACES.NX });
-      this.addCollider(x0, 0, t.z - 0.55, x1, 1.0, t.z + 0.55, { surface: 'metal', nav: true });
+      gb.box(x0, ty, t.z - 0.55, x1, ty + 1.0, t.z + 0.55, M.trim, { tint: 0.75 });
+      gb.box(side < 0 ? -W / 2 : W / 2 - 0.25, ty + 1.0, t.z - 0.55, side < 0 ? -W / 2 + 0.25 : W / 2, ty + 1.7, t.z + 0.55, M.trim, { tint: 0.6 });
+      gb.box(side < 0 ? -W / 2 + 0.7 : W / 2 - 0.72, ty + 0.1, t.z - 0.3, side < 0 ? -W / 2 + 0.72 : W / 2 - 0.7, ty + 0.3, t.z + 0.3, M.accent, { faces: side < 0 ? FACES.PX : FACES.NX });
+      this.addCollider(x0, ty, t.z - 0.55, x1, ty + 1.0, t.z + 0.55, { surface: 'metal', nav: !ty });
     }
     // bridges/walkways without railings
     for (const p of s.props) if (p.platformFlat) gb.box(p.x0, p.y1, p.z0, p.x1, p.y1 + 0.04, p.z1, M.grate, { faces: FACES.PY, tint: 1.15 });
@@ -617,11 +629,11 @@ export class Room {
       const mat = new THREE.MeshBasicMaterial({ map: tex });
       const geo = new THREE.PlaneGeometry(0.9, 0.62);
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(side * (s.W / 2 - 0.26), 1.38, t.z);
+      mesh.position.set(side * (s.W / 2 - 0.26), 1.38 + (t.y || 0), t.z);
       mesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
       this.group.add(mesh);
       this.disposables.push(geo, mat, tex);
-      this.terminals.push({ id: t.id, pos: new THREE.Vector3(this.wx(side * (s.W / 2 - 1.0)), 0, this.wz(t.z)), mesh, tex, read, side });
+      this.terminals.push({ id: t.id, pos: new THREE.Vector3(this.wx(side * (s.W / 2 - 1.0)), t.y || 0, this.wz(t.z)), mesh, tex, read, side });
     }
     for (const d of s.decor) if (d.type === 'beacon') this.beacon = buildBeacon(this, d);
     for (const gf of s.graffiti) {
@@ -835,9 +847,8 @@ export class Room {
     this.game.fx.chunks(p, 0x888888, 16, 9, 0.35);
     this.game.fx.explosion(p, 3, 0xaaaaaa);
     this.game.audio.play('explosion', p, 0.8);
-    // nav update
-    this.nav = new NavGrid(this);
-    this.nav.build(this.colliders);
+    // nav update (keeps the pocket seal)
+    this.rebuildNav();
   }
 
   dispose() {
@@ -939,6 +950,7 @@ export class Level {
       room.dispose();
       room = null;
     }
+    room.nav.seal(room.wx(room.spec.entX), room.wz(room.spec.D / 2 - 1.5));
     this.game.scene.add(room.group);
     this.rooms.push(room);
     this.rebuildColliders();
