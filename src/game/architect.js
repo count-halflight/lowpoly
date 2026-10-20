@@ -251,7 +251,7 @@ export class Architect extends Boss {
         colors: [0xe8e8f0, 0x202028, 0xffffff],
       };
       const pos = new THREE.Vector3(room.wx(i ? 12 : -12), 0.05, room.wz(2));
-      const e = new Miniboss(g, pos, { def, hpMul: 1, dmgMul: this.dmgMul, aggr: 0.9 });
+      const e = new Miniboss(g, pos, { def, hpMul: 1, dmgMul: this.dmgMul, aggr: 0.9, noCorrupt: true });
       e.echo = true;
       g.enemies.list.push(e);
       this.echoes.push(e);

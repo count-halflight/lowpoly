@@ -13,6 +13,12 @@ import { sharedMaterials } from '../render/materials.js';
 // the vents smoke and spark.
 
 function hexToNum(h) { return typeof h === 'number' ? h : parseInt(String(h).replace('#', ''), 16); }
+// NG+: the same machines, corrupted like the rank and file (violet cast, the same sick purple glow).
+// Body palette only: attack colours stay what the player learned.
+function corruptColors(c) {
+  const mix = (a, b, k) => new THREE.Color(hexToNum(a)).lerp(new THREE.Color(b), k).getHex();
+  return [mix(c[0], 0x5a3a78, 0.55), mix(c[1], 0x160c22, 0.6), 0xc060ff];
+}
 
 const _w = new THREE.Vector3();
 const SPARKS = { spark: true };
@@ -225,7 +231,9 @@ export class Miniboss extends Enemy {
     this.colorHex = '#' + this.color.toString(16).padStart(6, '0');
     const scale = def.scale || 1.6;
     this.chassisScale = scale;
-    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true, orn: def.id });
+    // NG+ minibosses wear the corruption (the Warden and the final boss's echoes keep their own look)
+    const ng = !opts.noCorrupt && !def.noCorrupt && def.id !== 'warden' && game.director && game.director.ngPlus;
+    const ch = buildChassis(def.chassis, ng ? corruptColors(def.colors) : def.colors, scale, { unique: true, orn: def.id });
     this.ch = ch;
     this.group.add(ch.group);
     this.flying = !!ch.flying;
@@ -362,6 +370,13 @@ export class Miniboss extends Enemy {
     if (this.segs) serpentUpdate(this);
   }
   animate(dt) {
+    // intro cutscene: each miniboss rears up and roars as the camera reaches it
+    const g = this.game;
+    if (g.state === 'cutscene' && !this.introRoared && this.spawnT <= 0) {
+      this.cutT = (this.cutT || 0) + (dt || 0.016);
+      const idx = Math.max(0, g.director.minis.indexOf(this));
+      if (this.cutT >= 0.5 + idx * 2.3) { this.introRoared = true; this.roarT = this.roar0 = 1.1; }
+    }
     this.ch.animate(this.game.time, { ...this.anim, moving: this.anim.moving || Math.hypot(this.body.vel.x, this.body.vel.z) > 0.5, hp: this.hp / this.maxHp, stun: this.stunT > 0 });
     updateGlow(this);
     chassisMotion(this, dt || 0.016);
@@ -420,7 +435,7 @@ export class KitBoss extends Boss {
     const scale = def.scale || 2.4;
     this.chassisScale = scale;
     this.size = scale;
-    const ch = buildChassis(def.chassis, def.colors, scale, { unique: true, orn: def.id });
+    const ch = buildChassis(def.chassis, opts.ngPlus ? corruptColors(def.colors) : def.colors, scale, { unique: true, orn: def.id });
     this.ch = ch;
     this.group.add(ch.group);
     this.flying = !!ch.flying;
