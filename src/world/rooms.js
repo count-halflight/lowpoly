@@ -187,14 +187,34 @@ const GEN = {
       const a = Math.PI / 4 + i * Math.PI / 2, x = Math.cos(a) * 3.6, z = Math.sin(a) * 3.6;
       prop(s, x - 0.28, 0, z - 0.28, x + 0.28, 1.05, z + 0.28, 'trim', 'metal', { keep: true, lampPost: true });
     }
-    // benches along the side walls
-    prop(s, -W / 2, 0, -2.2, -W / 2 + 1.1, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
-    prop(s, W / 2 - 1.1, 0, -2.2, W / 2, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
-    crate(s, rng, -W / 2 + 1.6, -D / 2 + 2.4, 1.2, 1); crate(s, rng, W / 2 - 1.6, D / 2 - 3.2, 1.2, 2);
-    s.screens.push({ x: -s.W / 2 + 0.05, z: -5, side: 'west' });
+    // three furnishings, so the sixty checkpoints of a run do not all look alike
+    const look = rng.int(0, 2);
+    s.cachePos = { x: -(W / 2 - 2.6), z: 3.4 };
+    if (look === 1) {
+      // RELAY CHAPEL: pews face the beacon down a centre aisle
+      s.name = rng.pick(['RELAY CHAPEL', 'QUIET ROOM']);
+      for (let z = 4.8; z < D / 2 - 3.4; z += 1.5) for (const sx of [-1, 1]) prop(s, sx * 1.7, 0, z - 0.25, sx * (W / 2 - 1.6), 0.5, z + 0.25, 'crate', 'wood', { tint: 0.55, pew: true, keep: true });
+      prop(s, -W / 2, 0, -D / 2 + 2, -W / 2 + 1.1, 0.55, -2.5, 'trim', 'metal', { tint: 0.8 });
+      prop(s, W / 2 - 1.1, 0, -D / 2 + 2, W / 2, 0.55, -2.5, 'trim', 'metal', { tint: 0.8 });
+      s.cachePos = { x: -(W / 2 - 2.6), z: 1.2 };
+    } else if (look === 2) {
+      // WAYSTATION: lockers down the back half of both walls, benches in front of them, supply crates
+      s.name = rng.pick(['WAYSTATION', 'LOCKER BAY']);
+      for (const sx of [-1, 1]) {
+        prop(s, sx * (W / 2 - 0.65), 0, -D / 2 + 2.2, sx * (W / 2), 2.2, -3.2, 'wall', 'metal', { tint: 0.75, trimTop: true, keep: true });
+        prop(s, sx * (W / 2 - 1.9), 0, -D / 2 + 3, sx * (W / 2 - 1.3), 0.5, -4, 'trim', 'metal', { tint: 0.8 });
+      }
+      crate(s, rng, W / 2 - 1.6, D / 2 - 3.2, 1.2, 2); crate(s, rng, W / 2 - 2.9, D / 2 - 3.4, 1.0, 1);
+      s.screens.push({ x: -s.W / 2 + 0.05, z: 1.6, side: 'west' }); // the lockers cover the usual spot
+    } else {
+      // SHRINE HALL: benches along the side walls, crates in the corners
+      prop(s, -W / 2, 0, -2.2, -W / 2 + 1.1, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
+      prop(s, W / 2 - 1.1, 0, -2.2, W / 2, 0.55, 2.2, 'trim', 'metal', { tint: 0.8 });
+      crate(s, rng, -W / 2 + 1.6, -D / 2 + 2.4, 1.2, 1); crate(s, rng, W / 2 - 1.6, D / 2 - 3.2, 1.2, 2);
+    }
+    if (!s.screens.length) s.screens.push({ x: -s.W / 2 + 0.05, z: -5, side: 'west' });
     lightGrid(s, rng, 1, 2);
     s.keepClear.push({ x: 0, z: 0, r: 3.2 });
-    s.cachePos = { x: -(W / 2 - 2.6), z: 3.4 };
     s.lightMood = 'shrine';
     s.calm = true;
     return s;
