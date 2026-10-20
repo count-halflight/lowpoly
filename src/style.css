@@ -212,6 +212,20 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
   .pause-wrap { margin-top: 2vh; }
   .terminal { margin-top: 2vh; font-size: 19px; }
 }
+/* short landscape screens (phones): logo + tagline on the left, the menu on the right, all visible */
+@media (max-height: 480px) and (orientation: landscape) {
+  .title-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'logo list' 'tag list' 'foot list' 'seed list'; column-gap: 28px; row-gap: 8px; align-items: start; padding-top: 8px; }
+  .title-col > .logo-wrap { grid-area: logo; }
+  .title-col > .tagline { grid-area: tag; }
+  .title-col > .menu-list { grid-area: list; margin-top: 0; }
+  .title-col > .title-foot { grid-area: foot; font-size: 14px; }
+  .title-col > .seedrow { grid-area: seed; }
+  .logo-wrap canvas { width: min(380px, 44vw); }
+  .tagline { font-size: 13px; letter-spacing: 0.24em; }
+  .mi { font-size: 20px; padding: 2px 8px 2px 18px; }
+  .mi small { font-size: 13px; }
+  .mi .tag { font-size: 12px; }
+}
 @media (prefers-reduced-motion: reduce) { .card { animation: none; } .credits-roll { animation-duration: 90s; } }
 
 /* ---------------------------------------------------------------- mechanics: RUSH touch button (append-only block) */

@@ -102,7 +102,7 @@ class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 200));
     this.settings.onChange((k) => {
-      if (k === 'resolution' || k === 'jitter' || k === '*') this.resize();
+      if (k === 'resolution' || k === 'jitter' || k === 'hudScale' || k === '*') this.resize();
       if (k === 'master' || k === 'sfx' || k === 'music' || k === '*') this.audio.applyVolumes();
     });
     // prevent pinch zoom / scrolling gestures on iOS

@@ -32,6 +32,7 @@ const DEFAULTS = {
   hudScale: 1.0,
   textFx: false,       // decorative glitch/scramble on HUD headlines
   touchOpacity: 0.75,
+  gore: true,          // dismemberment + blood pools
 };
 
 function load(key) {

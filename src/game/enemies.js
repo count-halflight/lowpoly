@@ -742,6 +742,22 @@ export class Enemy {
         g.fx.addCorpsePiece(this.headMesh, new THREE.Vector3(dir.x * 3 + (Math.random() - 0.5) * 2, 6 + Math.random() * 2, dir.z * 3 + (Math.random() - 0.5) * 2), new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14));
         g.fx.blood(this.headPos(), new THREE.Vector3(0, 1, 0), 2, this.bloodColor);
       }
+      // a heavy killing blow tears an arm off at the shoulder; the stump sprays
+      const J = this.joints;
+      const heavy = (info.killDmg || 0) >= 38 || info.source === 'slam' || info.source === 'saw' || info.source === 'punch' || force > 7;
+      if (heavy && J && J.armL && J.armR && g.settings.get('gore') !== false) {
+        const right = Math.cos(this.yaw) * dir.x - Math.sin(this.yaw) * dir.z; // shot came from the side it pushes away from
+        const side = right > 0.15 ? 'L' : right < -0.15 ? 'R' : (Math.random() < 0.5 ? 'L' : 'R');
+        const shoulder = J['arm' + side].getWorldPosition(new THREE.Vector3());
+        for (const piv of [J['arm' + side], J['fore' + side]]) {
+          const m = piv && piv.userData.mesh;
+          if (!m || !m.parent) continue;
+          m.userData.severed = true;
+          g.fx.addCorpsePiece(m, new THREE.Vector3(dir.x * force * 0.8 + (Math.random() - 0.5) * 3, 3 + Math.random() * 3, dir.z * force * 0.8 + (Math.random() - 0.5) * 3),
+            new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16));
+        }
+        g.fx.blood(shoulder, new THREE.Vector3(dir.x, 0.8, dir.z).normalize(), 2.4, this.bloodColor);
+      }
       g.fx.chunks(this.centerPos(), 0x5a1010, 4, 4, 0.1);
       g.enemies.collapse(this, dir, force);
     }
@@ -2770,8 +2786,14 @@ export class Enemies {
       if (d.t >= d.dur + 0.08) {
         d.done = true;
         e.group.updateMatrixWorld(true);
-        for (const m of e.meshes) if (m.parent && !m.userData.noCorpse && !(e.decapitated && m === e.headMesh)) g.fx.addCorpsePiece(m, ZERO, ZERO);
+        for (const m of e.meshes) if (m.parent && !m.userData.noCorpse && !m.userData.severed && !(e.decapitated && m === e.headMesh)) g.fx.addCorpsePiece(m, ZERO, ZERO);
         g.scene.remove(e.group);
+        // a pool spreads where the body came to rest
+        if (g.settings.get('gore') !== false && e.bloodColor) {
+          const bc = e.bloodColor;
+          const col = (Math.round(bc[0] * 120) << 16) | (Math.round(bc[1] * 120) << 8) | Math.round(bc[2] * 120);
+          g.fx.decals.add(e.pos.x + d.lx * 0.4, e.pos.y + 0.012, e.pos.z - d.lz * 0.4, 0, 1, 0, 1.1 + Math.random() * 0.7, col);
+        }
       }
     }
     this.dying = this.dying.filter((d) => !d.done);

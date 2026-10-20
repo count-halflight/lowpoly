@@ -3,9 +3,10 @@ import { RANKS } from '../game/style.js';
 import { DEFS, WEAPON_ORDER } from '../game/weapons.js';
 import { font, scramble, drawIcon } from './pixel.js';
 
-// The HUD is drawn into a low-resolution canvas (virtual height 300-360 units) that the
-// browser scales up with nearest-neighbour filtering, so every glyph is genuinely
-// pixelated like the PS1-style reference footage.
+// The HUD is laid out in virtual units (virtual height ~300-400) but rendered at the
+// device's real resolution through a canvas transform, so text stays crisp and readable on
+// phones and high-DPI screens. Readable text never gets glitch effects unless the player
+// turns 'textFx' on. Messages use fixed lanes so nothing piles up on the crosshair.
 
 const CYAN = '#8ff4e4', MINT = '#7fe0b8', RED = '#ff3150', WHITE = '#f2f2ee', DIM = 'rgba(8,8,14,0.72)';
 
@@ -21,7 +22,9 @@ export class HUD {
     this.noise.width = 80; this.noise.height = 28;
     this.nctx = this.noise.getContext('2d');
     this.toasts = [];
+    this.corner = []; // medals / unlocks: a quiet lane away from the action
     this.banners = null;
+    this.bannerQ = [];
     this.nameCardS = null;
     this.levelCardS = null;
     this.hintText = ''; this.hintT = 0;
@@ -45,10 +48,15 @@ export class HUD {
   resize() {
     const touch = this.game.input && this.game.input.usingTouch;
     const cssW = Math.max(1, window.innerWidth), cssH = Math.max(1, window.innerHeight);
-    const V = touch ? 290 : Math.max(300, Math.min(400, Math.round(cssH / 2.6)));
+    const hs = (this.game.settings && this.game.settings.get('hudScale')) || 1;
+    const V = Math.round((touch ? 330 : Math.max(300, Math.min(400, Math.round(cssH / 2.6)))) / hs);
     this.V = V; this.W = Math.round(V * cssW / cssH);
     this.k = V / cssH; // virtual units per css px
-    this.canvas.width = this.W; this.canvas.height = this.V;
+    // backing store at (about) device resolution: S device px per virtual unit
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    this.S = Math.max(1, Math.min(4, Math.ceil(cssH * dpr / V)));
+    this.canvas.width = this.W * this.S; this.canvas.height = this.V * this.S;
+    this.canvas.style.imageRendering = this.S > 1 ? 'auto' : '';
     const cs = getComputedStyle(this.probe);
     this.safe = {
       t: parseFloat(cs.paddingTop) * this.k, r: parseFloat(cs.paddingRight) * this.k,
@@ -61,12 +69,25 @@ export class HUD {
 
   // ---------------------------------------------------------------- public API
   setRoom(main, sub) { this.room = { main, sub }; }
-  banner(main, sub, color = MINT, dur = 2.4) { this.banners = { main, sub: sub || '', color, t: 0, dur }; }
+  // one big banner at a time: a new one waits until the current one has mostly played
+  banner(main, sub, color = MINT, dur = 2.4) {
+    const b = { main, sub: sub || '', color, t: 0, dur: Math.min(dur, 2.2) };
+    // the level card is old news once something happens: fade it out and show the banner
+    const L = this.levelCardS;
+    if (L) L.dur = Math.min(L.dur, L.t + 0.3);
+    const cur = this.banners;
+    if (cur && cur.main === main) { cur.sub = b.sub; return; }
+    if (cur && cur.t < cur.dur * 0.55) { this.bannerQ = this.bannerQ.filter((q) => q.main !== main).slice(-1); this.bannerQ.push(b); return; }
+    this.banners = b;
+  }
   nameCard(name, title, color, dur = 3) { this.nameCardS = { name, title, color, t: 0, dur }; }
   levelCard(code, name, stratum, desc, dur = 5) { this.levelCardS = { code, name, stratum, desc, t: 0, dur }; }
   toast(text, color = WHITE, small = false) {
-    this.toasts.unshift({ text, color, small, t: 0, dur: small ? 1.5 : 2.6 });
-    if (this.toasts.length > 4) this.toasts.pop();
+    if (/^MEDAL|^UNLOCK/.test(text)) { this.corner.unshift({ text, color, t: 0, dur: 3.5 }); this.corner.length = Math.min(this.corner.length, 3); return; }
+    const same = this.toasts.find((t) => t.text === text);
+    if (same) { same.t = 0; return; }
+    this.toasts.unshift({ text, color, small, t: 0, dur: small ? 1.5 : 2.4 });
+    if (this.toasts.length > 2) this.toasts.pop();
   }
   hint(text, dur = 6) { this.hintText = text || ''; this.hintT = text ? dur : 0; }
   hitMarker(kind) { this.hitKind = kind; this.hitT = kind === 'kill' || kind === 'headkill' ? 0.28 : 0.13; }
@@ -82,7 +103,9 @@ export class HUD {
     }
   }
   healPulse() { this.healT = 0.5; }
-  reset() { this.toasts = []; this.dmgDirs = []; this.banners = null; this.nameCardS = null; this.levelCardS = null; this.dmgFlash = 0; this.hintText = ''; }
+  reset() { this.toasts = []; this.corner = []; this.dmgDirs = []; this.banners = null; this.bannerQ = []; this.nameCardS = null; this.levelCardS = null; this.dmgFlash = 0; this.hintText = ''; }
+  // glitch only when the player asked for it
+  scr(text, t, dur, seed) { return this.textFx ? scramble(text, t, dur, seed) : text; }
 
   // touch: which weapon chip is at this css point?
   weaponAt(cx, cy) {
@@ -99,8 +122,8 @@ export class HUD {
     c.textBaseline = opts.base || 'alphabetic';
     x = Math.round(x); y = Math.round(y);
     if (opts.alpha !== undefined) c.globalAlpha = opts.alpha;
-    if (opts.shadow !== false) { c.fillStyle = 'rgba(0,0,0,0.75)'; c.fillText(str, x + 1, y + 1); }
-    if (opts.ca) {
+    if (opts.shadow !== false) { c.fillStyle = 'rgba(0,0,0,0.85)'; c.fillText(str, x + 1, y + 1); }
+    if (opts.ca && this.textFx) {
       c.fillStyle = 'rgba(255,40,80,0.8)'; c.fillText(str, x - opts.ca, y);
       c.fillStyle = 'rgba(60,240,230,0.8)'; c.fillText(str, x + opts.ca, y);
     }
@@ -160,7 +183,11 @@ export class HUD {
   update(dt) {
     this.t += dt;
     const g = this.game;
-    if (this.banners) { this.banners.t += dt; if (this.banners.t > this.banners.dur) this.banners = null; }
+    if (this.banners && !this.levelCardS) { this.banners.t += dt; if (this.banners.t > this.banners.dur) this.banners = null; }
+    // queued banners wait while the level card is up, then play one after another
+    if (!this.banners && this.bannerQ.length && !this.levelCardS) this.banners = this.bannerQ.shift();
+    for (const t of this.corner) t.t += dt;
+    this.corner = this.corner.filter((t) => t.t < t.dur);
     if (this.nameCardS) { this.nameCardS.t += dt; if (this.nameCardS.t > this.nameCardS.dur) this.nameCardS = null; }
     if (this.levelCardS) { this.levelCardS.t += dt; if (this.levelCardS.t > this.levelCardS.dur) this.levelCardS = null; }
     for (const t of this.toasts) t.t += dt;
@@ -181,13 +208,14 @@ export class HUD {
 
   draw() {
     const c = this.ctx, g = this.game;
+    c.setTransform(this.S, 0, 0, this.S, 0, 0);
     c.clearRect(0, 0, this.W, this.V);
     if (!this.visible) return;
     c.imageSmoothingEnabled = false;
+    this.textFx = !!g.settings.get('textFx');
     const cut = g.cutscene && g.cutscene.active;
     if (!cut) {
       this.drawTopRight();
-      this.drawAlert();
       this.drawBossBars();
       this.drawStyle();
       this.drawUplink();
@@ -200,9 +228,10 @@ export class HUD {
       this.drawHint();
     }
     if (!cut) {
-      this.drawBanner();
-      this.drawToasts();
       if (!(g.bosses.active && g.bosses.active.alive)) this.drawLevelCard();
+      if (!this.levelCardS) this.drawBanner();
+      this.drawToasts();
+      this.drawCorner();
     }
     if (cut) this.drawCutscene();
     this.drawNameCard();
@@ -234,13 +263,12 @@ export class HUD {
     const score = String(Math.floor(g.style.score)).padStart(6, '0');
     const sw = this.text(score, x + w - 6, y + 18, 18, CYAN, 'right', { ca: 0.5 });
     this.fitText(this.room.main, x + 14, y + 17, 17, w - 30 - sw, WHITE, { ca: 0.6 });
-    this.fitText(this.room.sub, x + 14, y + 28, 8, w - 120, '#d8d8d8', {});
-    // status bars + label
-    const bx = x + w - 96;
-    for (let i = 0; i < 5; i++) this.rect(bx + i * 10, y + 24, 8, 2, i < (g.style.rankIndex + 1) ? (combat ? RED : '#bbbbbb') : 'rgba(255,255,255,0.2)');
     const mult = g.style.rank.mult * g.style.routeMult;
-    this.text(combat ? 'ALERT' : 'CLEAR', x + w - 6, y + 31, 7, combat ? RED : '#e0e0e0', 'right');
-    this.text('x' + mult.toFixed(2), bx - 4, y + 31, 7, '#aaa', 'right', { shadow: false });
+    const tag = (combat ? 'ALERT' : 'CLEAR') + (mult > 1.001 ? '  x' + mult.toFixed(1) : '');
+    c.font = font(9, 'serif', 700);
+    const tagW = c.measureText(tag).width;
+    this.fitText(this.room.sub, x + 14, y + 29, 9, w - 26 - tagW - 8, '#e0e0e0', {});
+    this.text(tag, x + w - 6, y + 29, 9, combat ? RED : '#e0e0e0', 'right');
     if (combat) this.rect(x + 12, y + h - 1, w - 12, 1, RED);
     // objective
     const room = g.level.current;
@@ -251,19 +279,12 @@ export class HUD {
       const o = g.currentObjective ? g.currentObjective() : '';
       if (o) obj = o;
     }
-    if (obj) this.text(obj, this.W / 2, 16 + s.t, 9, WHITE, 'center', { kind: 'mono', weight: 400 });
-  }
-
-  drawAlert() {
-    const g = this.game;
-    const combat = g.level.current && g.level.current.state === 'combat';
-    if (!combat) return;
-    const blink = Math.floor(this.t * 2) % 2 === 0;
-    const w = 86, h = 13, x = this.W / 2 - 150, y = 6 + this.safe.t;
-    if (x < 70) return;
-    this.stripes(x, y, w, h, blink ? RED : '#c01838', 7, 3);
-    this.rect(x + 18, y, w - 36, h, 'rgba(20,0,6,0.85)');
-    this.text('ALERT', x + w / 2, y + 11, 11, WHITE, 'center', { ca: 0.5 });
+    if (obj) {
+      c.font = font(11, 'mono', 400);
+      const ow = c.measureText(obj).width + 12;
+      this.rect(this.W / 2 - ow / 2, 5 + s.t, ow, 14, 'rgba(4,8,10,0.6)');
+      this.text(obj, this.W / 2, 16 + s.t, 11, WHITE, 'center', { kind: 'mono', weight: 400 });
+    }
   }
 
   drawBossBars() {
@@ -303,25 +324,27 @@ export class HUD {
     this.frame(x, y, w, h, 'rgba(230,240,255,0.7)');
     this.rect(x, y, 2, h, r.c);
     this.text(r.l, x + 15, y + 25, r.l.length > 1 ? 18 : 26, r.c, 'center', { ca: 0.6 });
-    this.text(r.w, x + 30, y + 11, 8, r.c, 'left');
-    this.text('SCORE ' + Math.floor(st.score), x + 30, y + 20, 7, '#e8e8e8', 'left');
+    this.text(r.w, x + 30, y + 12, 9, r.c, 'left');
+    this.text(String(Math.floor(st.score)), x + 30, y + 21, 8, '#e8e8e8', 'left', { kind: 'mono', weight: 400 });
     this.segBar(x + 30, y + 23, 60, 2, Math.max(0, Math.min(1, st.meter / 100)), r.c, 8, 1);
     this.ctx.globalAlpha = 1;
     let fy = y + h + 9;
-    for (const f of st.feed) {
+    for (const f of st.feed.slice(0, 3)) {
       const age = g.time - f.t;
       const a = Math.max(0, Math.min(1, 4 - age));
       const slide = Math.max(0, 0.15 - age) * 60;
-      this.text('+' + f.pts, x + 2 - slide, fy, 8, r.c, 'left', { alpha: a });
-      this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 26 - slide, fy, 8, WHITE, 'left', { alpha: a });
-      fy += 9;
+      this.text('+' + f.pts, x + 2 - slide, fy, 9, r.c, 'left', { alpha: a });
+      this.text(f.name + (f.count > 1 ? ' x' + f.count : ''), x + 28 - slide, fy, 9, WHITE, 'left', { alpha: a });
+      fy += 10;
     }
   }
 
   drawUplink() {
     const sig = this.game.enemies.uplink();
     if (!sig) return;
-    const w = 92, h = 34, x = this.W - w - 6 - this.safe.r, y = 46 + this.safe.t + (this.game.bosses.active ? 40 : 0);
+    const w = 92, h = 34;
+    const x = this.touch ? this.W / 2 - w / 2 - 110 : this.W - w - 6 - this.safe.r;
+    const y = this.touch ? 24 + this.safe.t : 46 + this.safe.t + (this.game.bosses.active ? 40 : 0);
     this.staticNoise();
     this.ctx.drawImage(this.noise, x, y, w, h);
     this.frame(x, y, w, h, 'rgba(255,60,90,0.8)');
@@ -429,16 +452,16 @@ export class HUD {
   drawHealth() {
     const g = this.game, p = g.player;
     const s = this.safe;
-    const x = 8 + s.l;
+    const x = (this.touch ? 54 * this.k : 8) + s.l; // the touch pause button sits top-left
     const y = this.touch ? 40 + s.t : this.V - 10 - s.b;
     const low = p.hp < p.stats.maxHp * 0.3;
     const blink = low && Math.floor(this.t * 4) % 2 === 0;
     if (p.stats.shieldMax) this.segBar(x + 14, y - 34, 74, 2, p.shield / p.stats.shieldMax, '#40c8ff', 6, 1);
     this.text('/', x, y, 30, CYAN, 'left', { weight: 400 });
     const hpStr = String(Math.ceil(Math.max(0, p.hp)));
-    const tw = this.text(hpStr, x + 12, y, 30, blink ? RED : WHITE, 'left', { ca: 0.7 });
+    const tw = this.text(hpStr, x + 13, y, 30, blink ? RED : WHITE, 'left', { ca: 0.7 });
     this.segBar(x + 16 + tw, y - 12, 60, 4, p.hp / p.stats.maxHp, low ? RED : WHITE, 14, 1);
-    this.text(low ? 'CRITICAL' : 'INTEGRITY', x + 16 + tw, y - 2, 7, low ? RED : '#bbb', 'left');
+    if (low) this.text('CRITICAL', x + 16 + tw, y - 1, 9, RED, 'left');
   }
 
   drawAmmo() {
@@ -446,7 +469,7 @@ export class HUD {
     const s = this.safe;
     const id = w.current, a = w.ammo[id], d = DEFS[id];
     const right = this.W - 8 - s.r;
-    const y = this.touch ? 74 + s.t : this.V - 10 - s.b;
+    const y = this.touch ? 96 + s.t : this.V - 10 - s.b;
     // weapon icons row
     this.weaponBoxes = [];
     const owned = WEAPON_ORDER.filter((x) => w.owned.includes(x));
@@ -458,7 +481,7 @@ export class HUD {
       this.rect(ix, iy, iw, ih, cur ? 'rgba(143,244,228,0.25)' : DIM);
       this.frame(ix, iy, iw, ih, cur ? DEFS[wid].color : 'rgba(255,255,255,0.3)');
       drawIcon(this.ctx, wid, ix + 1, iy + 1, 1, cur ? [WHITE, '#777', DEFS[wid].color] : ['#9a9a9a', '#555', '#666']);
-      this.text(String(WEAPON_ORDER.indexOf(wid) + 1), ix + 2, iy + ih - 2, 6, cur ? WHITE : '#888', 'left', { kind: 'mono', weight: 400, shadow: false });
+      this.text(String(WEAPON_ORDER.indexOf(wid) + 1), ix + 2, iy + ih - 2, 8, cur ? WHITE : '#888', 'left', { kind: 'mono', weight: 400, shadow: false });
       this.weaponBoxes.push({ id: wid, x: ix, y: iy, w: iw, h: ih });
       ix += iw + 3;
     }
@@ -467,10 +490,11 @@ export class HUD {
     this.text('/', right, y, 30, d.color, 'right', { weight: 400 });
     const nw = this.text(String(a.mag), right - 12, y, 30, empty ? RED : WHITE, 'right', { ca: 0.7 });
     const lx = right - 16 - nw;
-    this.text(d.name, lx, y - 14, 9, d.color, 'right');
-    this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES INF', lx, y - 4, 7, '#ccc', 'right');
-    if (w.reloading) this.segBar(lx - 60, y - 24, 60, 2, 1 - w.reloadT / w.reloadTotal, d.color, 10, 1);
-    if (w.altInfo) this.text(w.altInfo(), lx, y - 27, 7, '#ffd060', 'right', { kind: 'mono', weight: 400 });
+    const vi = w.variantInfo ? w.variantInfo(id) : null;
+    this.text(d.name + (vi ? ' · ' + vi.name : ''), lx, y - 14, 10, vi && vi.color ? vi.color : d.color, 'right');
+    const rw = this.text(isFinite(a.reserve) ? 'RES ' + Math.floor(a.reserve) : 'RES ∞', lx, y - 3, 9, '#d8d8d8', 'right', { kind: 'mono', weight: 400 });
+    if (w.reloading) this.segBar(lx - 60, y - 26, 60, 2, 1 - w.reloadT / w.reloadTotal, d.color, 10, 1);
+    if (w.altInfo) { const info = w.altInfo(); if (info) this.text(info, lx - rw - 10, y - 3, 9, '#ffd060', 'right', { kind: 'mono', weight: 400 }); }
   }
 
   // When only one or two enemies remain and nothing has died for a while, point at them so a
@@ -545,16 +569,22 @@ export class HUD {
     if (!this.hintText) return;
     const c = this.ctx;
     c.font = font(10, 'mono', 400);
-    const maxW = Math.min(this.W * 0.6, 340);
-    const lines = wrap(c, this.hintText, maxW);
-    const h = lines.length * 10 + 8;
-    const y = this.touch ? this.V * 0.24 : this.V - 74 - this.safe.b;
-    const w = Math.min(maxW, Math.max(...lines.map((l) => c.measureText(l).width))) + 14;
+    let cx = this.W / 2, maxW = Math.min(this.W * 0.6, 340);
+    if (this.touch) {
+      // between the move stick (left ~200 css px) and the button cluster (right ~350 css px)
+      const lo = 200 * this.k + this.safe.l, hi = this.W - 350 * this.k - this.safe.r;
+      maxW = Math.max(120, hi - lo - 10); cx = (lo + hi) / 2;
+    }
+    c.font = font(11, 'mono', 400);
+    const lines = wrap(c, this.hintText, maxW - 14);
+    const lh = 12, h = lines.length * lh + 8;
+    const y = this.touch ? this.V - h - 8 - this.safe.b : this.V - 74 - this.safe.b - Math.max(0, lines.length - 2) * lh;
+    const w = Math.min(maxW, Math.max(...lines.map((l) => c.measureText(l).width)) + 14);
     const a = Math.min(1, this.hintT * 2);
     c.globalAlpha = a;
-    this.rect(this.W / 2 - w / 2, y, w, h, 'rgba(4,10,12,0.8)');
-    this.frame(this.W / 2 - w / 2, y, w, h, 'rgba(127,224,184,0.6)');
-    lines.forEach((l, i) => this.text(l, this.W / 2, y + 11 + i * 10, 10, '#d8fff0', 'center', { kind: 'mono', weight: 400, shadow: false }));
+    this.rect(cx - w / 2, y, w, h, 'rgba(4,10,12,0.88)');
+    this.frame(cx - w / 2, y, w, h, 'rgba(127,224,184,0.7)');
+    lines.forEach((l, i) => this.text(l, cx, y + 12 + i * lh, 11, '#e8fff6', 'center', { kind: 'mono', weight: 400, shadow: false }));
     c.globalAlpha = 1;
   }
 
@@ -565,32 +595,63 @@ export class HUD {
     const t = b.t;
     const fadeIn = Math.min(1, t * 8), fadeOut = Math.min(1, (b.dur - t) * 3);
     const a = Math.min(fadeIn, fadeOut);
-    const main = scramble(b.main, t, 0.5, b.main.length);
-    c.font = font(26, 'serif');
+    const main = this.scr(b.main, t, 0.5, b.main.length);
+    c.font = font(24, 'serif');
     const tw = c.measureText(b.main).width;
-    const w = Math.min(this.W - 20, tw + 120), h = 30;
-    const x = this.W / 2 - w / 2, y = Math.round(this.V * 0.36);
+    const w = Math.min(this.W - 20, tw + 100), h = 30;
+    const x = this.W / 2 - w / 2, y = Math.round(this.V * 0.2) + this.safe.t;
     const squash = 1 - Math.max(0, 0.12 - t) * 6;
     c.save();
     c.globalAlpha = a;
     c.translate(this.W / 2, y + h / 2); c.scale(1, squash); c.translate(-this.W / 2, -(y + h / 2));
-    this.rect(x, y, w, h, 'rgba(6,10,12,0.78)');
-    this.stripes(x, y, 44, h, b.color, 7, 3);
-    this.stripes(x + w - 44, y, 44, h, b.color, 7, 3);
+    this.rect(x, y, w, h, 'rgba(6,10,12,0.88)');
+    this.stripes(x, y, 30, h, b.color, 7, 3);
+    this.stripes(x + w - 30, y, 30, h, b.color, 7, 3);
     this.rect(x, y, w, 1, b.color); this.rect(x, y + h - 1, w, 1, b.color);
-    const jitter = t < 0.5 ? Math.round((Math.random() - 0.5) * 3) : 0;
-    this.text(main, this.W / 2 + jitter, y + 22, 26, WHITE, 'center', { ca: 1 });
-    if (b.sub) this.text(scramble(b.sub, t, 0.8, 3), this.W / 2, y + h + 9, 8, b.color, 'center');
+    const jitter = this.textFx && t < 0.5 ? Math.round((Math.random() - 0.5) * 3) : 0;
+    this.text(main, this.W / 2 + jitter, y + 22, 24, WHITE, 'center', { ca: 1 });
+    if (b.sub) {
+      c.font = font(10, 'serif', 700);
+      const sw = Math.min(this.W - 20, c.measureText(b.sub).width + 16);
+      this.rect(this.W / 2 - sw / 2, y + h + 1, sw, 13, 'rgba(6,10,12,0.8)');
+      this.text(this.scr(b.sub, t, 0.8, 3), this.W / 2, y + h + 11, 10, b.color, 'center');
+    }
     c.restore();
   }
 
   drawToasts() {
-    let y = this.V * 0.6;
+    let y = Math.round(this.V * 0.2) + this.safe.t + (this.banners ? 52 : 12);
+    if (this.levelCardS && this.cardBottom) y = this.cardBottom + 16;
+    const c = this.ctx;
     for (const t of this.toasts) {
-      const pop = Math.max(0, 0.12 - t.t) * 4;
+      const pop = Math.max(0, 0.1 - t.t) * 3;
       const a = Math.min(1, (t.dur - t.t) * 2);
-      this.text(t.text, this.W / 2, y, (t.small ? 9 : 12) * (1 + pop), t.color, 'center', { alpha: a, kind: t.small ? 'mono' : 'serif', weight: t.small ? 400 : 700, ca: t.small ? 0 : 0.5 });
-      y += t.small ? 11 : 15;
+      const size = t.small ? 10 : 12;
+      c.font = font(size, t.small ? 'mono' : 'serif', t.small ? 400 : 700);
+      const w = c.measureText(t.text).width + 14;
+      c.globalAlpha = a * 0.85;
+      this.rect(this.W / 2 - w / 2, y - size, w, size + 5, 'rgba(4,8,10,0.75)');
+      c.globalAlpha = 1;
+      this.text(t.text, this.W / 2, y, size * (1 + pop), t.color, 'center', { alpha: a, kind: t.small ? 'mono' : 'serif', weight: t.small ? 400 : 700 });
+      y += size + 7;
+    }
+  }
+
+  // medals and unlocks: small, right edge, mid height (out of the way of combat info)
+  drawCorner() {
+    // touch: under the objective pill (the right side belongs to the buttons)
+    let y = this.touch ? 36 + this.safe.t + (this.game.bosses.active ? 40 : 0) : Math.round(this.V * 0.3);
+    const x = this.touch ? this.W / 2 + 80 : this.W - 8 - this.safe.r;
+    for (const t of this.touch ? this.corner.slice(0, 1) : this.corner) {
+      const a = Math.min(1, t.t * 4, (t.dur - t.t) * 2);
+      this.ctx.font = font(10, 'serif', 700);
+      const w = this.ctx.measureText(t.text).width + 12;
+      this.ctx.globalAlpha = a;
+      this.rect(x - w, y - 11, w, 15, 'rgba(4,8,10,0.8)');
+      this.rect(x - w, y - 11, 2, 15, t.color);
+      this.ctx.globalAlpha = 1;
+      this.text(t.text, x - 5, y, 10, t.color, 'right', { alpha: a });
+      y += 18;
     }
   }
 
@@ -600,14 +661,17 @@ export class HUD {
     const c = this.ctx;
     const a = Math.min(1, L.t * 3, (L.dur - L.t) * 2);
     c.globalAlpha = a;
-    const x = 14 + this.safe.l, y = this.V * 0.2;
-    this.rect(x - 6, y - 16, Math.min(this.W * 0.55, 300), 70, 'rgba(4,6,10,0.75)');
-    this.rect(x - 6, y - 16, 2, 70, MINT);
-    this.text(L.stratum, x, y - 4, 8, MINT, 'left');
-    this.text(scramble(L.code + '  ' + L.name, L.t, 0.6), x, y + 15, 20, WHITE, 'left', { ca: 0.8 });
-    c.font = font(10, 'mono', 400);
-    const shown = L.desc.slice(0, Math.floor(Math.max(0, L.t - 0.5) * 45));
-    wrap(c, shown, Math.min(this.W * 0.5, 280)).slice(0, 3).forEach((l, i) => this.text(l, x, y + 28 + i * 9, 10, '#cfe', 'left', { kind: 'mono', weight: 400 }));
+    const cw = Math.min(this.W - 24, this.touch ? 280 : 340);
+    c.font = font(11, 'mono', 400);
+    const lines = wrap(c, L.desc, cw - 20).slice(0, 2);
+    const ch = 44 + lines.length * 12;
+    const x = this.W / 2 - cw / 2, y = Math.round(this.V * 0.16) + this.safe.t;
+    this.rect(x, y, cw, ch, 'rgba(4,6,10,0.88)');
+    this.rect(x, y, cw, 2, MINT);
+    this.text(L.stratum, this.W / 2, y + 13, 9, MINT, 'center');
+    this.text(this.scr(L.code + '  ' + L.name, L.t, 0.6), this.W / 2, y + 33, 20, WHITE, 'center', { ca: 0.8 });
+    lines.forEach((l, i) => this.text(l, this.W / 2, y + 48 + i * 12, 11, '#d8f0ea', 'center', { kind: 'mono', weight: 400 }));
+    this.cardBottom = y + ch;
     c.globalAlpha = 1;
   }
 
@@ -619,15 +683,15 @@ export class HUD {
     const line = cs.line;
     if (line && line.text) {
       const c = this.ctx;
-      c.font = font(11, 'mono', 400);
+      c.font = font(12, 'mono', 400);
       const shown = line.text.slice(0, Math.floor(line.shown));
-      const lines = wrap(c, shown, Math.min(this.W * 0.7, 420));
-      const y0 = this.V - bar - 10 - lines.length * 11;
-      if (line.speaker) this.text(line.speaker, this.W / 2, y0 - 6, 10, line.color || MINT, 'center', { ca: 0.5 });
-      lines.forEach((l, i) => this.text(l, this.W / 2, y0 + 8 + i * 11, 11, WHITE, 'center', { kind: 'mono', weight: 400 }));
+      const lines = wrap(c, shown, Math.min(this.W * 0.75, 440));
+      const y0 = this.V - bar - 10 - lines.length * 13;
+      if (line.speaker) this.text(line.speaker, this.W / 2, y0 - 6, 11, line.color || MINT, 'center', { ca: 0.5 });
+      lines.forEach((l, i) => this.text(l, this.W / 2, y0 + 9 + i * 13, 12, WHITE, 'center', { kind: 'mono', weight: 400 }));
     }
     const skip = this.game.input.usingTouch ? 'HOLD ANYWHERE TO SKIP' : 'HOLD SPACE TO SKIP';
-    this.text(skip, this.W - 8 - this.safe.r, this.V - 4 - Math.max(0, bar - 12), 7, cs.skipHold > 0 ? '#ffe23a' : '#777', 'right', { kind: 'mono', weight: 400 });
+    this.text(skip, this.W - 8 - this.safe.r, this.V - 4 - Math.max(0, bar - 12), 9, cs.skipHold > 0 ? '#ffe23a' : '#999', 'right', { kind: 'mono', weight: 400 });
     if (cs.skipHold > 0) this.rect(this.W - 8 - this.safe.r - 60, this.V - 2, 60 * Math.min(1, cs.skipHold / 0.6), 1, '#ffe23a');
   }
 
@@ -638,16 +702,16 @@ export class HUD {
     const t = N.t;
     const a = Math.min(1, t * 4, (N.dur - t) * 2.5);
     c.globalAlpha = a;
-    const y = this.V * 0.62;
-    const name = scramble(N.name, t, 0.6, 9);
-    c.font = font(34, 'serif');
+    const y = Math.round(this.V * 0.7);
+    const name = this.scr(N.name, t, 0.6, 9);
+    c.font = font(28, 'serif');
     const tw = c.measureText(N.name).width;
     const x = this.W / 2 - tw / 2 - 30;
     this.stripes(x - 30, y - 30, 26, 40, N.color, 6, 3);
     this.stripes(this.W / 2 + tw / 2 + 34, y - 30, 26, 40, N.color, 6, 3);
-    this.text(name, this.W / 2, y, 34, WHITE, 'center', { ca: 1.2 });
+    this.text(name, this.W / 2, y, 28, WHITE, 'center', { ca: 1.2 });
     this.rect(this.W / 2 - tw / 2, y + 5, tw * Math.min(1, t * 2), 1, N.color);
-    this.text(scramble(N.title, t, 1.0, 2), this.W / 2, y + 16, 9, N.color, 'center');
+    this.text(this.scr(N.title, t, 1.0, 2), this.W / 2, y + 18, 11, N.color, 'center');
     c.globalAlpha = 1;
   }
 }

@@ -142,6 +142,7 @@ export class Combat {
     if (!shieldHit || amount > 0) g.fx.blood(p, info.dir || new THREE.Vector3(0, 1, 0), head ? 1.4 : 0.7, e.bloodColor);
     else g.fx.sparksBurst(p, 0x40e0ff, 6, 4, 0.25, 0.08);
     if (e.hp <= 0) {
+      info.killDmg = amount; // how hard the killing blow landed (dismemberment)
       this.killEnemy(e, info);
       if (info.fromPlayer !== false) g.hud.hitMarker(head ? 'headkill' : 'kill');
     } else if (info.fromPlayer !== false && info.source !== 'enemy') {

@@ -153,12 +153,39 @@ class Tracers {
   clear() { this.life.fill(0); }
 }
 
+// A 32x32 pixel splat (irregular blob with droplets) shared by every decal: blood pools,
+// scorch marks and bullet holes read as shapes instead of flat squares.
+function splatTexture() {
+  const N = 32, c = document.createElement('canvas');
+  c.width = N; c.height = N;
+  const x = c.getContext('2d');
+  const img = x.createImageData(N, N);
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const blobs = [[16, 16, 9]];
+  for (let i = 0; i < 9; i++) { const a = rnd() * Math.PI * 2, r = 6 + rnd() * 7; blobs.push([16 + Math.cos(a) * r, 16 + Math.sin(a) * r, 1.5 + rnd() * 3.5]); }
+  for (let py = 0; py < N; py++) {
+    for (let px = 0; px < N; px++) {
+      let v = 0;
+      for (const [bx, by, br] of blobs) { const d = Math.hypot(px + 0.5 - bx, py + 0.5 - by); v = Math.max(v, 1 - d / br); }
+      const i = (py * N + px) * 4;
+      const inside = v > 0.02;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255 * (0.75 + 0.25 * Math.min(1, v * 2));
+      img.data[i + 3] = inside ? 255 * Math.min(1, 0.55 + v) : 0;
+    }
+  }
+  x.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+  return t;
+}
+
 class Decals {
   constructor(scene, cap) {
     this.cap = cap;
     this.i = 0;
     const g = new THREE.PlaneGeometry(1, 1);
-    this.mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: false });
+    this.mat = new THREE.MeshBasicMaterial({ color: 0xffffff, map: splatTexture(), transparent: true, opacity: 0.9, alphaTest: 0.05, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: false });
     this.mesh = new THREE.InstancedMesh(g, this.mat, cap);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;

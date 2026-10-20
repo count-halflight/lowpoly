@@ -30,6 +30,9 @@ const SETTINGS_SPEC = [
   { k: 'shake', label: 'Screen shake', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { k: 'reduceFlashes', label: 'Reduce flashes', type: 'bool' },
   { k: 'cutscenes', label: 'Play boss cutscenes', type: 'bool' },
+  { k: 'gore', label: 'Gore (dismemberment, blood pools)', type: 'bool' },
+  { k: 'hudScale', label: 'HUD size', type: 'range', min: 0.8, max: 1.3, step: 0.05 },
+  { k: 'textFx', label: 'Glitchy HUD text effects', type: 'bool' },
   { k: 'showFps', label: 'Show FPS', type: 'bool' },
   { k: 'hints', label: 'Control hints', type: 'bool' },
   { group: 'AUDIO' },
@@ -235,7 +238,7 @@ export class Menus {
     const wrap = this.$('m-logo');
     wrap.textContent = '';
     const c = pixelTextCanvas('VOLTGRAVE', { size: 34, color: '#f2f2ee', ca: 1.5 });
-    c.style.width = 'min(560px, 86vw)'; c.style.height = 'auto';
+    c.style.height = 'auto'; // width comes from style.css so short screens can shrink it
     wrap.appendChild(c);
     wrap.setAttribute('aria-label', 'VOLTGRAVE');
   }
