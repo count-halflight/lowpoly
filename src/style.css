@@ -141,6 +141,7 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
 .row-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; font-size: 18px; line-height: 1.25; color: #c8ccd0; }
 .controls-grid b { color: var(--amber); font-weight: 400; }
+body.touch .controls-grid .c-touch { order: -1; }
 .controls-grid h4 { margin: 0 0 6px; color: var(--mint); font-weight: 400; letter-spacing: 0.15em; font-size: 20px; }
 
 .reward-wrap { max-width: 1060px; margin: 4vh auto 0; }
@@ -167,6 +168,26 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
 .stat-grid .best { border-left-color: var(--amber); } .stat-grid .best b { color: var(--amber); }
 .rank-big { display: flex; align-items: center; gap: 18px; margin: 4px 0 10px; flex-wrap: wrap; }
 .rank-big canvas { height: 120px; width: auto; }
+/* results: the rank lands like a rubber stamp */
+.stamp { display: inline-flex; flex-direction: column; align-items: center; padding: 2px 14px 8px; border: 3px solid var(--rc, #fff); color: var(--rc, #fff); background: rgba(0,0,0,0.35); transform: rotate(-6deg); }
+.stamp small { font-size: 14px; letter-spacing: 0.32em; margin-left: 0.32em; }
+.rank-big .stamp canvas { height: 96px; }
+.stamp.in { animation: stamp 0.34s cubic-bezier(.2,.9,.3,1.25) both; }
+@keyframes stamp { from { transform: scale(2.4) rotate(-15deg); opacity: 0; } 70% { transform: scale(0.94) rotate(-5deg); opacity: 1; } to { transform: scale(1) rotate(-6deg); opacity: 1; } }
+.stat-grid.compact { display: flex; flex-wrap: wrap; gap: 4px; font-size: 14px; margin-top: 10px; max-width: 760px; }
+.stat-grid.compact div { padding: 3px 8px; min-width: 92px; }
+.stat-grid.compact b { font-size: 19px; }
+/* records: stats page + codex arsenal variants */
+.stats-page { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0 24px; max-height: 62vh; overflow-y: auto; align-items: start; }
+.stats-page[hidden] { display: none; }
+.stats-page h3.sec { margin: 4px 0 4px; }
+.st-row { display: flex; justify-content: space-between; gap: 10px; font-size: 18px; color: var(--dim); border-bottom: 1px dashed rgba(232,228,216,0.1); padding: 1px 0; }
+.st-row b { color: var(--bone); font-weight: 400; text-align: right; }
+.codex-view h3.sec { font-size: 17px; margin: 10px 0 4px; }
+.cx-var { border-left: 2px solid var(--vc); padding: 1px 0 1px 8px; margin: 0 0 8px; font-size: 18px; }
+.cx-var b { color: var(--vc); font-weight: 400; letter-spacing: 0.06em; }
+.cx-var span { color: #aeb3ba; }
+.codex-view p.cx-note { color: #aeb3ba; font-size: 18px; }
 .rank-rows { display: grid; grid-template-columns: auto auto auto; gap: 2px 14px; font-size: 19px; align-items: baseline; }
 .rank-rows .l { color: var(--dim); } .rank-rows .r { font-family: var(--serif); font-weight: 700; font-size: 22px; }
 .share { font-size: 16px; color: var(--dim); white-space: pre-wrap; background: rgba(0,0,0,0.4); padding: 6px 8px; border: 1px dashed rgba(232,228,216,0.2); margin-top: 8px; user-select: text; -webkit-user-select: text; }
@@ -213,6 +234,25 @@ h3.sec { font-family: var(--mono); font-weight: 400; color: var(--mint); letter-
 
 @media (max-width: 760px), (max-height: 480px) {
   .title-grid { grid-template-columns: 1fr; }
+  /* phones: tighter panels so lists get the room */
+  .screen { padding-top: calc(8px + var(--safe-t)); padding-bottom: calc(8px + var(--safe-b)); }
+  .panel { padding: 8px 12px; }
+  .panel-h { padding-bottom: 4px; margin-bottom: 6px; }
+  .panel-h .sub { font-size: 15px; }
+  .panel-h canvas { height: 26px !important; }
+  .settings-list { max-height: calc(100vh - 118px); }
+  .set-row { font-size: 17px; padding: 2px 0; gap: 8px; }
+  .stats-page, .medals { max-height: calc(100vh - 150px); }
+  .st-row { font-size: 16px; }
+  .controls-grid { font-size: 16px; gap: 10px; max-height: calc(100vh - 120px); overflow-y: auto; }
+  .controls-grid p { margin: 0 0 6px; }
+  .pause-stats { font-size: 15px; }
+  .dead-cause { font-size: 21px; }
+  .dead-tip { font-size: 16px; margin: 4px 0 6px; }
+  .rank-big .stamp canvas { height: 64px; }
+  .rank-rows { font-size: 16px; }
+  .codex-view, .cx-var, .codex-view p.cx-note { font-size: 17px; }
+  .codex-view h2 { font-size: 24px; }
   .mi { font-size: 24px; padding: 2px 8px 2px 22px; }
   .tagline { font-size: 15px; }
   .logo-wrap canvas { width: min(440px, 70vw); }
