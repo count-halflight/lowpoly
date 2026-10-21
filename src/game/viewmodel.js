@@ -1024,7 +1024,7 @@ export class Viewmodel {
     IN.px = -0.07 * turn; IN.py = 0.03 * turn; IN.ry = 0.65 * turn; IN.rz = 0.35 * turn; IN.rx = 0.12 * turn;
     const flip = win(k, 0.42, 0.52, 0.62, 0.74);
     IN.rz -= flip * 0.9; IN.ry -= flip * 0.9; IN.rx += flip * 0.2;
-    if (id === 'hammer') { this.cylSwing = Math.max(this.cylSwing, 1.2 * win(k, 0.22, 0.3, 0.6, 0.66) * Wt); if (k > 0.3 && k < 0.58) this.cylSpin = Math.max(this.cylSpin, 18); }
+    if (id === 'hammer') { this.cylSwing = 1.2 * win(k, 0.22, 0.3, 0.6, 0.66) * Wt; if (k > 0.3 && k < 0.58) this.cylSpin = Math.max(this.cylSpin, 18); }
     else if (id === 'breacher' && k > 0.3 && k < 0.36 && w.pumpT <= 0) w.pumpT = 0.45;
     else if (id === 'thumper' && k >= 0.3 && this.lastInK < 0.3) w.drumAngle += TAU;
     else if (id === 'ripsaw') IN.hand = win(k, 0.24, 0.32, 0.42, 0.5);
@@ -1036,6 +1036,7 @@ export class Viewmodel {
   animateParts(dt, input, m, ud, an, id, RL) {
     const w = this.w, t = this.game.time;
     if (an.cyl) {
+      if (!w.reloading && this.inspectW < 0.01) this.cylSwing = damp(this.cylSwing, 0, 14, dt);
       // swing-out arc around the crane pivot (lower left of the frame)
       const a = this.cylSwing, ox = 0.03, oy = 0.046;
       an.cyl.position.set(an.cylHome.x - 0.03 + ox * Math.cos(a) - oy * Math.sin(a), an.cylHome.y - 0.046 + ox * Math.sin(a) + oy * Math.cos(a), an.cylHome.z);

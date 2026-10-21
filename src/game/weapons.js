@@ -797,10 +797,10 @@ export class Weapons {
       if (!c.alive) continue;
       c.t += dt;
       c.vel.y -= 14 * dt;
-      const before = c.pos.clone();
+      const before = this.tmpV.copy(c.pos);
       c.pos.addScaledVector(c.vel, dt);
       c.mesh.rotation.x += dt * 22; c.mesh.rotation.z += dt * 5;
-      const d = c.pos.clone().sub(before);
+      const d = this.tmpD.copy(c.pos).sub(before);
       const len = d.length();
       if (len > 0 && g.combat.rayWorld(before, d.multiplyScalar(1 / len), len)) { this.breakCoin(c); continue; }
       if (c.t > 2.6) { this.breakCoin(c); continue; }
@@ -979,15 +979,6 @@ export class Weapons {
     g.run.shots++;
   }
 
-  ejectBrass(big = false) {
-    const g = this.game;
-    const cam = g.camera;
-    const p = new THREE.Vector3(0.18, -0.08, -0.45).applyMatrix4(cam.matrixWorld);
-    const r = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
-    const v = r.multiplyScalar(2.5 + Math.random()).add(new THREE.Vector3(0, 2.5 + Math.random(), 0)).add(g.player.body.vel.clone().multiplyScalar(0.8));
-    g.fx.dust.spawn(p.x, p.y, p.z, v.x, v.y, v.z, big ? 0.75 : 0.85, big ? 0.15 : 0.65, big ? 0.1 : 0.25, 1, big ? 0.07 : 0.05, 0.8, 14, 0.5, g.player.body.pos.y + 0.02);
-  }
-
   // Perfect-dodge COUNTERSTRIKE: the next shot after a dodge hits twice as hard.
   takeCounter(at) {
     const g = this.game, p = g.player;
@@ -1011,9 +1002,9 @@ export class Weapons {
     else g.audio.play(d.sound, null, 0.9);
     if (pumped) g.audio.play('shotgunPumped', null, 0.9, pumped);
     this.kick(pumped ? { ...d, kick: d.kick * (1 + pumped * 0.3), recoil: d.recoil * (1 + pumped * 0.35), shake: d.shake + pumped * 0.1, punch: [d.punch[0] * (1 + pumped * 0.4), d.punch[1] * (1 + pumped * 0.4)], fovKick: d.fovKick + pumped } : d);
-    if (id === 'breacher') { this.pumpT = 0.45; setTimeout(() => this.ejectBrass(true), 150); }
+    if (id === 'breacher') this.pumpT = 0.45; // the pump stroke ejects the hull (viewmodel casing)
     if (id === 'hammer') this.cylTarget += Math.PI / 3;
-    if (id === 'ripsaw') { this.boltT = 0.06; this.ejectBrass(); }
+    if (id === 'ripsaw') this.boltT = 0.06;
     if (id === 'thumper') this.drumAngle += Math.PI * 2 / 5;
     g.emit('fire', id);
     const base = cam.getWorldDirection(new THREE.Vector3());
