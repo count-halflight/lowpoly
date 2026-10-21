@@ -42,6 +42,7 @@ class Game {
     this.settings = new Settings();
     this.profile = new Profile();
     this.listeners = {};
+    this.profile.attach(this); // tech stats + medals listen on the event bus
     this.lowPower = isTouchDevice || (navigator.hardwareConcurrency || 8) <= 4;
     this.canvas = document.getElementById('game');
     this.renderer = new Renderer(this.canvas, this.settings);
