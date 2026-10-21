@@ -386,12 +386,13 @@ export class Boss {
 
   // keep the player out of the boss body
   pushPlayer(radius) {
-    const pp = this.game.player.body.pos;
+    const pb = this.game.player.body, pp = pb.pos;
     const dx = pp.x - this.pos.x, dz = pp.z - this.pos.z;
     const d = Math.hypot(dx, dz);
     if (d < radius && pp.y < this.pos.y + 3) {
       const k = (radius - d) / (d || 1);
-      pp.x += dx * k; pp.z += dz * k;
+      // swept: a boss backing the player against a wall must not shove them into (or through) it
+      moveBody(pb, dx * k, 0, dz * k, this.game.level.colliders);
     }
   }
 
