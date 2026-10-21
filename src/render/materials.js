@@ -46,10 +46,10 @@ export const THEMES = [
   },
   {
     id: 'cryo', name: 'COLD STORAGE', // frosted panels in pale blue mist
-    wall: 0x9ab4c8, floor: 0xa8bccc, trim: 0x2c3c4c, prop: 0x7a8c9a, accent: 0x9ff0ff, accent2: 0xff4060,
+    wall: 0x9ab4c8, floor: 0x98acbe, trim: 0x2c3c4c, prop: 0x7a8c9a, accent: 0x9ff0ff, accent2: 0xff4060,
     lamp: 0xf0fbff, fog: 0x101c28, fogNear: 7, fogFar: 52, sky: 0xa8d0f0, ground: 0x1c2a3a, hemi: 1.1,
     light: 0xd4eeff, floorTex: 'tile2', wallTex: 'ice', ceilTex: 'ceil', trimTex: 'trim', crateTex: 'crate2', hazard: 'coolant',
-    gloss: [0x262c34, 24],
+    gloss: [0x20262c, 40],
     grade: { hi: 0xe8f6ff, sat: 0.92, contrast: 0.15, lift: 0.08, bloom: 0.9, thresh: 0.66 },
   },
   {
