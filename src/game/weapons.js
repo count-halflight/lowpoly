@@ -110,14 +110,13 @@ export class Weapons {
     this.holder = this.vm.holder;
     this.mats = this.vm.M;
     this.coinGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.018, 10);
-    this.coinMat = new THREE.MeshBasicMaterial({ color: 0xffd040 });
-    this.coinRim = new THREE.MeshBasicMaterial({ color: 0xfff4c0 });
+    this.coinMat = this.vm.brassMat; // polished gold matcap, reads under any room light
     this.coins = [];
     for (let i = 0; i < 8; i++) {
       const m = new THREE.Mesh(this.coinGeo, this.coinMat);
       m.visible = false;
       game.scene.add(m);
-      this.coins.push({ mesh: m, alive: false, pos: m.position, vel: new THREE.Vector3(), t: 0 });
+      this.coins.push({ mesh: m, alive: false, pos: m.position, vel: new THREE.Vector3(), t: 0, glintT: 0 });
     }
     this.tmpV = new THREE.Vector3(); this.tmpD = new THREE.Vector3(); this.muzzleW = new THREE.Vector3();
     this.tmpC = new THREE.Color(); this.accBase = new THREE.Color();
@@ -804,8 +803,11 @@ export class Weapons {
       const d = c.pos.clone().sub(before);
       const len = d.length();
       if (len > 0 && g.combat.rayWorld(before, d.multiplyScalar(1 / len), len)) { this.breakCoin(c); continue; }
-      if (c.t > 2.6) this.breakCoin(c);
-      else if (Math.random() < 0.3) g.fx.sparks.spawn(c.pos.x, c.pos.y, c.pos.z, 0, 0, 0, 1, 0.8, 0.2, 1, 0.06, 0.15, 0, 0);
+      if (c.t > 2.6) { this.breakCoin(c); continue; }
+      if (Math.random() < 0.3) g.fx.sparks.spawn(c.pos.x, c.pos.y, c.pos.z, 0, 0, 0, 1, 0.8, 0.2, 1, 0.06, 0.15, 0, 0);
+      // a star glint as it tumbles: easy to track and to shoot against busy rooms
+      c.glintT -= dt;
+      if (c.glintT <= 0) { c.glintT = 0.14 + Math.random() * 0.1; g.fx.glint(c.pos, 0xffe080, 0.5, 0.08); }
     }
   }
   breakCoin(c) { c.alive = false; c.mesh.visible = false; }
