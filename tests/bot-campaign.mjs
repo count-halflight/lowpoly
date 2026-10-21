@@ -223,10 +223,24 @@ function install() {
     }
     if (g.state !== 'playing') return;
     const p = g.player.body.pos;
-    if (p.y < -4 && !B.fellReported) { B.fellReported = true; issue('FELL', { y: +p.y.toFixed(1) }); }
-    if (p.y > -1) B.fellReported = false;
+    // a designed pit (the speedway's bottomless middle, a gap) is the player's mistake and the void
+    // respawn at -15 handles it: only a fall outside every hole, or one the respawn misses, is a bug
+    // (judged where the fall began: a falling body drifts on under the floor)
+    if (p.y > -1) { B.fallX = p.x - room.origin.x; B.fallZ = p.z - room.origin.z; }
+    const lx = B.fallX ?? 0, lz = B.fallZ ?? 0;
+    const inPit = room.spec.holes.some((h) => lx > h.x0 - 1 && lx < h.x1 + 1 && lz > h.z0 - 1 && lz < h.z1 + 1);
+    if (((p.y < -4 && !inPit) || p.y < -18) && !B.fellReported) { B.fellReported = true; issue('FELL', { y: +p.y.toFixed(1), inPit }); }
+    if (p.y < -4 && inPit && !B.pitWarned) { B.pitWarned = true; B.warns.push({ PIT: where(), arch: room.spec.arch }); }
+    if (p.y > -1) B.fellReported = B.pitWarned = false;
     B.inWallT = g.player.overlapsAny() ? (B.inWallT || 0) + DT : 0;
-    if (B.inWallT > 1 && !B.wallReported) { B.wallReported = true; issue('IN_GEOMETRY', { mantle: !!g.player.mantle, wallRun: !!g.player.wallRun }); }
+    if (B.inWallT > 1 && !B.wallReported) {
+      B.wallReported = true;
+      const b = g.player.body, c = g.level.colliders.find((c) => c.active && c.solid && b.pos.x + b.r > c.minX && b.pos.x - b.r < c.maxX && b.pos.z + b.r > c.minZ && b.pos.z - b.r < c.maxZ && b.pos.y + b.h > c.minY && b.pos.y < c.maxY);
+      const o = room.origin, f = (v) => +v.toFixed(2);
+      const bo = g.bosses.active, bd = bo && bo.alive ? Math.hypot(bo.pos.x - b.pos.x, bo.pos.z - b.pos.z) : 99;
+      issue('IN_GEOMETRY', { mantle: !!g.player.mantle, wallRun: !!g.player.wallRun, h: f(b.h), sliding: !!g.player.sliding, boss: bo && bo.alive ? bo.type + ' ' + f(bd) + ' m away' : undefined,
+        note: bd < (bo && bo.radius || 2) + 1.2 ? 'OPEN BUG: the boss body shoves the player into the wall until the bosses.js pushPlayer hook is applied' : undefined, col: c && { tag: c.tag, box: [f(c.minX - o.x), f(c.minY), f(c.minZ - o.z), f(c.maxX - o.x), f(c.maxY), f(c.maxZ - o.z)], mover: !!c.mover, keys: Object.keys(c).filter((k) => !/^(min|max)[XYZ]$/.test(k)).join(',') } });
+    }
     if (B.inWallT === 0) B.wallReported = false;
     if (g.lastError && g.lastError !== B.lastErr) { B.lastErr = g.lastError; issue('GAME_ERROR', { err: g.lastError.slice(0, 300) }); }
     if (room.state !== 'combat') return;
