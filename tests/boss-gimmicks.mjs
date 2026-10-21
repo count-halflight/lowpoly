@@ -127,12 +127,16 @@ try {
     : PICK !== 'gimmicks' ? PICK.split(',')
       : [...new Set(['vesper', 'grindhammer', 'crucible', 'scythewright', ...rows.filter((r) => r.gm && (r.gm === 'parry' || !seen.has(r.gm)) && seen.add(r.gm)).map((r) => r.id)])];
   console.log('bosses: ' + list.join(' '));
+  const parryHook = /gimmick === 'parry'/.test(readFileSync(new URL('../src/game/combat.js', import.meta.url), 'utf8'));
+  if (!parryHook) console.log('NOTE: combat.js has no parry-shield hook yet: THE TALLYMAN, HYMNAL and PALE COURIER are expected to FAIL (known open soft-lock)');
   for (const id of list) {
     let r;
     try { r = await page.evaluate(fight, [id, LIMIT]); } catch (e) { r = { id, error: e.message.slice(0, 300) }; }
     const ok = !r.error && r.killed;
     if (!ok) failed++;
-    console.log((ok ? 'ok   ' : 'FAIL ') + id.padEnd(12) + JSON.stringify(r));
+    // damageBoss drops every hit on a shielded part before applyDamage can see the parry
+    const open = !ok && !parryHook && r.parries > 0 && r.shieldBreaks === 0 && r.shieldNow;
+    console.log((ok ? 'ok   ' : 'FAIL ') + id.padEnd(12) + JSON.stringify(r) + (open ? '  <- OPEN BUG: parries never break the shield (apply the combat.js parry-shield hook)' : ''));
   }
   if (errors.length) { console.log('PAGE ERRORS', errors.slice(0, 6)); failed++; }
   console.log(failed ? `BOSS GIMMICKS: ${failed} failed` : 'BOSS GIMMICKS OK');

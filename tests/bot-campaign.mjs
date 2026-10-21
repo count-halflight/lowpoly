@@ -244,7 +244,8 @@ function install() {
       issue(B.emptyT > 12 ? 'NEVER_CLEARS' : 'NO_PROGRESS', {
         roomT: Math.round(B.roomT), alive: g.enemies.list.filter((e) => e.alive).map((e) => ({ type: e.type, id: e.def && e.def.id, tg: e.targetable, hp: Math.round(e.hp), pos: [+(e.pos.x - room.origin.x).toFixed(1), +e.pos.y.toFixed(1), +(e.pos.z - room.origin.z).toFixed(1)], hidden: !!e.hidden, perch: !!e.perch })),
         dir: { active: d.active, waveIdx: d.waveIdx, waves: d.waves.length, pending: d.pendingBackup, minis: d.minis.map((m) => m.alive), severed: !!d.severed },
-        boss: b && { type: b.type, alive: b.alive, hp: Math.round(b.hp), state: b.state, phase: b.phase },
+        boss: b && { type: b.type, alive: b.alive, hp: Math.round(b.hp), state: b.state, phase: b.phase, gimmick: b.gimmick, shieldUp: !!b.shieldUp },
+        note: b && b.alive && b.gimmick === 'parry' && b.shieldUp ? 'OPEN BUG: parried seekers never break this shield until the combat.js parry-shield hook is applied' : undefined,
       });
     }
     // keep the run going past a reported problem
