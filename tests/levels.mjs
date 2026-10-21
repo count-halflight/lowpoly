@@ -315,7 +315,9 @@ try {
       // speedway break: wall-run the lit panel over the gap in the west straight, land on the far side
       {
         let room = null;
-        for (let sd = 1; sd < 30 && !(room && room.spec.ringBreak); sd++) room = enter('ring', sd);
+        // (a mirrored room puts the break in the east straight: keep looking for a west one)
+        const westBreak = (r) => r && r.spec.ringBreak && r.spec.holes.some((x) => x.x0 <= -r.spec.W / 2 + 0.01);
+        for (let sd = 1; sd < 60 && !westBreak(room); sd++) room = enter('ring', sd);
         const s = room.spec, h = s.holes.find((x) => x.x0 <= -s.W / 2 + 0.01);
         const ev = {}; g.on('*', (e) => { ev[e] = (ev[e] || 0) + 1; });
         const wxr = room.wx(-s.W / 2 + 0.3 + b.r + 0.05);
