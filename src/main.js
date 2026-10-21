@@ -93,9 +93,12 @@ class Game {
     this.wireProfile();
 
     this.input.onLockLost = () => {
-      if (this.ignoreLockLoss) { this.ignoreLockLoss = false; return; }
+      if (this.expectUnlock) { this.expectUnlock = false; return; }
+      if (performance.now() < (this.lockGraceT || 0)) return;
       if (this.state === 'playing' && !this.input.usingTouch) this.pause();
     };
+    // a fresh lock means no release of ours is still in flight
+    document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement) this.expectUnlock = false; });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { this.profile.flush(); if (this.state === 'playing') this.pause(); }
     });
@@ -122,6 +125,16 @@ class Game {
     this.last = performance.now();
     document.getElementById('boot').classList.add('gone');
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  // We drop pointer lock on purpose for menus; the loss event arrives later and must not pause the
+  // game the player has resumed by then (on a busy machine it came 440 ms after the death screen's
+  // release, right after RETRY, and paused the fresh run). Expect exactly one loss when the lock
+  // is really held, so no flag can linger and swallow a later, real loss; the short time window
+  // only covers browsers that report the lock late.
+  lockGrace() {
+    if (document.pointerLockElement) this.expectUnlock = true;
+    this.lockGraceT = performance.now() + 400;
   }
 
   // ------------------------------------------------------------------ event bus
@@ -276,10 +289,10 @@ class Game {
     this.level.reset(seed);
     this.director.reset(seed);
     this.projectiles.clear();
-    if (!opts.restored) {
-      this.player.hp = this.player.stats.maxHp;
-      for (const id of this.weapons.owned) this.weapons.addAmmo(id, 2);
-    }
+    // every level and checkpoint starts at full health: CONTINUE after quitting on a results
+    // screen restored the boss fight's leftover HP, and RESTART LEVEL then kept it for good
+    this.player.hp = this.player.stats.maxHp;
+    if (!opts.restored) for (const id of this.weapons.owned) this.weapons.addAmmo(id, 2);
     this.player.shield = this.player.stats.shieldMax;
     this.player.dashCharges = this.player.stats.dashCharges;
     const atRoom = opts.atRoom || 0;
@@ -373,7 +386,7 @@ class Game {
     if (!c.practice && c.levelIdx + 1 < c.plan.length) this.profile.writeSave({ ...c.snapshot(), levelIdx: c.levelIdx + 1, restarts: 0 });
     this.setState('results');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.audio.play('levelClear', null, 1);
     const last = c.levelIdx + 1 >= c.plan.length;
@@ -430,7 +443,7 @@ class Game {
     this.tutorial.end();
     if (skipped && this.tutorialThen) { this.newCampaign(0, true); return; }
     this.setState('menu-over');
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.menus.show('tutdone');
   }
@@ -477,9 +490,8 @@ class Game {
       stats = `ROOM <b>${pad2(this.level.current ? this.level.current.index : 0)}</b> · SCORE <b>${Math.floor(this.style.score)}</b> · KILLS <b>${r.kills}</b> · SEED <b>${r.seed}</b><br>UPGRADES: ${ups}`;
     }
     this.menus.showPause(title, sub, stats, this.mode, { checkpoint: this.checkpointRoom() });
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
-    setTimeout(() => { this.ignoreLockLoss = false; }, 100);
   }
 
   resume() {
@@ -491,7 +503,7 @@ class Game {
   }
 
   quitToTitle() {
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.profile.flush();
     this.cutscene.abort();
@@ -840,7 +852,7 @@ class Game {
     this.audio.play('terminal', null, 0.8);
     this.setState('terminal');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.menus.showTerminal(t.id);
   }
@@ -872,9 +884,8 @@ class Game {
     this.audio.play('cache', null, 0.8);
     this.setState('reward');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
-    setTimeout(() => { this.ignoreLockLoss = false; }, 100);
   }
 
   chooseReward(i) {
@@ -906,7 +917,7 @@ class Game {
 
   finishDeath() {
     this.setState('dead');
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     const r = this.run;
     const ld = this.player.lastDamage;
@@ -960,9 +971,12 @@ class Game {
       else if (this.state === 'terminal') this.closeTerminal();
       else if (this.menus.current === 'settings' || this.menus.current === 'controls' || this.menus.current === 'codex' || this.menus.current === 'medals' || this.menus.current === 'levels' || this.menus.current === 'endless') this.menus.pop();
     }
-    if (this.state === 'terminal' && (input.wasPressed('use') || input.wasPressed('confirm'))) this.closeTerminal();
-    if (this.state === 'reward' && input.slot >= 0 && input.slot < 3) this.chooseReward(input.slot);
-    if (this.state === 'dead' && (input.wasPressed('reload') || input.wasPressed('confirm'))) this.restart();
+    // menu keys are consumed so the gameplay step that may follow in this same tick does not
+    // see them too (E re-opened the terminal it just closed; '1' on a reward card also cycled
+    // the Hammer's variant)
+    if (this.state === 'terminal' && (input.wasPressed('use') || input.wasPressed('confirm'))) { this.closeTerminal(); input.pressed.use = input.pressed.confirm = false; }
+    if (this.state === 'reward' && input.slot >= 0 && input.slot < 3) { this.chooseReward(input.slot); input.slot = -1; }
+    if (this.state === 'dead' && (input.wasPressed('reload') || input.wasPressed('confirm'))) { this.restart(); input.pressed.reload = input.pressed.confirm = false; }
     if (this.state === 'results' && input.wasPressed('confirm')) this.nextLevel();
     // medal popups + periodic save
     const medal = this.profile.popMedal();
@@ -1130,6 +1144,11 @@ class Game {
     }
     // the railcannon scope replaces the viewmodel with the HUD scope overlay
     const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state) && !(this.weapons.scopeK > 0.5);
+    // per-stratum colour grade (no-op unless the room's theme/flags changed) + railcannon scope lens tint
+    const cur = this.level.current;
+    if (this.renderer.setTheme) this.renderer.setTheme(cur ? cur.theme : null, cur);
+    const pu = this.renderer.postMat.uniforms;
+    if (pu.uScope) pu.uScope.value = this.state === 'playing' || this.state === 'paused' ? (this.weapons.scopeK || 0) : 0;
     this.renderer.render(this.scene, this.camera, showVm ? this.weapons.scene : null, this.weapons.camera);
   }
 }

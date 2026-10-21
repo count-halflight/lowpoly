@@ -7,9 +7,11 @@ TypeScript). Everything is procedural: no external assets, no network at runtime
 - `npx vite build` builds `dist/` (tests serve it with `vite preview`).
 - `npx vite build --mode single` builds `dist-single/index.html` (everything inlined).
 - Tests are Playwright scripts: `PORT=<free port> node tests/<name>.mjs`. Core set: regressions,
-  checkpoints, tutorial-input, aim, movement, mechanics, bot-firstlevel, menus, smoke; long ones:
-  roster, campaign, conditions. Level soak: `PHASE=static|features|minis|play node tests/levels.mjs`
-  (every archetype x stratum, normal + mirrored). The machine is small: run one browser test at a time.
+  checkpoints, tutorial-input, states, aim, movement, mechanics, bot-firstlevel, menus, hud-declutter,
+  touch-layout, smoke; long ones: roster, campaign, conditions, bot-campaign (real-input bot),
+  boss-gimmicks (`BOSSES=all`), boss-wall, minis-real, fuzz-move. Level soak:
+  `PHASE=static|features|minis|play node tests/levels.mjs` (every archetype x stratum, normal +
+  mirrored; `ONLY=ring` narrows it). The machine is small: run one browser test at a time.
 
 ## Layout
 - `src/main.js` Game (modes endless/campaign/tutorial, room flow, death/checkpoints).

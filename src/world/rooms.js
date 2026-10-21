@@ -911,7 +911,8 @@ const GEN = {
       hole(s, -W / 2, gz - gl / 2, -pr, gz + gl / 2);
       const rz0 = gz - gl / 2 - 3, rz1 = gz + gl / 2 + 3;
       prop(s, -W / 2, 1.3, rz0, -W / 2 + 0.3, 5.2, rz1, 'trim', 'metal', { runwall: true, side: 1, keep: true, noNav: true });
-      s.speedGates.push({ x: 0, z: mid, w: tw - 1.4, axis: 'z' });
+      // off-centre: at x 0 its outer post stood inside the entrance doorway (entX 0, 3 m door)
+      s.speedGates.push({ x: 3.5, z: mid, w: tw - 1.4, axis: 'z' });
       s.ringBreak = true;
     } else s.speedGates.push({ x: -mid, z: 0, w: tw - 1.4, axis: 'x' });
     // chicanes: alternating low barriers to hop
@@ -1118,8 +1119,9 @@ export function generateSpec(arch, rng, ctx) {
   if (combat && !s.open && (ctx.secrets !== false) && rng.chance(s.wantSecret !== undefined ? s.wantSecret : 0.22)) placeSecret(s, rng);
   // level conditions add features
   if (cond === 'pads' && combat && !s.pads.length) { s.pads.push({ x: rng.range(-s.W / 4, s.W / 4), z: rng.range(-s.D / 4, s.D / 4), power: 15 }); s.pads.push({ x: rng.range(-s.W / 3, s.W / 3), z: rng.range(-s.D / 4, s.D / 4), power: 13 }); }
-  // floor bands for level conditions must not cross pits, water, presses or rails
+  // floor bands for level conditions must not cross pits, water, presses, rails or raised islands
   const bandFree = (z0, z1) => ![...s.holes, ...s.water].some((h) => h.z0 < z1 && h.z1 > z0) &&
+    !s.props.some((p) => p.island && p.z0 < z1 && p.z1 > z0) &&
     !s.crushers.some((c) => Math.abs(c.z - (z0 + z1) / 2) < c.d / 2 + (z1 - z0) / 2) && !s.movers.some((m) => m.y < 0.5 && Math.min(m.z, m.z + m.az) - m.d / 2 < z1 && Math.max(m.z, m.z + m.az) + m.d / 2 > z0);
   const freeBand = (half) => { for (let k = 0; k < 8; k++) { const z = rng.range(-s.D / 4, s.D / 4); if (bandFree(z - half, z + half)) return z; } return null; };
   if (cond === 'conveyor' && combat) {
