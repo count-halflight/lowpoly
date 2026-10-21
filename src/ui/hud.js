@@ -713,6 +713,8 @@ export class HUD {
   drawCorner() {
     if (!this.corner.length) return;
     let y = this.touch ? Math.round(this.topY + 12) : Math.round(this.V * 0.3);
+    // the level card is wide on narrow screens: never let a medal plate sit on its edge
+    if (!this.touch && this.levelCardS && this.cardBottom) y = Math.max(y, Math.round(this.cardBottom + 16));
     const x = this.touch ? this.W / 2 + 80 : this.W - 8 - this.safe.r;
     for (const t of this.touch ? this.corner.slice(0, 1) : this.corner) {
       const a = Math.min(1, t.t * 4, (t.dur - t.t) * 2);
