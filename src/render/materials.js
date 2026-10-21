@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getTexture } from './textures.js';
-import { psxify } from './renderer.js';
+import { psxify, registerThemes } from './renderer.js';
 
 // Regional art direction. Each stratum has its own palette, fog, lighting balance (hemisphere sky
 // vs ground bounce vs lamp colour), surface textures (textures.js variants) and a post grade
@@ -85,6 +85,8 @@ export const THEMES = [
     grade: { hi: 0xffd8f4, sat: 1.18, contrast: 0.24, lift: 0.08, bloom: 1.2 },
   },
 ];
+
+registerThemes(THEMES);
 
 const matCache = new Map();
 

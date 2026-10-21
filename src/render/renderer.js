@@ -192,6 +192,11 @@ void main(){
 // Neutral grade (used until a stratum sets its own through setTheme)
 const DEFAULT_GRADE = { hi: 0xfff4e8, sat: 1.08, contrast: 0.18, lift: 0.05, bloom: 0.85, thresh: 0.62, grain: 0.035 };
 
+// Strata by fog colour (materials.js registers THEMES): until the game calls setTheme itself, the
+// renderer follows the room's fog colour, which Level.activate sets from the theme.
+const fogThemes = new Map();
+export function registerThemes(list) { for (const t of list) fogThemes.set(t.fog, t); }
+
 const lowPowerDevice = () => {
   try {
     const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
@@ -264,6 +269,7 @@ export class Renderer {
     this.postScene.add(this.quad);
     this.grade = DEFAULT_GRADE;
     this.theme = null; this.themeArch = false; this.themeOpen = false;
+    this.explicitTheme = false; this.lastFog = -1;
     this.width = 1; this.height = 1;
     this.internalW = 1; this.internalH = 1;
     this.resize();
@@ -306,6 +312,11 @@ export class Renderer {
    * call every frame: it only touches uniforms when the theme or room changes.
    */
   setTheme(theme, room = null) {
+    this.explicitTheme = true;
+    this.applyTheme(theme, room);
+  }
+
+  applyTheme(theme, room) {
     const spec = room && room.spec;
     const arch = !!(spec && spec.bossType === 'architect'), open = !!(spec && spec.open);
     // keyed on the theme + flags only, so no reference to a disposed room is kept
@@ -343,7 +354,13 @@ export class Renderer {
       r.render(vmScene, vmCamera);
     }
     const u = this.postMat.uniforms;
-    if (scene.fog) u.uFog.value.copy(scene.fog.color);
+    if (scene.fog) {
+      u.uFog.value.copy(scene.fog.color);
+      if (!this.explicitTheme) {
+        const hex = scene.fog.color.getHex();
+        if (hex !== this.lastFog) { this.lastFog = hex; const t = fogThemes.get(hex); if (t) this.applyTheme(t, null); }
+      }
+    }
     // glow: on unless the player turns it off (settings key 'bloom'); dimmer with reduced flashes
     const bloom = s.get('bloom') !== false;
     u.uBloom.value = bloom ? this.grade.bloom * (s.get('reduceFlashes') ? 0.6 : 1) : 0;
