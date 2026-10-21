@@ -1,8 +1,6 @@
 import * as THREE from 'three';
-import { GeoBuilder } from '../world/builder.js';
-import { getTexture } from '../render/textures.js';
-import { psxify } from '../render/renderer.js';
 import { damp, clamp, raySphere } from '../core/collide.js';
+import { Viewmodel } from './viewmodel.js';
 
 export const WEAPON_ORDER = ['hammer', 'ripsaw', 'breacher', 'lance', 'thumper', 'arc'];
 
@@ -93,232 +91,6 @@ const ADS = {
 };
 const QUICKSCOPE_WINDOW = 0.6; // seconds after the sights come up
 // ---------------------------------------------------------------------------------------
-// Viewmodels: built from boxes and cylinders, with separately animated parts.
-// ---------------------------------------------------------------------------------------
-function vmMaterials() {
-  const L = (tex, color) => psxify(new THREE.MeshLambertMaterial({ map: getTexture(tex), color, vertexColors: true }));
-  return {
-    chrome: L('gun', 0xdfe3ea),
-    metal: L('gun', 0xa8acb6),
-    dark: L('gun', 0x2c2e36),
-    wood: L('crate', 0x7a4428),
-    glove: L('skin', 0x1d1d24),
-    sleeve: L('skin', 0x34303a),
-    brass: L('gun', 0xd8b060),
-    red: L('gun', 0xb02020),
-    glow: new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true }),
-  };
-}
-
-function piece(build, pos = [0, 0, 0], rot = [0, 0, 0]) {
-  const gb = new GeoBuilder(0.4);
-  build(gb);
-  const g = gb.build().group;
-  const grp = new THREE.Group();
-  grp.add(g);
-  grp.position.set(...pos);
-  grp.rotation.set(...rot);
-  return grp;
-}
-
-function buildViewmodel(id, M) {
-  const root = new THREE.Group();
-  const anim = { var: {} };
-  const add = (p) => { root.add(p); return p; };
-  // per-weapon accent (recoloured per variant) + variant-only detail pieces
-  const acc = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
-  const V = (vid, build, pos, rot) => { const pc = add(piece(build, pos, rot)); (anim.var[vid] = anim.var[vid] || []).push(pc); return pc; };
-  const B = (gb, x0, y0, z0, x1, y1, z1, m, tint) => gb.box(x0, y0, z0, x1, y1, z1, m, { tint });
-  const C = (gb, x, y, z, r, len, axis, segs, m, tint) => gb.cylinder(x, y, z, r, len, axis, segs, m, { tint });
-  const rightHand = (gripPos, gripRot) => add(piece((gb) => {
-    B(gb, -0.042, -0.115, -0.03, 0.042, -0.02, 0.07, M.glove);
-    B(gb, -0.044, -0.03, -0.035, 0.044, -0.005, 0.02, M.glove, 0.85);
-    B(gb, -0.05, -0.2, 0.05, 0.05, -0.08, 0.5, M.sleeve);
-    B(gb, -0.052, -0.13, 0.04, 0.052, -0.09, 0.09, M.dark);
-  }, gripPos, gripRot));
-  const leftHand = (pos, len = 0.38) => add(piece((gb) => {
-    B(gb, -0.045, -0.06, -0.05, 0.035, 0.0, 0.05, M.glove);
-    B(gb, -0.03, -0.05, -0.065, 0.03, 0.015, -0.04, M.glove, 0.8);
-    B(gb, -0.2, -0.16, -0.02, -0.045, -0.06, len - 0.05, M.sleeve);
-  }, pos, [0, 0.35, 0]));
-  let muzzle;
-
-  if (id === 'hammer') {
-    add(piece((gb) => {
-      B(gb, -0.02, 0.035, -0.42, 0.02, 0.07, -0.06, M.chrome);
-      B(gb, -0.008, 0.07, -0.42, 0.008, 0.082, -0.08, M.dark);
-      B(gb, -0.016, 0.012, -0.3, 0.016, 0.036, -0.06, M.chrome, 0.85);
-      B(gb, -0.004, 0.082, -0.41, 0.004, 0.1, -0.385, M.dark);
-      B(gb, -0.024, -0.01, -0.07, 0.024, 0.085, 0.12, M.chrome, 0.9);
-      B(gb, -0.006, -0.05, 0.02, 0.006, -0.042, 0.09, M.dark);
-      B(gb, -0.006, -0.05, 0.02, 0.006, -0.01, 0.03, M.dark);
-      B(gb, -0.004, -0.035, 0.05, 0.004, -0.005, 0.06, M.dark);
-      B(gb, 0.024, 0.04, -0.2, 0.027, 0.05, -0.08, M.glow, [1, 0.75, 0.35]);
-    }));
-    anim.cyl = add(piece((gb) => {
-      C(gb, 0, 0, 0, 0.044, 0.1, 'z', 8, M.chrome, 0.72);
-      for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; B(gb, Math.cos(a) * 0.04 - 0.006, Math.sin(a) * 0.04 - 0.006, -0.052, Math.cos(a) * 0.04 + 0.006, Math.sin(a) * 0.04 + 0.006, 0.052, M.dark); }
-    }, [0, 0.036, -0.01]));
-    anim.hammerSpur = add(piece((gb) => B(gb, -0.007, 0, 0, 0.007, 0.045, 0.028, M.dark), [0, 0.07, 0.11], [-0.5, 0, 0]));
-    add(piece((gb) => { B(gb, -0.022, -0.14, -0.03, 0.022, 0.0, 0.035, M.wood); B(gb, -0.023, -0.145, -0.032, 0.023, -0.13, 0.037, M.dark); }, [0, -0.005, 0.1], [0.35, 0, 0]));
-    rightHand([0, -0.005, 0.1], [0.35, 0, 0]);
-    // MARKSMAN: coin stack clipped to the frame
-    V('marksman', (gb) => { for (let i = 0; i < 3; i++) C(gb, -0.03, 0.03, 0.0 + i * 0.016, 0.022, 0.006, 'x', 8, M.brass, 1 - i * 0.12); });
-    // PIERCER: ribbed barrel shroud with charge rings
-    V('piercer', (gb) => {
-      B(gb, -0.028, 0.028, -0.4, 0.028, 0.08, -0.22, M.dark);
-      for (const z of [-0.38, -0.33, -0.28]) B(gb, -0.031, 0.025, z, 0.031, 0.083, z + 0.012, acc);
-      B(gb, -0.03, 0.045, -0.21, -0.027, 0.06, -0.07, acc);
-    });
-    muzzle = new THREE.Vector3(0, 0.052, -0.44);
-  } else if (id === 'ripsaw') {
-    add(piece((gb) => {
-      B(gb, -0.035, -0.015, -0.32, 0.035, 0.06, 0.1, M.chrome);
-      B(gb, 0.035, 0.0, -0.25, 0.038, 0.04, 0.0, M.dark);
-      B(gb, -0.04, -0.03, -0.62, 0.04, 0.055, -0.32, M.dark, 0.9);
-      for (let z = -0.6; z < -0.35; z += 0.05) { B(gb, 0.04, 0.0, z, 0.042, 0.03, z + 0.025, M.chrome, 0.7); B(gb, -0.042, 0.0, z, -0.04, 0.03, z + 0.025, M.chrome, 0.7); }
-      C(gb, 0, 0.02, -0.77, 0.014, 0.3, 'z', 6, M.chrome);
-      C(gb, 0, 0.02, -0.93, 0.022, 0.06, 'z', 6, M.dark);
-      B(gb, -0.004, 0.035, -0.9, 0.004, 0.07, -0.88, M.dark);
-      B(gb, -0.018, 0.06, -0.6, 0.018, 0.072, 0.05, M.dark);
-      C(gb, 0, 0.1, -0.15, 0.026, 0.22, 'z', 8, M.dark);
-      B(gb, -0.012, 0.07, -0.08, 0.012, 0.085, -0.02, M.dark); B(gb, -0.012, 0.07, -0.27, 0.012, 0.085, -0.21, M.dark);
-      B(gb, -0.016, 0.088, -0.262, 0.016, 0.112, -0.258, M.glow, [0.4, 1, 0.85]);
-      B(gb, -0.03, -0.04, 0.1, 0.03, 0.05, 0.36, M.dark);
-      B(gb, -0.032, -0.06, 0.34, 0.032, 0.06, 0.38, M.dark, 0.7);
-      B(gb, 0.036, 0.02, -0.3, 0.039, 0.03, -0.05, M.glow, [0.35, 0.95, 0.8]);
-    }));
-    anim.mag = add(piece((gb) => { B(gb, -0.022, -0.17, -0.04, 0.022, 0, 0.04, M.dark); B(gb, -0.023, -0.18, -0.045, 0.023, -0.165, 0.045, M.metal); }, [0, -0.015, -0.17], [0.25, 0, 0]));
-    anim.bolt = add(piece((gb) => B(gb, 0.036, 0.0, 0, 0.055, 0.016, 0.03, M.metal), [0, 0.03, -0.05]));
-    add(piece((gb) => B(gb, -0.022, -0.12, -0.025, 0.022, 0, 0.03, M.dark), [0, -0.015, 0.04], [0.3, 0, 0]));
-    rightHand([0, -0.015, 0.04], [0.3, 0, 0]);
-    leftHand([-0.005, -0.03, -0.5]);
-    // SAWBLADE: spare blade slung under the handguard
-    V('sawblade', (gb) => { B(gb, -0.006, -0.035, -0.53, 0.006, -0.02, -0.47, M.dark); });
-    anim.saw = V('sawblade', (gb) => { C(gb, 0, 0, 0, 0.058, 0.008, 'x', 10, M.chrome); C(gb, 0, 0, 0, 0.018, 0.014, 'x', 6, acc); }, [0, -0.075, -0.5]);
-    // INFERNO: heat-sink fins that glow with heat, fuel canister underneath
-    V('inferno', (gb) => {
-      for (let z = -0.6; z < -0.35; z += 0.06) B(gb, -0.05, -0.035, z, 0.05, 0.065, z + 0.018, acc);
-      C(gb, 0, -0.075, -0.42, 0.026, 0.16, 'z', 8, M.red);
-      B(gb, -0.004, -0.05, -0.47, 0.004, -0.03, -0.37, M.dark);
-    });
-    muzzle = new THREE.Vector3(0, 0.02, -0.97);
-  } else if (id === 'breacher') {
-    add(piece((gb) => {
-      B(gb, -0.04, -0.02, -0.2, 0.04, 0.06, 0.08, M.dark);
-      C(gb, 0, 0.045, -0.47, 0.021, 0.55, 'z', 8, M.chrome);
-      C(gb, 0, 0.004, -0.42, 0.017, 0.45, 'z', 8, M.chrome, 0.8);
-      B(gb, -0.003, 0.066, -0.74, 0.003, 0.074, -0.73, M.brass);
-      B(gb, -0.032, -0.06, 0.08, 0.032, 0.05, 0.38, M.wood);
-      B(gb, -0.034, -0.08, 0.36, 0.034, 0.06, 0.4, M.dark);
-      for (let i = 0; i < 4; i++) { B(gb, -0.052, 0.0, -0.17 + i * 0.045, -0.04, 0.035, -0.135 + i * 0.045, M.red); B(gb, -0.053, 0.0, -0.17 + i * 0.045, -0.05, 0.035, -0.16 + i * 0.045, M.brass); }
-    }));
-    anim.pump = add(piece((gb) => {
-      B(gb, -0.036, -0.022, -0.09, 0.036, 0.034, 0.09, M.wood, 0.9);
-      for (let z = -0.08; z < 0.08; z += 0.025) B(gb, -0.038, -0.024, z, 0.038, 0.036, z + 0.01, M.dark, 0.9);
-    }, [0, 0, -0.42]));
-    add(piece((gb) => B(gb, -0.024, -0.13, -0.025, 0.024, 0, 0.035, M.wood), [0, -0.02, 0.07], [0.4, 0, 0]));
-    rightHand([0, -0.02, 0.07], [0.4, 0, 0]);
-    anim.leftHand = leftHand([-0.005, -0.03, -0.42]);
-    // CORE EJECT: live core window on the receiver
-    V('core', (gb) => {
-      B(gb, -0.014, 0.06, -0.15, 0.014, 0.074, -0.05, acc); B(gb, -0.018, 0.058, -0.155, 0.018, 0.062, -0.045, M.dark);
-      C(gb, -0.055, 0.0, -0.06, 0.024, 0.12, 'z', 8, M.dark); C(gb, -0.055, 0.0, -0.06, 0.026, 0.035, 'z', 8, acc);
-    });
-    // PUMP CHARGE: three charge lamps + a hot stripe
-    anim.pumpMats = [0, 1, 2].map(() => new THREE.MeshBasicMaterial({ color: 0x401018 }));
-    V('pump', (gb) => {
-      for (let i = 0; i < 3; i++) B(gb, -0.012, 0.06, -0.17 + i * 0.04, 0.012, 0.076, -0.145 + i * 0.04, anim.pumpMats[i]);
-      B(gb, 0.04, 0.0, -0.19, 0.043, 0.04, 0.07, acc);
-      B(gb, -0.03, 0.03, -0.68, 0.03, 0.068, -0.52, M.dark);
-      for (let z = -0.66; z < -0.53; z += 0.035) B(gb, -0.032, 0.048, z, 0.032, 0.07, z + 0.014, acc);
-    });
-    muzzle = new THREE.Vector3(0, 0.045, -0.76);
-  } else if (id === 'lance') {
-    add(piece((gb) => {
-      B(gb, -0.05, -0.03, -0.35, 0.05, 0.08, 0.15, M.chrome);
-      B(gb, -0.035, 0.0, -0.76, -0.02, 0.03, -0.35, M.dark); B(gb, 0.02, 0.0, -0.76, 0.035, 0.03, -0.35, M.dark);
-      B(gb, -0.008, 0.045, -0.72, 0.008, 0.06, -0.35, M.dark);
-      for (let z = -0.3; z < 0.1; z += 0.06) B(gb, -0.055, 0.08, z, 0.055, 0.1, z + 0.03, M.dark);
-      B(gb, -0.03, -0.09, -0.25, 0.03, -0.03, -0.05, M.dark);
-      B(gb, -0.031, -0.08, -0.24, 0.031, -0.04, -0.06, M.glow, [0.3, 0.85, 1]);
-      B(gb, -0.03, -0.05, 0.15, 0.03, 0.06, 0.4, M.dark);
-    }));
-    anim.coils = add(piece((gb) => { for (let i = 0; i < 4; i++) C(gb, 0, 0.025, -0.33 + i * 0.07, 0.058, 0.025, 'z', 8, M.glow, [0.25, 0.85, 1]); }));
-    add(piece((gb) => B(gb, -0.024, -0.13, -0.025, 0.024, 0, 0.035, M.dark), [0, -0.03, 0.06], [0.3, 0, 0]));
-    rightHand([0, -0.03, 0.06], [0.3, 0, 0]);
-    leftHand([-0.01, -0.03, -0.3]);
-    // SCOPE: rail scope with a lit lens
-    V('scope', (gb) => {
-      C(gb, 0, 0.135, -0.08, 0.021, 0.17, 'z', 8, M.dark);
-      B(gb, -0.008, 0.1, -0.13, 0.008, 0.118, -0.11, M.dark); B(gb, -0.008, 0.1, -0.05, 0.008, 0.118, -0.03, M.dark);
-      C(gb, 0, 0.135, -0.17, 0.017, 0.01, 'z', 8, acc);
-    });
-    // SPLITTER: prism at the muzzle and side fins
-    V('splitter', (gb) => { B(gb, -0.07, 0.0, -0.7, -0.055, 0.05, -0.5, acc); B(gb, 0.055, 0.0, -0.7, 0.07, 0.05, -0.5, acc); });
-    anim.prism = V('splitter', (gb) => B(gb, -0.028, -0.028, -0.028, 0.028, 0.028, 0.028, acc), [0, 0.015, -0.8], [0.6, 0.78, 0.6]);
-    muzzle = new THREE.Vector3(0, 0.015, -0.78);
-  } else if (id === 'thumper') {
-    add(piece((gb) => {
-      C(gb, 0, 0.025, -0.36, 0.05, 0.42, 'z', 10, M.chrome, 0.9);
-      C(gb, 0, 0.025, -0.58, 0.058, 0.04, 'z', 10, M.dark);
-      B(gb, -0.03, 0.08, -0.32, 0.03, 0.1, 0.1, M.dark);
-      B(gb, -0.02, 0.1, -0.12, 0.02, 0.15, -0.1, M.dark); B(gb, -0.02, 0.1, -0.3, 0.02, 0.14, -0.28, M.dark);
-      B(gb, -0.03, -0.07, 0.08, 0.03, 0.04, 0.12, M.dark); B(gb, -0.012, -0.03, 0.12, 0.012, 0.0, 0.36, M.dark);
-      B(gb, 0.05, 0.0, -0.45, 0.054, 0.04, -0.2, M.glow, [1, 0.35, 0.2]);
-    }));
-    anim.drum = add(piece((gb) => {
-      C(gb, 0, 0, 0, 0.078, 0.14, 'z', 10, M.dark);
-      for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; B(gb, Math.cos(a) * 0.05 - 0.012, Math.sin(a) * 0.05 - 0.012, 0.069, Math.cos(a) * 0.05 + 0.012, Math.sin(a) * 0.05 + 0.012, 0.072, M.glow, [1, 0.4, 0.2]); }
-    }, [0, 0.0, -0.06]));
-    add(piece((gb) => B(gb, -0.024, -0.13, -0.025, 0.024, 0, 0.035, M.dark), [0, -0.07, 0.09], [0.3, 0, 0]));
-    rightHand([0, -0.07, 0.09], [0.3, 0, 0]);
-    leftHand([-0.01, -0.03, -0.38]);
-    // STICKY: mine pack on the side
-    V('sticky', (gb) => { B(gb, -0.09, -0.02, -0.25, -0.055, 0.05, -0.12, M.red); B(gb, -0.093, 0.012, -0.24, -0.089, 0.03, -0.13, acc); });
-    // FREEZEFRAME: cryo rings and a longer rocket tube
-    V('freeze', (gb) => {
-      C(gb, 0, 0.025, -0.645, 0.046, 0.07, 'z', 10, M.dark);
-      C(gb, 0, 0.025, -0.6, 0.064, 0.02, 'z', 10, acc);
-      C(gb, 0, 0.025, -0.52, 0.06, 0.015, 'z', 10, acc);
-      B(gb, -0.004, 0.08, -0.6, 0.004, 0.11, -0.4, acc);
-    });
-    muzzle = new THREE.Vector3(0, 0.025, -0.66);
-  } else if (id === 'arc') {
-    add(piece((gb) => {
-      B(gb, -0.07, -0.1, -0.2, 0.07, 0.03, 0.12, M.chrome, 0.9);
-      B(gb, -0.08, -0.12, 0.1, 0.08, 0.04, 0.45, M.dark);
-      for (const [x, y] of [[-0.04, 0.03], [0.04, 0.03], [0, -0.07]]) B(gb, x - 0.012, y - 0.012, -0.42, x + 0.012, y + 0.012, -0.2, M.dark);
-      B(gb, -0.02, -0.04, -0.44, 0.02, 0.0, -0.4, M.glow, [0.8, 0.65, 1]);
-      for (let i = 0; i < 3; i++) B(gb, -0.081, -0.11, 0.15 + i * 0.09, 0.081, -0.09, 0.19 + i * 0.09, M.metal);
-    }));
-    anim.coils = add(piece((gb) => { for (const x of [-0.04, 0.04]) { C(gb, x, 0.07, -0.05, 0.022, 0.08, 'y', 6, M.glow, [0.75, 0.6, 1]); C(gb, x, 0.115, -0.05, 0.03, 0.015, 'y', 6, M.metal); } }));
-    // EMP: capacitor dish behind the emitter
-    V('emp', (gb) => { C(gb, 0, -0.02, -0.36, 0.088, 0.012, 'z', 10, acc); C(gb, 0, -0.02, -0.352, 0.07, 0.01, 'z', 10, M.dark); });
-    // TESLA TETHER: clamp prongs and a cable spool
-    V('tether', (gb) => {
-      for (const [x, y] of [[-0.05, 0.035], [0.05, 0.035], [0, -0.085]]) B(gb, x - 0.01, y - 0.01, -0.5, x + 0.01, y + 0.01, -0.4, acc);
-      C(gb, 0.085, -0.05, 0.02, 0.032, 0.03, 'x', 8, M.metal);
-      C(gb, 0.085, -0.05, 0.02, 0.026, 0.034, 'x', 8, acc, 0.8);
-    });
-    muzzle = new THREE.Vector3(0, -0.02, -0.45);
-  }
-
-  const fm = new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  const flash = new THREE.Group();
-  const q1 = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22), fm);
-  const q2 = q1.clone(); q2.rotation.y = Math.PI / 2;
-  const q3 = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), fm); q3.rotation.x = Math.PI / 2;
-  flash.add(q1, q2, q3);
-  flash.position.copy(muzzle);
-  flash.visible = false;
-  root.add(flash);
-  root.userData = { muzzle, flash, flashMat: fm, anim, acc };
-  root.visible = false;
-  return root;
-}
-
-// ---------------------------------------------------------------------------------------
 export class Weapons {
   constructor(game) {
     this.game = game;
@@ -329,24 +101,17 @@ export class Weapons {
     this.dir.position.set(-0.4, 1, 0.6);
     this.muzzleLight = new THREE.PointLight(0xffc070, 0, 2.5, 1.5);
     this.muzzleLight.position.set(0.25, -0.1, -0.8);
-    this.scene.add(this.hemi, this.dir, this.muzzleLight);
-    this.mats = vmMaterials();
-    this.models = {};
-    this.holder = new THREE.Group();
-    this.holder.position.set(0.21, -0.2, -0.4);
-    this.holder.scale.setScalar(0.82);
-    this.scene.add(this.holder);
-    for (const id of WEAPON_ORDER) { this.models[id] = buildViewmodel(id, this.mats); this.holder.add(this.models[id]); }
-    const gb = new GeoBuilder(0.4);
-    gb.box(-0.06, -0.06, -0.1, 0.06, 0.06, 0.04, this.mats.glove);
-    gb.box(-0.07, -0.08, 0.04, 0.07, 0.07, 0.5, this.mats.sleeve);
-    gb.box(-0.062, 0.0, -0.11, 0.062, 0.03, -0.06, this.mats.metal, { tint: 0.7 });
-    this.fist = gb.build().group;
-    this.fist.position.set(-0.22, -0.2, -0.2);
-    this.fist.visible = false;
-    this.scene.add(this.fist);
+    // a cool rim from behind-right so chrome edges read against dark rooms (fixed light count)
+    this.rim = new THREE.DirectionalLight(0x9fd8ff, 0.8);
+    this.rim.position.set(0.8, 0.3, -1);
+    this.scene.add(this.hemi, this.dir, this.muzzleLight, this.rim);
+    this.vm = new Viewmodel(this);
+    this.models = this.vm.models;
+    this.holder = this.vm.holder;
+    this.mats = this.vm.M;
     this.coinGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.018, 10);
     this.coinMat = new THREE.MeshBasicMaterial({ color: 0xffd040 });
+    this.coinRim = new THREE.MeshBasicMaterial({ color: 0xfff4c0 });
     this.coins = [];
     for (let i = 0; i < 8; i++) {
       const m = new THREE.Mesh(this.coinGeo, this.coinMat);
@@ -372,10 +137,8 @@ export class Weapons {
     this.charge = 0; this.charging = false;
     this.bloom = 0;
     this.hitCounter = 0;
-    this.recoilP = 0; this.recoilV = 0; this.recoilAccum = 0; this.recoilVel = 0;
-    this.kickRoll = 0; this.kickRollV = 0;
-    this.swayX = 0; this.swayY = 0; this.inX = 0; this.inY = 0; this.inZ = 0;
-    this.flashT = 0; this.punchAnim = 0; this.pumpT = 0; this.autoReloadT = 0;
+    this.recoilAccum = 0;
+    this.punchAnim = 0; this.kickAnim = false; this.pumpT = 0; this.autoReloadT = 0;
     this.cylAngle = 0; this.cylTarget = 0; this.drumAngle = 0; this.boltT = 0;
     this.coinCharges = 4;
     // variant state
@@ -387,6 +150,7 @@ export class Weapons {
     this.flourish = 0; this.finisherGlow = 0;
     this.adsK = 0; this.adsOn = false; this.adsStart = -9; this.qsUsed = false; this.scopeK = 0;
     for (const c of this.coins) { c.alive = false; c.mesh.visible = false; }
+    this.vm.reset();
     // remembered variant picks carry between runs; the training deck always uses the classics
     const pref = this.game.mode === 'tutorial' ? {} : this.loadPrefs();
     for (const id of WEAPON_ORDER) this.variant[id] = clamp(pref[id] | 0, 0, DEFS[id].variants.length - 1);
@@ -520,6 +284,9 @@ export class Weapons {
   onPunch() { this.punchAnim = 0.28; this.kickAnim = false; }
   // slide kick: same timing as a punch, but the strike comes in low from below the frame
   onKick() { this.kickAnim = true; }
+  onParry() { this.vm.onParry(); }
+  // movement feedback for the viewmodel: 'land' (k = impact 0..1), 'jump', 'dash', 'vault'
+  onMove(kind, k) { this.vm.onMove(kind, k); }
 
   // Finisher reward: a full magazine now, a little reserve for everything else.
   onFinisher() {
@@ -563,19 +330,20 @@ export class Weapons {
 
   startReload() {
     const id = this.current, d = DEFS[id], a = this.ammo[id];
-    if (this.reloading || this.switchTo || a.mag >= this.magSize() || a.reserve <= 0) return;
+    if (this.reloading || this.switchTo || a.mag >= this.magSize() || a.reserve <= 0) return false;
     this.reloading = true;
     this.charging = false; this.charge = 0; this.pierceCharge = 0;
     this.reloadTotal = this.reloadT = (d.reloadShell || d.reload) / this.game.player.stats.reloadMul;
     this.game.audio.play('reload', null, 0.7);
     this.game.emit('reload');
+    return true;
   }
 
   update(dt, input) {
     const g = this.game;
     const p = g.player;
     this.cooldown -= dt; this.altCd -= dt; this.empCd -= dt;
-    this.flashT -= dt; this.punchAnim -= dt; this.pumpT -= dt; this.boltT -= dt; this.flourish -= dt; this.finisherGlow -= dt;
+    this.punchAnim -= dt; this.pumpT -= dt; this.boltT -= dt; this.flourish -= dt; this.finisherGlow -= dt;
     this.bloom = Math.max(0, this.bloom - dt * 0.12);
     this.coinCharges = Math.min(p.stats.coinMax, this.coinCharges + dt * 0.9);
     if (this.recoilAccum > 0) {
@@ -608,6 +376,7 @@ export class Weapons {
         this.current = this.switchTo;
         this.models[this.current].visible = true;
         this.cooldown = Math.max(this.cooldown, 0.12);
+        this.vm.onDraw(this.current);
       }
       if (this.switchT <= 0) {
         this.switchTo = null;
@@ -620,13 +389,15 @@ export class Weapons {
     // ADS: the AIM input (or the SCOPE variant's ALT) brings the sights up; firing stays live
     const wantAds = input.aiming || (id === 'lance' && vid !== 'splitter' && input.alt);
     const adsOn = wantAds && !this.reloading && !this.switchTo && p.alive;
-    if (adsOn && !this.adsOn) { this.adsStart = g.time; this.qsUsed = false; }
+    if (adsOn && !this.adsOn) { this.adsStart = g.time; this.qsUsed = false; g.audio.play('scopeIn', null, this.hasScope() ? 0.8 : 0.35); }
+    else if (!adsOn && this.adsOn) g.audio.play('scopeOut', null, this.hasScope() ? 0.6 : 0.25);
     this.adsOn = adsOn;
     input.ads = adsOn;
     this.adsK = damp(this.adsK || 0, adsOn ? 1 : 0, id === 'lance' ? 16 : 13, dt);
     this.scopeK = this.hasScope() ? clamp((this.adsK - 0.55) / 0.35, 0, 1) : 0;
 
-    if (input.wasPressed('reload')) this.startReload();
+    // RELOAD with a full magazine inspects the gun instead
+    if (input.wasPressed('reload') && !this.startReload() && a.mag >= this.magSize()) this.vm.inspect();
     if (this.reloading) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
@@ -781,7 +552,8 @@ export class Weapons {
       c.pos.copy(o).addScaledVector(dir, 0.6).add(new THREE.Vector3(0, -0.15, 0));
       c.vel.copy(dir).multiplyScalar(7).add(new THREE.Vector3(0, 7.5, 0)).addScaledVector(p.body.vel, 0.9);
       g.audio.play('coin', null, 0.8);
-      this.punchAnim = 0.2;
+      g.fx.glint(c.pos, 0xffe080, 0.5, 0.12);
+      this.vm.onCoin();
       g.emit('coin');
       return;
     }
@@ -1097,6 +869,7 @@ export class Weapons {
     const g = this.game;
     if (kill) { g.style.add('QUICKSCOPED', 90); g.hitstop(0.05); } else g.style.add('QUICKSCOPE', 25);
     g.audio.play('headshot', null, 0.8);
+    g.audio.play('quickscope', null, kill ? 1 : 0.7);
     if (point) g.fx.sparksBurst(point, 0x9ff8ff, 10, 5, 0.25);
     g.emit('quickscope', kill);
   }
@@ -1147,11 +920,7 @@ export class Weapons {
     p.pitch += (Math.asin(clamp(v.y, -1, 1)) - p.pitch) * k * 0.5;
   }
 
-  muzzleWorld() {
-    const cam = this.game.camera;
-    const m = this.models[this.current].userData.muzzle;
-    return this.muzzleW.set(this.holder.position.x + m.x * 0.9, this.holder.position.y + m.y + 0.05, -0.75).applyMatrix4(cam.matrixWorld);
-  }
+  muzzleWorld() { return this.vm.muzzleWorld(this.muzzleW); }
 
   spreadDir(base, spread, out) {
     const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * spread;
@@ -1186,24 +955,16 @@ export class Weapons {
   kick(d) {
     const g = this.game, p = g.player;
     const steady = p.stats.spreadMul < 1;
-    this.recoilV += d.kick * (steady ? 0.7 : 1);
     const rk = d.recoil * (steady ? 0.6 : 1);
     const kickUp = rk * (0.7 + Math.random() * 0.3);
     p.pitch = Math.min(1.5, p.pitch + kickUp);
     this.recoilAccum += kickUp;
     p.yaw += (Math.random() - 0.5) * rk * 0.4;
-    this.kickRollV += (Math.random() < 0.5 ? -1 : 1) * d.kick * 16;
     const fs = d.flashScale || 1;
-    this.flashT = fs > 1.4 ? 0.06 : 0.045;
     const vid = this.variantId();
     const base = DEFS[this.current];
     const fcol = p.rushT > 0 ? 0xff5ae8 : d.flash !== base.flash ? d.flash : (VFLASH[vid] || d.flash);
-    const ud = this.models[this.current].userData;
-    ud.flash.visible = true;
-    ud.flash.rotation.z = Math.random() * Math.PI;
-    const s = (0.8 + Math.random() * 0.6) * fs;
-    ud.flash.scale.set(s, s, s * (1 + Math.random() * 0.8));
-    ud.flashMat.color.setHex(fcol);
+    this.vm.recoil(steady ? { kick: d.kick * 0.7 } : d, this.current, fcol, fs);
     this.muzzleLight.color.setHex(fcol);
     this.muzzleLight.intensity = 3;
     const mw = this.muzzleWorld();
@@ -1521,122 +1282,14 @@ export class Weapons {
   }
 
   // ---------------------------------------------------------------- animation
-  animate(dt, input) {
-    const g = this.game, p = g.player;
-    const m = this.models[this.current];
-    const ud = m.userData, an = ud.anim;
-    const sdt = Math.min(dt, 0.033);
-    // spring recoil: an impulse snaps the gun back, the spring returns it with a small overshoot
-    this.recoilVel += this.recoilV * 32; this.recoilV = 0;
-    this.recoilVel += (-420 * this.recoilP - 24 * this.recoilVel) * sdt;
-    this.recoilP += this.recoilVel * sdt;
-    this.kickRollV += (-300 * this.kickRoll - 20 * this.kickRollV) * sdt;
-    this.kickRoll += this.kickRollV * sdt;
-    this.swayX = damp(this.swayX, clamp(-input.lookDX * 4, -0.06, 0.06), 10, dt);
-    this.swayY = damp(this.swayY, clamp(input.lookDY * 4, -0.06, 0.06), 10, dt);
-    // movement inertia: the gun trails strafes, rises when falling, dips on jumps
-    const v = p.body.vel;
-    const lv = v.x * p.right.x + v.z * p.right.z, fv = v.x * p.fwd.x + v.z * p.fwd.z;
-    this.inX = damp(this.inX, clamp(-lv * 0.0022, -0.035, 0.035), 6, dt);
-    this.inY = damp(this.inY, clamp(-v.y * 0.0018, -0.03, 0.04), 8, dt);
-    this.inZ = damp(this.inZ, clamp(fv * 0.0012, -0.02, 0.03), 6, dt);
-    const t = g.time;
-    const bob = p.bobAmp;
-    const bx = Math.cos(p.bob) * 0.012 * bob;
-    const by = -Math.abs(Math.sin(p.bob)) * 0.016 * bob;
-    const idle = Math.sin(t * 1.6) * 0.004;
-    let sw = 0;
-    if (this.switchTo) sw = this.switchT > 0.16 ? 1 - (this.switchT - 0.16) / 0.16 : this.switchT / 0.16;
-    let rl = 0, rk = 0;
-    if (this.reloading) {
-      rk = 1 - this.reloadT / this.reloadTotal;
-      rl = DEFS[this.current].reloadShell ? 0.35 + Math.sin(rk * Math.PI) * 0.25 : Math.sin(rk * Math.PI);
-    }
-    const fl = this.flourish > 0 ? Math.sin((1 - this.flourish / 0.32) * Math.PI) : 0;
-    const sprintK = p.sprint && p.body.grounded && p.speedNow > 6 && !input.fire ? 1 : 0;
-    this.sprintK = damp(this.sprintK || 0, sprintK, 8, dt);
-    this.slideK = damp(this.slideK || 0, p.sliding ? 1 : 0, 10, dt);
-    const ia = 1 - this.adsK * 0.7;
-    const h = this.holder;
-    h.position.set(
-      0.21 - this.adsK * 0.21 + bx + this.swayX - this.sprintK * 0.04 + this.slideK * 0.03 + this.inX * ia,
-      -0.2 + this.adsK * 0.09 + by + idle - sw * 0.35 - rl * 0.08 + this.swayY + p.landDip * 0.8 - this.sprintK * 0.03 - this.slideK * 0.04 + this.inY * ia - fl * 0.04,
-      -0.4 + this.recoilP * 1.6 + this.adsK * 0.06 + this.inZ * ia,
-    );
-    h.rotation.set(
-      this.recoilP * 2.2 + rl * 0.5 + sw * 0.6 - this.sprintK * 0.25 + p.landDip * 0.6 + this.inY * 2,
-      0.09 * (1 - this.adsK) + this.swayX * 1.5 + this.sprintK * 0.5 - fl * 0.25 + this.inX * 2,
-      0.06 * (1 - this.adsK) + rl * 0.6 + this.sprintK * 0.15 + p.roll * 2 + this.slideK * 0.25 + this.kickRoll + fl * 0.7,
-    );
-    if (an.cyl) {
-      if (this.reloading) { an.cyl.rotation.z += dt * 18; an.cyl.position.x = Math.sin(rk * Math.PI) * 0.05; this.cylAngle = an.cyl.rotation.z; this.cylTarget = this.cylAngle; }
-      else { this.cylAngle += (this.cylTarget - this.cylAngle) * Math.min(1, dt * 25); an.cyl.rotation.z = this.cylAngle + (this.pierceCharge > 0 ? Math.sin(t * 60) * 0.05 * this.pierceCharge : 0); an.cyl.position.x = 0; }
-      an.hammerSpur.rotation.x = this.flashT > 0 || this.pierceCharge >= 1 ? 0 : -0.5;
-    }
-    if (an.pump) {
-      const k = this.pumpT > 0 ? Math.sin((1 - this.pumpT / 0.45) * Math.PI) : 0;
-      an.pump.position.z = -0.42 + k * 0.09;
-      if (an.leftHand) an.leftHand.position.z = -0.42 + k * 0.09;
-    }
-    if (an.bolt) an.bolt.position.z = -0.05 + (this.boltT > 0 ? 0.04 : 0) + (this.reloading && rk > 0.7 && rk < 0.9 ? 0.05 : 0);
-    if (an.mag) an.mag.position.y = -0.015 - (this.reloading ? Math.sin(Math.min(1, rk * 1.5) * Math.PI) * 0.18 : 0);
-    if (an.drum) {
-      // the drum swings out and spins while reloading
-      if (this.reloading) { an.drum.rotation.z += dt * 14; this.drumAngle = an.drum.rotation.z; an.drum.position.x = Math.sin(rk * Math.PI) * 0.07; }
-      else { an.drum.rotation.z += (this.drumAngle - an.drum.rotation.z) * Math.min(1, dt * 14); an.drum.position.x = 0; }
-    }
-    if (an.coils) {
-      if (this.current === 'arc') an.coils.rotation.y += dt * (input.fire ? 30 : this.tether ? 12 : 3);
-      an.coils.scale.setScalar(this.current === 'lance' && this.charging ? 1 + this.charge * 0.15 + Math.random() * 0.03 : 1);
-      // lance cells slide back out of the coils on reload
-      if (this.current === 'lance') an.coils.position.z = this.reloading ? Math.sin(rk * Math.PI) * 0.12 : 0;
-    }
-    if (an.saw) an.saw.rotation.x += dt * (this.altCd > 0 ? 40 : 5);
-    if (an.prism) an.prism.rotation.y += dt * (this.charging ? 6 + this.charge * 24 : 1.5);
-    if (an.pumpMats) {
-      const blink = this.pumpLevel >= 3 && Math.sin(t * 30) > 0;
-      for (let i = 0; i < 3; i++) an.pumpMats[i].color.setHex(i < this.pumpLevel ? (blink ? 0xffffff : 0xff3050) : 0x401018);
-    }
-    // accent glow follows the variant's state (heat, charge, freeze, tether)
-    if (ud.acc && ud.accBase) {
-      const vid = this.variantId();
-      let k = 1;
-      if (vid === 'inferno') k = 0.35 + this.heat * 0.9 + (this.overheated ? Math.sin(t * 25) * 0.25 : 0);
-      else if (vid === 'piercer') k = 0.55 + this.pierceCharge * 0.8 + (this.pierceCharge >= 1 ? Math.sin(t * 20) * 0.2 : 0);
-      else if (vid === 'freeze') k = this.freezeOn ? 0.9 + Math.sin(t * 12) * 0.3 : 0.75;
-      else if (vid === 'tether') k = this.tether ? 0.9 + Math.sin(t * 22) * 0.3 : 0.75;
-      else if (vid === 'pump') k = 0.6 + this.pumpLevel * 0.2;
-      ud.acc.color.copy(ud.accBase).multiplyScalar(Math.max(0.15, k));
-    }
-    if (this.current === 'lance' && this.charging) { h.position.x += (Math.random() - 0.5) * this.charge * 0.006; h.position.y += (Math.random() - 0.5) * this.charge * 0.006; }
-    if (this.pierceCharge > 0) { h.position.x += (Math.random() - 0.5) * this.pierceCharge * 0.004; h.position.y += (Math.random() - 0.5) * this.pierceCharge * 0.004; }
-    // shared glow: lance charge brightens it, RUSH tints it magenta, finishers flash red
-    let gs = this.current === 'lance' && this.charging ? 0.6 + this.charge * 1.4 : 1;
-    let gr = gs, gg = gs, gb = gs;
-    if (p.rushT > 0) { const k = 0.5 + 0.5 * Math.sin(t * 10); gr *= 1.2; gg *= 0.3 + 0.25 * k; gb *= 1.1; }
-    if (this.finisherGlow > 0) { gg *= 0.35; gb *= 0.35; gr *= 1.3; }
-    this.mats.glow.color.setRGB(gr, gg, gb);
-    m.userData.flash.visible = this.flashT > 0;
-    this.muzzleLight.intensity = this.flashT > 0 ? 3 : 0;
-    if (this.punchAnim > 0) {
-      const ext = Math.sin((1 - this.punchAnim / 0.28) * Math.PI);
-      this.fist.visible = true;
-      if (this.kickAnim) {
-        this.fist.position.set(-0.06 + ext * 0.04, -0.46 + ext * 0.22, -0.3 - ext * 0.3);
-        this.fist.rotation.set(-ext * 0.7, 0, ext * 0.5);
-      } else {
-        this.fist.position.set(-0.18 + ext * 0.08, -0.2 + ext * 0.08, -0.25 - ext * 0.35);
-        this.fist.rotation.set(0, 0, ext * 0.3);
-      }
-    } else this.fist.visible = false;
-  }
+  animate(dt, input) { this.vm.update(dt, input); }
 
   resize(aspect) { this.camera.aspect = aspect; this.camera.updateProjectionMatrix(); }
 
-  setTheme(theme) { this.hemi.color.setHex(theme.sky); this.hemi.groundColor.setHex(theme.ground); }
+  setTheme(theme) { this.hemi.color.setHex(theme.sky); this.hemi.groundColor.setHex(theme.ground); this.vm.setTheme(theme); }
 
   setSkin(skin) {
     const col = { default: 0xdfe3ea, gilded: 0xffd070, bloodline: 0xd04040, void: 0x7a6ab0, verdigris: 0x6ad0a0, obsidian: 0x404048 }[skin || 'default'] || 0xdfe3ea;
-    this.mats.chrome.color.setHex(col);
+    this.vm.setSkin(col);
   }
 }
