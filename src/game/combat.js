@@ -230,7 +230,8 @@ export class Combat {
     const g = this.game;
     if (!boss.alive) return 0;
     const part = info.part || {};
-    if (part.shielded) {
+    // a parried seeker is the only thing that gets through a parry shield (it shatters it)
+    if (part.shielded && !(info.source === 'parry' && boss.shieldUp)) {
       g.hud.hitMarker('shield');
       g.audio.play('shieldHit', info.point, 0.6);
       g.fx.sparksBurst(info.point || boss.pos, 0x40e0ff, 5, 4, 0.2, 0.08);
@@ -273,7 +274,7 @@ export class Combat {
         if (d < bestD) { bestD = d; bestHb = hb; }
       }
       if (bestHb && bestD < radius) {
-        this.damageBoss(boss, dmg * (1 - Math.max(0, bestD) / radius * 0.6), { source: 'explosion', part: bestHb, point: new THREE.Vector3(bestHb.x, bestHb.y, bestHb.z), quiet: true });
+        this.damageBoss(boss, dmg * (1 - Math.max(0, bestD) / radius * 0.6), { source: opts.source === 'parry' ? 'parry' : 'explosion', part: bestHb, point: new THREE.Vector3(bestHb.x, bestHb.y, bestHb.z), quiet: true });
       }
     }
     for (const b of g.bosses.barriers) {
