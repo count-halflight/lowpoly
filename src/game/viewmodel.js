@@ -824,7 +824,9 @@ export class Viewmodel {
     this.lastAdsK = adsK;
     const sightY = id === 'lance' && w.variantId('lance') === 'splitter' ? SPLITTER_SIGHT : cfg.sight;
     const S = h.scale.x;
-    let px = cfg.hip[0] + (-0.0 - cfg.hip[0]) * ae;
+    // wide phone screens: keep the hip pose out at the right instead of drifting to the middle
+    const wide = clamp((w.camera.aspect - 1.78) * 0.1, -0.04, 0.06);
+    let px = cfg.hip[0] + wide + (-cfg.hip[0] - wide) * ae;
     let py = cfg.hip[1] + (-sightY * S - cfg.hip[1]) * ae;
     let pz = cfg.hip[2] + (cfg.adsZ - cfg.hip[2]) * ae;
     let rx = cfg.rot[0] * (1 - ae), ry = cfg.rot[1] * (1 - ae), rz = cfg.rot[2] * (1 - ae);
