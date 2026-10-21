@@ -103,7 +103,7 @@ try {
   const bad = [];
   if (!(out.lowgrav.jumpApex > 2.2)) bad.push('low gravity should raise the jump apex');
   if (!(out.ice.friction < 0.5)) bad.push('ice friction');
-  if (out.conveyor.conveyors && Math.abs(out.conveyor.conveyorDrift) < 1) bad.push('conveyor drift');
+  if (out.conveyor.conveyors && Math.abs(out.conveyor.conveyorDrift) < 1) bad.push('conveyor drift' + (out.conveyor.arch === 'tramyard' ? ' (OPEN BUG: the belt lies under the 0.4 m tram-yard station island and never moves anyone: needs the rooms.js bandFree hook)' : ''));
   if (out.barrels.barrels && out.barrels.barrelsBlown < 1) bad.push('barrels did not explode');
   if (!(out.dark.darkK > 0.5)) bad.push('blackout not dark');
   if (!(out.fog.fogFar < 40)) bad.push('fog not applied');

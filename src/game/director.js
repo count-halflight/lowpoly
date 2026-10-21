@@ -260,6 +260,7 @@ export class Director {
     this.severed = false;
     this.minisDown = false;
     this.lateT = 0;
+    this.stallT = 0;
     this.roomToken = (this.roomToken || 0) + 1;
     const route = room.route || { type: 'combat' };
     this.lastRoutes.push(route.type);
@@ -584,6 +585,49 @@ export class Director {
       this.lateT += dt;
       if (this.lateT > 1.5) { this.lateT = 0; this.shutdownEscorts(room); }
     }
+    this.stallCheck(dt, room, alive);
+  }
+
+  // Last-resort net: every wave is out, something is alive, and nothing has taken damage for half
+  // a minute. Survivors the player cannot reach (under a regrown floor, off the nav grid, outside
+  // the walls) are brought back onto open floor nearby, so a room can always be cleared.
+  stallCheck(dt, room, alive) {
+    const g = this.game;
+    const dealt = g.run.damageDealt;
+    if (alive === 0 || this.waveIdx < this.waves.length || dealt !== this.lastDealt) { this.lastDealt = dealt; this.stallT = 0; return; }
+    this.stallT = (this.stallT || 0) + dt;
+    if (this.stallT < 30 || !room.nav) return;
+    this.stallT = 24; // look again every 6 s
+    const nav = room.nav, pp = g.player.body.pos;
+    nav.flow(pp.x, pp.z);
+    for (const e of g.enemies.list) {
+      if (!e.alive || !e.body || e.perch || e.latched) continue;
+      const p = e.pos;
+      const k = nav.nearestFree(p.x, p.z, p.y > 0.5 ? 4 : 2);
+      const onNav = e.flying || (k >= 0 && nav.dist[k] >= 0);
+      if (onNav && room.containsXZ(p.x, p.z) && p.y > room.floorAt(p.x, p.z) - 1.2 && p.y < room.spec.H) continue;
+      const to = this.reachableCell(room, pp);
+      if (!to) return;
+      g.fx.spawnColumn(p.x, Math.max(0, p.y), p.z, 0xff3050, 0.8, 6);
+      p.set(to.x, (e.flying ? 2.6 : 0.05) + room.floorAt(to.x, to.z), to.z);
+      e.body.vel.set(0, 0, 0);
+      if (!e.mini) e.hunt = true;
+      g.fx.spawnColumn(to.x, 0, to.z, 0xff3050, 1.0, 6);
+    }
+  }
+
+  // a free nav cell the player can walk to, 5-14 cells away (flow field already from the player)
+  reachableCell(room, pp) {
+    const nav = room.nav, out = { x: 0, z: 0 };
+    for (let tries = 0; tries < 200; tries++) {
+      const k = (Math.random() * nav.nx * nav.nz) | 0;
+      const d = nav.dist[k];
+      if (!nav.free(k) || d < (tries < 150 ? 5 : 1) || d > (tries < 150 ? 14 : 99)) continue;
+      nav.center(k, out);
+      if (room.hazardAt(out.x, out.z, 0)) continue;
+      return out;
+    }
+    return null;
   }
 
   remaining() {
