@@ -33,6 +33,7 @@ export const THEMES = [
     wall: 0xb8bcc8, floor: 0xa6aab4, trim: 0x40444f, prop: 0x8890a0, accent: 0x40c8ff, accent2: 0xff40a0,
     lamp: 0xffffff, fog: 0x12161f, fogNear: 12, fogFar: 64, sky: 0xb0bcd8, ground: 0x2a2e3a, hemi: 1.15,
     light: 0xf0f6ff, floorTex: 'tile3', wallTex: 'panel2', ceilTex: 'ceil', trimTex: 'trim', crateTex: 'crate2', hazard: 'electric',
+    gloss: [0x303438, 26],
     grade: { hi: 0xf4f8ff, sat: 1.05, contrast: 0.2, lift: 0.04, bloom: 0.8, thresh: 0.7 },
   },
   {
@@ -40,6 +41,7 @@ export const THEMES = [
     wall: 0x42547e, floor: 0x4e5672, trim: 0x182038, prop: 0x6a6040, accent: 0xffc840, accent2: 0xff4060,
     lamp: 0xfff0c0, fog: 0x04060f, fogNear: 10, fogFar: 62, sky: 0x5068b8, ground: 0x0c0e1c, hemi: 1.25,
     light: 0xc4d2ff, floorTex: 'plate', wallTex: 'panel2', ceilTex: 'ceil2', trimTex: 'trim', crateTex: 'crate2', grateTex: 'grate2', hazard: 'electric',
+    gloss: [0x26282e, 18],
     grade: { hi: 0xfff2d0, sat: 1.12, contrast: 0.22, lift: 0.05, bloom: 1.0 },
   },
   {
@@ -47,6 +49,7 @@ export const THEMES = [
     wall: 0x9ab4c8, floor: 0xa8bccc, trim: 0x2c3c4c, prop: 0x7a8c9a, accent: 0x9ff0ff, accent2: 0xff4060,
     lamp: 0xf0fbff, fog: 0x101c28, fogNear: 7, fogFar: 52, sky: 0xa8d0f0, ground: 0x1c2a3a, hemi: 1.1,
     light: 0xd4eeff, floorTex: 'tile2', wallTex: 'ice', ceilTex: 'ceil', trimTex: 'trim', crateTex: 'crate2', hazard: 'coolant',
+    gloss: [0x262c34, 24],
     grade: { hi: 0xe8f6ff, sat: 0.92, contrast: 0.15, lift: 0.08, bloom: 0.9, thresh: 0.66 },
   },
   {
@@ -54,6 +57,7 @@ export const THEMES = [
     wall: 0xa08c88, floor: 0x70544e, trim: 0x2c1414, prop: 0x7a5a50, accent: 0xff3030, accent2: 0xffd060,
     lamp: 0xffe4cc, fog: 0x1a0606, fogNear: 8, fogFar: 52, sky: 0xa87870, ground: 0x320808, hemi: 1.1,
     light: 0xffc0a8, floorTex: 'wet', wallTex: 'tile2', ceilTex: 'ceil2', trimTex: 'rust', crateTex: 'crate', hazard: 'molten',
+    gloss: [0x707070, 40, 'wetSpec'],
     grade: { hi: 0xffe0d0, sat: 1.05, contrast: 0.24, lift: 0.06, bloom: 1.0 },
   },
   {
@@ -61,6 +65,7 @@ export const THEMES = [
     wall: 0x8e7e9a, floor: 0x705e5a, trim: 0x2c1c26, prop: 0x6a4a3a, accent: 0xffd060, accent2: 0xa080ff,
     lamp: 0xfff0c8, fog: 0x140b1a, fogNear: 9, fogFar: 58, sky: 0xa484d8, ground: 0x3a2210, hemi: 1.2,
     light: 0xffd8a0, floorTex: 'flag', wallTex: 'stone', ceilTex: 'ceil2', trimTex: 'trim', crateTex: 'crate', hazard: 'electric',
+    gloss: [0x2a241c, 20],
     grade: { hi: 0xffe0b0, sat: 1.15, contrast: 0.22, lift: 0.08, bloom: 1.15 },
   },
   {
@@ -68,6 +73,7 @@ export const THEMES = [
     wall: 0x52566a, floor: 0x3c404a, trim: 0x101216, prop: 0x5a5e6a, accent: 0x3ef0d0, accent2: 0xff3050,
     lamp: 0xf0ffff, fog: 0x030406, fogNear: 9, fogFar: 58, sky: 0x7a8aa4, ground: 0x08090c, hemi: 1.1,
     light: 0xd8fff6, floorTex: 'grate2', wallTex: 'panel2', ceilTex: 'ceil2', trimTex: 'trim', crateTex: 'crate2', hazard: 'electric',
+    gloss: [0x34383c, 22],
     grade: { hi: 0xf0fffc, sat: 0.9, contrast: 0.28, lift: 0.03, bloom: 1.15, thresh: 0.6 },
   },
   {
@@ -75,6 +81,7 @@ export const THEMES = [
     wall: 0x76426e, floor: 0x503e58, trim: 0x2c1032, prop: 0x5a2a4a, accent: 0xff3df0, accent2: 0x7affe0,
     lamp: 0xffc0f0, fog: 0x14041a, fogNear: 8, fogFar: 54, sky: 0xa04aa8, ground: 0x0a2422, hemi: 1.15,
     light: 0xff98e4, floorTex: 'concrete2', wallTex: 'flesh', ceilTex: 'ceil2', trimTex: 'rust', crateTex: 'crate2', concreteTex: 'concrete2', hazard: 'molten',
+    gloss: [0x3a2438, 28],
     grade: { hi: 0xffd8f4, sat: 1.18, contrast: 0.24, lift: 0.08, bloom: 1.2 },
   },
 ];
@@ -91,11 +98,21 @@ function lambert(tex, color, opts = {}) {
   return psxify(m);
 }
 
+// Glossy floors (theme.gloss: [specular, shininess, specularMap?]): Blinn-Phong highlights pool
+// under the lamps on polished tile, ice and wet killing floors. Same fixed lights, one extra program.
+function glossy(tex, color, gloss) {
+  const [spec, shininess, specMap] = gloss;
+  return psxify(new THREE.MeshPhongMaterial({
+    map: getTexture(tex), color, vertexColors: true, specular: spec, shininess,
+    specularMap: specMap ? getTexture(specMap) : null,
+  }));
+}
+
 export function themeMaterials(theme) {
   if (matCache.has(theme.id)) return matCache.get(theme.id);
   const m = {
     wall: lambert(theme.wallTex || 'panel', theme.wall),
-    floor: lambert(theme.floorTex || 'tile', theme.floor),
+    floor: theme.gloss ? glossy(theme.floorTex || 'tile', theme.floor, theme.gloss) : lambert(theme.floorTex || 'tile', theme.floor),
     ceiling: lambert(theme.ceilTex || 'panel', new THREE.Color(theme.wall).multiplyScalar(0.45)),
     trim: lambert(theme.trimTex || 'gun', theme.trim),
     crate: lambert(theme.crateTex || 'crate', theme.prop),

@@ -127,6 +127,14 @@ function stencil(ctx, text, x, y, v = 40, a = 0.75) {
   }
 }
 
+// puddle layout shared by 'wet' and its specular map 'wetSpec'
+function puddles(s) {
+  const r = new RNG(9137);
+  const out = [];
+  for (let i = 0; i < 3; i++) out.push([r.next() * s, r.next() * s, 8 + r.next() * 12, 4 + r.next() * 6]);
+  return out;
+}
+
 const generators = {
   // ------------------------------------------------------------------ walls
   panel(ctx, s, rng) { // riveted service plates (also bosses/chassis)
@@ -298,13 +306,23 @@ const generators = {
   },
   wet(ctx, s, rng) { // wet tiles: dark puddles with streaky lamp reflections
     generators.tile2(ctx, s, rng);
-    for (let i = 0; i < 3; i++) {
-      const cx = rng.next() * s, cy = rng.next() * s, rx = 8 + rng.next() * 12, ry = 4 + rng.next() * 6;
+    for (const [cx, cy, rx, ry] of puddles(s)) {
       for (const ox of [-s, 0, s]) for (const oy of [-s, 0, s]) {
         ctx.fillStyle = 'rgba(10,14,18,0.42)';
         ctx.beginPath(); ctx.ellipse(cx + ox, cy + oy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(235,240,255,0.5)';
         for (let k = 0; k < 4; k++) ctx.fillRect(Math.floor(cx + ox - rx * 0.5 + rng.next() * rx), Math.floor(cy + oy - ry * 0.4 + k * 2), 2 + rng.int(0, 5), 1);
+      }
+    }
+  },
+  wetSpec(ctx, s) { // specular map for 'wet': damp tiles, dry grout, mirror-like puddles
+    ctx.fillStyle = gray(70); ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = gray(18);
+    for (let i = 0; i <= 4; i++) { ctx.fillRect(i * 16, 0, 1, s); ctx.fillRect(0, i * 16, s, 1); }
+    for (const [cx, cy, rx, ry] of puddles(s)) {
+      for (const ox of [-s, 0, s]) for (const oy of [-s, 0, s]) {
+        ctx.fillStyle = gray(150); ctx.beginPath(); ctx.ellipse(cx + ox, cy + oy, rx + 2, ry + 1.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = gray(255); ctx.beginPath(); ctx.ellipse(cx + ox, cy + oy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
   },

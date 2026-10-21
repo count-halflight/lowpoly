@@ -263,7 +263,7 @@ export class Renderer {
     this.quad.frustumCulled = false;
     this.postScene.add(this.quad);
     this.grade = DEFAULT_GRADE;
-    this.theme = null;
+    this.theme = null; this.themeArch = false; this.themeOpen = false;
     this.width = 1; this.height = 1;
     this.internalW = 1; this.internalH = 1;
     this.resize();
@@ -306,12 +306,15 @@ export class Renderer {
    * call every frame: it only touches uniforms when the theme or room changes.
    */
   setTheme(theme, room = null) {
-    if (theme === this.theme && room === this.room) return;
-    this.theme = theme; this.room = room;
+    const spec = room && room.spec;
+    const arch = !!(spec && spec.bossType === 'architect'), open = !!(spec && spec.open);
+    // keyed on the theme + flags only, so no reference to a disposed room is kept
+    if (theme === this.theme && arch === this.themeArch && open === this.themeOpen) return;
+    this.theme = theme; this.themeArch = arch; this.themeOpen = open;
     const gr = { ...DEFAULT_GRADE, ...((theme && theme.grade) || {}) };
     // the final boss hall is stark white light; open rooftops read a little cleaner
-    if (room && room.spec && room.spec.bossType === 'architect') { gr.sat *= 0.85; gr.contrast += 0.08; gr.bloom *= 1.2; }
-    if (room && room.spec && room.spec.open) gr.lift *= 0.6;
+    if (arch) { gr.sat *= 0.85; gr.contrast += 0.08; gr.bloom *= 1.2; }
+    if (open) gr.lift *= 0.6;
     this.grade = gr;
     const u = this.postMat.uniforms;
     u.uHigh.value.setHex(gr.hi);
