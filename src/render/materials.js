@@ -58,10 +58,10 @@ export const THEMES = [
   },
   {
     id: 'choir', name: 'THE CHOIR', // cathedral ashlar, candle gold against violet glass
-    wall: 0x88768c, floor: 0x6c5c5a, trim: 0x2c1c26, prop: 0x6a4a3a, accent: 0xffd060, accent2: 0xa080ff,
-    lamp: 0xfff0c8, fog: 0x120a16, fogNear: 9, fogFar: 58, sky: 0x9a7cc0, ground: 0x2a160c, hemi: 1.1,
+    wall: 0x8e7e9a, floor: 0x705e5a, trim: 0x2c1c26, prop: 0x6a4a3a, accent: 0xffd060, accent2: 0xa080ff,
+    lamp: 0xfff0c8, fog: 0x140b1a, fogNear: 9, fogFar: 58, sky: 0xa484d8, ground: 0x3a2210, hemi: 1.2,
     light: 0xffd8a0, floorTex: 'flag', wallTex: 'stone', ceilTex: 'ceil2', trimTex: 'trim', crateTex: 'crate', hazard: 'electric',
-    grade: { hi: 0xffe8c0, sat: 1.12, contrast: 0.22, lift: 0.07, bloom: 1.1 },
+    grade: { hi: 0xffe0b0, sat: 1.15, contrast: 0.22, lift: 0.08, bloom: 1.15 },
   },
   {
     id: 'core', name: 'THE CORE', // black halls, white light, cyan current
