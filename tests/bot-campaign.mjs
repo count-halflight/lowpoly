@@ -233,7 +233,8 @@ function install() {
     B.emptyT = alive === 0 && !(b && b.alive) ? (B.emptyT || 0) + DT : 0;
     // a live fight must keep making progress (total enemy health going down, or kills)
     const hp = B.progress();
-    if (hp < (B.bestHp ?? Infinity) - 1 || alive === 0) { B.bestHp = hp; B.noProgT = 0; } else B.noProgT = (B.noProgT || 0) + DT;
+    // (a boss fight without escorts has alive === 0 too: only its health counts then)
+    if (hp < (B.bestHp ?? Infinity) - 1 || (alive === 0 && !(b && b.alive))) { B.bestHp = hp; B.noProgT = 0; } else B.noProgT = (B.noProgT || 0) + DT;
     if ((B.emptyT > 12 || B.noProgT > 90) && !B.stuckReported) {
       B.stuckReported = true;
       const d = g.director;

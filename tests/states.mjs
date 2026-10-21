@@ -356,6 +356,58 @@ try {
     return { ok: res && quit && cont && lvl === 1 && hp1 === max && rl && hp2 === max, res, quit, cont, lvl, hp1, hp2, max };
   });
 
+  // aiming edge cases through real DOM key/mouse events: toggle mode (Z latches, survives a weapon
+  // switch and a reload but not pause or death), right button as AIM with the middle button as
+  // alt-fire, and the FOV always comes back to the setting
+  await run('aimEdge', () => {
+    const { g, step, click } = window.__S;
+    const S = g.settings, cv = g.input.canvas;
+    const key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, bubbles: true }));
+    const mouse = (type, button) => (type === 'mousedown' ? cv : window).dispatchEvent(new MouseEvent(type, { button, bubbles: true }));
+    const was = { t: S.get('aimToggle'), m: S.get('rmbMode') };
+    S.set('aimToggle', true);
+    g.startEndless(12);
+    g.weapons.give('lance');
+    step(5);
+    key('KeyZ', true); step(); key('KeyZ', false); step(30);
+    const latched = g.input.aiming && g.weapons.adsOn;
+    g.input.slot = 3; step(); // to the Lance (number key 4)
+    const offDuringSwitch = !g.weapons.adsOn;
+    step(60);
+    const backAfterSwitch = g.weapons.adsOn && g.weapons.current === 'lance';
+    g.input.pressed.reload = true; g.weapons.ammo.lance.mag = 0; step();
+    const offDuringReload = !g.weapons.adsOn || !g.weapons.reloading;
+    for (let i = 0; i < 300 && g.weapons.reloading; i++) step();
+    step(20);
+    const backAfterReload = g.weapons.adsOn;
+    g.input.pressed.pause = true; step();
+    const pausedClears = !g.input.aiming;
+    click('resume'); step(40);
+    const fov = S.get('fov'), fovBack = Math.abs(g.camera.fov - fov) < 1;
+    key('KeyZ', true); step(); key('KeyZ', false); step(20);
+    g.player.damage(99999, null, 'TEST', '');
+    for (let i = 0; i < 200 && g.state !== 'dead'; i++) step();
+    const deathClears = !g.input.aiming;
+    click('restart'); step(40);
+    const fovAfterDeath = Math.abs(g.camera.fov - fov) < 1 && !g.weapons.adsOn;
+    // right button aims, middle button is alt-fire (not the hook)
+    S.set('aimToggle', false); S.set('rmbMode', 'aim');
+    g.input.locked = true;
+    mouse('mousedown', 2); step(20);
+    const rmbAims = g.input.aiming && g.weapons.adsOn && !g.input.alt;
+    mouse('mouseup', 2); step(20);
+    const rmbReleases = !g.input.aiming;
+    const hookCd0 = g.player.hookCd || 0;
+    mouse('mousedown', 1);
+    const midAlt = g.input.alt && g.input.pressed.altTap && !g.input.pressed.hook;
+    step(); mouse('mouseup', 1); step();
+    const midUp = !g.input.alt && (g.player.hookCd || 0) <= hookCd0;
+    g.input.locked = false;
+    S.set('aimToggle', was.t); S.set('rmbMode', was.m);
+    const r = { latched, offDuringSwitch, backAfterSwitch, offDuringReload, backAfterReload, pausedClears, fovBack, deathClears, fovAfterDeath, rmbAims, rmbReleases, midAlt, midUp };
+    return { ok: Object.values(r).every(Boolean), ...r };
+  });
+
   // finale: final level from a real campaign save, real breaker pull, credits -> NG+
   await run('finale', () => {
     const { g, step, drive, click, walkTo, release } = window.__S;
