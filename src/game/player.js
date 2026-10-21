@@ -155,6 +155,7 @@ export class Player {
       this.dashHits = new Set();
       this.dashStart = g.time;
       this.dodgeArmed = this.dodgeCd <= 0;
+      if (g.weapons.onMove) g.weapons.onMove('dash', this.dashDir.dot(this.right));
       this.emit('dash');
       // a hostile shot about to connect counts as dodged through
       if (this.dodgeArmed && g.projectiles.nearMiss && g.projectiles.nearMiss(b.pos.x, b.pos.y + b.h * 0.5, b.pos.z, 0.3 + st.dodgeWindow) > 0) this.perfectDodge();
@@ -182,7 +183,14 @@ export class Player {
       const landBoost = this.landT < 0.25 ? Math.min(9, Math.abs(this.lastAirVy) * 0.35) : 0;
       this.slideSpeed = Math.min(30, Math.max(SLIDE_SPEED * this.speedMul * st.slideMul, hv) + landBoost);
       if (landBoost > 3) { g.style.add('SLIDE BOOST', 6, true); this.emit('slideboost'); }
-      if (dashSlide) { g.style.add('DASH SLIDE', 6, true); this.emit('dashslide'); this.camPunch(0.2, 0); }
+      if (dashSlide) {
+        g.style.add('DASH SLIDE', 6, true); this.emit('dashslide'); this.camPunch(0.2, -0.25);
+        // skid: a fan of sparks off the heels and a puff of grit
+        const p = b.pos, bx = -this.slideDir.x, bz = -this.slideDir.z;
+        for (let i = 0; i < (g.lowPower ? 6 : 12); i++) g.fx.sparks.spawn(p.x + (Math.random() - 0.5) * 0.5, p.y + 0.05, p.z + (Math.random() - 0.5) * 0.5, bx * (5 + Math.random() * 4) + (Math.random() - 0.5) * 3, 1 + Math.random() * 2.5, bz * (5 + Math.random() * 4) + (Math.random() - 0.5) * 3, 1, 0.7, 0.3, 1, 0.07, 0.3, 12, 1, p.y);
+        for (let i = 0; i < (g.lowPower ? 3 : 6); i++) g.fx.dust.spawn(p.x + bx * 0.4, p.y + 0.1, p.z + bz * 0.4, bx * 2 + (Math.random() - 0.5) * 2, 0.5 + Math.random(), bz * 2 + (Math.random() - 0.5) * 2, 0.45, 0.42, 0.38, 0.6, 0.25, 0.5, -0.3, 3);
+        g.addShake(0.06);
+      }
       g.audio.play('slide', null, 0.7);
       this.emit('slide');
     }
@@ -292,6 +300,7 @@ export class Player {
           this.emit('bhop', this.bhopChain);
         } else this.bhopChain = 0;
         g.audio.play('jump', null, 0.6);
+        if (g.weapons.onMove) g.weapons.onMove('jump');
         this.emit('jump');
       } else if (this.wallRun && this.jumpBuffer > 0) {
         // jumping off a wall-run keeps the run speed and kicks away from the wall
@@ -408,6 +417,14 @@ export class Player {
     this.wallJumps = 0;
     this.bhopChain = 0;
     g.audio.play('slide', null, 0.35);
+    g.audio.play('wallrun', null, 0.7);
+    // boots bite into the wall: a burst of grit and sparks where we hit it, a lean into the run
+    const p = b.pos, wx = p.x - this.wallNX * b.r, wz = p.z - this.wallNZ * b.r;
+    for (let i = 0; i < (g.lowPower ? 4 : 8); i++) {
+      g.fx.dust.spawn(wx, p.y + 0.3 + Math.random() * 0.9, wz, this.wallNX * 1.5 - tx * 2 + (Math.random() - 0.5), 0.4 + Math.random() * 0.6, this.wallNZ * 1.5 - tz * 2 + (Math.random() - 0.5), 0.45, 0.42, 0.38, 0.65, 0.2, 0.45, -0.3, 3);
+      g.fx.sparks.spawn(wx, p.y + 0.2 + Math.random() * 0.5, wz, this.wallNX * 2 - tx * 3 + (Math.random() - 0.5) * 2, 1 + Math.random() * 2, this.wallNZ * 2 - tz * 3 + (Math.random() - 0.5) * 2, 1, 0.75, 0.35, 1, 0.06, 0.25, 12, 1, p.y);
+    }
+    this.camPunch(-0.15, (this.wallNX * this.right.x + this.wallNZ * this.right.z) * 0.35);
     g.style.add('WALL RUN', 5, true);
     this.emit('wallrun');
     this.tipOnce && this.tipOnce('wallrun', 'WALL RUN: hold forward along a wall at speed. Jump off it to keep your momentum.', 'WALL RUN: move fast along a wall. Jump off it to keep your momentum.');
@@ -451,7 +468,14 @@ export class Player {
     this.sliding = false;
     if (this.wallRun) this.endWallRun();
     g.audio.play('land', null, 0.35);
+    g.audio.play('vault', null, 0.8);
     this.camPunch(0.35, 0);
+    if (g.weapons.onMove) g.weapons.onMove('vault', rise);
+    // hand plant: a puff of grit off the lip of the ledge
+    for (let i = 0; i < (g.lowPower ? 4 : 8); i++) {
+      const a = Math.random() * Math.PI * 2;
+      g.fx.dust.spawn(px + this.wallNX * 0.35 + Math.cos(a) * 0.2, top + 0.05, pz + this.wallNZ * 0.35 + Math.sin(a) * 0.2, Math.cos(a) * 1.2, 0.6 + Math.random() * 0.6, Math.sin(a) * 1.2, 0.45, 0.42, 0.38, 0.6, 0.18, 0.4, -0.3, 3);
+    }
     if (rise > 1.2) g.style.add('VAULT', 3, true);
     this.emit('mantle');
     return true;
@@ -548,6 +572,7 @@ export class Player {
     const g = this.game;
     const impact = Math.min(1, Math.abs(vy) / 30);
     this.landDip = -0.12 * impact - 0.03;
+    if (g.weapons.onMove) g.weapons.onMove('land', this.slamming ? 1 : impact);
     this.landT = 0;
     this.groundT = 0;
     if (this.slamming) {
@@ -591,6 +616,13 @@ export class Player {
     if (this.sliding && b.grounded) {
       const bx = -this.slideDir.x, bz = -this.slideDir.z;
       g.fx.sparks.spawn(p.x + this.right.x * 0.25, p.y + 0.05, p.z + this.right.z * 0.25, bx * 4 + (Math.random() - 0.5) * 2, 1.5 + Math.random() * 2, bz * 4 + (Math.random() - 0.5) * 2, 1, 0.75, 0.35, 1, 0.06, 0.25, 12, 1, p.y);
+    }
+    if (this.wallRun) {
+      // boots skid along the wall: sparks and grit trail behind
+      const wr = this.wallRun;
+      const wx = p.x - wr.nx * b.r, wz = p.z - wr.nz * b.r;
+      g.fx.sparks.spawn(wx - wr.tx * 0.2, p.y + 0.15 + Math.random() * 0.3, wz - wr.tz * 0.2, wr.nx * 1.5 - wr.tx * 3 + (Math.random() - 0.5), 1 + Math.random() * 1.5, wr.nz * 1.5 - wr.tz * 3 + (Math.random() - 0.5), 1, 0.7, 0.3, 1, 0.05, 0.22, 12, 1, p.y);
+      if (Math.random() < 0.4) g.fx.dust.spawn(wx, p.y + 0.3 + Math.random() * 0.6, wz, wr.nx * 0.8 - wr.tx * 1.5, 0.3, wr.nz * 0.8 - wr.tz * 1.5, 0.45, 0.42, 0.38, 0.5, 0.16, 0.4, -0.2, 3);
     }
     if (this.dashT > 0) {
       // speed streaks behind the dash
@@ -645,6 +677,7 @@ export class Player {
       g.addShake(0.25);
       this.heal(15 + (this.stats.parryMul > 1 ? 15 : 0), true);
       g.style.add('PARRY', 60);
+      if (g.weapons.onParry) g.weapons.onParry();
       g.hud.toast('PARRY', '#ffe23a');
       this.camPunch(0.5, 0.4);
       this.emit('parry');

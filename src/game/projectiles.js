@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { segPointDist2, raySphere } from '../core/collide.js';
+import { BB } from './fx.js';
+
+const ROCKET_FIRE = { mode: 0, drag: 2 };
+const TRAIL_SMOKE = { mode: 1, drag: 1.5, grav: -0.4 };
 
 // All projectiles live in one bounded pool rendered by a single instanced mesh.
 export class Projectiles {
@@ -22,6 +26,21 @@ export class Projectiles {
     this.glow.frustumCulled = false;
     for (let i = 0; i < this.cap; i++) this.glow.setColorAt(i, c);
     game.scene.add(this.glow);
+    // motion streaks: a tapered additive tail behind every shot, bright at the shot and fading
+    // out behind it (vertex colours), so direction and speed read at a glance. One more draw.
+    const tail = new THREE.ConeGeometry(1, 1, 5, 1, true);
+    tail.rotateX(Math.PI / 2); tail.translate(0, 0, 0.5);
+    const tp = tail.getAttribute('position'), tcol = new Float32Array(tp.count * 3);
+    for (let i = 0; i < tp.count; i++) { const k = 1 - tp.getZ(i); tcol[i * 3] = tcol[i * 3 + 1] = tcol[i * 3 + 2] = k * k; }
+    tail.setAttribute('color', new THREE.BufferAttribute(tcol, 3));
+    this.tail = new THREE.InstancedMesh(tail, new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }), this.cap);
+    this.tail.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.tail.frustumCulled = false;
+    for (let i = 0; i < this.cap; i++) this.tail.setColorAt(i, c);
+    game.scene.add(this.tail);
+    this.white = new THREE.Color(1, 1, 1); this.yellow = new THREE.Color(0xffe23a); this.tc = new THREE.Color(); this.gc = new THREE.Color();
+    this.zAxis = new THREE.Vector3(0, 0, 1); this.q2 = new THREE.Quaternion();
+    this.eye = new THREE.Vector3(); this.parryR = 3.2;
     this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.s = new THREE.Vector3(); this.tmp = new THREE.Vector3();
     this.d = new THREE.Vector3(); this.rd = new THREE.Vector3();
     this.dark = new THREE.Color(0.25, 0.25, 0.28);
@@ -63,6 +82,7 @@ export class Projectiles {
     p.hitMap = null;
     p.stuck = false; p.stuckTo = null;
     p.dodged = false; p.boosted = false; p.frozen = false; p.freezeAt = opts.freezeAt || 0;
+    p.cued = false;
     p.direct = opts.direct || 0;
     return p;
   }
@@ -179,6 +199,9 @@ export class Projectiles {
     const player = g.player;
     const pp = player.body.pos;
     const pcx = pp.x, pcy = pp.y + player.body.h * 0.5, pcz = pp.z;
+    // parry cue: hostile parryable shots flare yellow as they enter punch range
+    this.eye.copy(g.camera.position);
+    this.parryR = 3.2 * (player.stats.parryMul || 1);
     let i = 0;
     for (const p of this.list) {
       if (!p.active) { this.hide(i++); continue; }
@@ -292,18 +315,29 @@ export class Projectiles {
       if (consumed) { p.active = false; if (p.marker) { p.marker.life = 0; p.marker.mesh.visible = false; p.marker = null; } this.hide(i++); continue; }
       if (p.trail && Math.random() < (g.lowPower ? 0.35 : 0.7)) {
         g.fx.sparks.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0, 0, p.color.r * 0.8, p.color.g * 0.8, p.color.b * 0.8, 1, p.size * (p.boosted ? 2.4 : 1.4), p.boosted ? 0.3 : 0.15, 0, 0);
-        // rockets leave a short smoke ribbon
-        if (p.kind === 'rocket') g.fx.dust.spawn(p.pos.x, p.pos.y, p.pos.z, (Math.random() - 0.5) * 0.6, 0.4, (Math.random() - 0.5) * 0.6, 0.35, 0.35, 0.38, 0.55, 0.22, 0.5, -0.3, 1.5);
+        if (p.kind === 'rocket') {
+          // exhaust flame at the nozzle and a smoke ribbon behind
+          const k = p.size * 1.6 / Math.max(1, p.vel.length());
+          g.fx.fire.spawn(p.pos.x - p.vel.x * k, p.pos.y - p.vel.y * k, p.pos.z - p.vel.z * k, -p.vel.x * 0.05, -p.vel.y * 0.05, -p.vel.z * 0.05, p.size * 2.2, p.size * 0.6, BB.FIRE0, BB.FIRE1, 0.12, 1, 1, 1, 1, ROCKET_FIRE);
+          g.fx.dust.spawn(p.pos.x, p.pos.y, p.pos.z, (Math.random() - 0.5) * 0.6, 0.4, (Math.random() - 0.5) * 0.6, 0.35, 0.35, 0.38, 0.55, 0.22, 0.5, -0.3, 1.5);
+        } else if ((p.kind === 'grenade' || p.kind === 'sticky' || p.kind === 'core') && Math.random() < 0.5) {
+          // lobbed shells trail a thin smoke line and a fizzing fuse
+          g.fx.smoke.spawn(p.pos.x, p.pos.y, p.pos.z, 0, 0.3, 0, p.size * 0.6, p.size * 2.2, BB.SMOKE + (Math.random() * 4 | 0), BB.SMOKE + 3, 0.45, 0.45, 0.45, 0.48, 0.55, TRAIL_SMOKE);
+          g.fx.sparks.spawn(p.pos.x, p.pos.y + p.size, p.pos.z, (Math.random() - 0.5) * 2, 1.5 + Math.random(), (Math.random() - 0.5) * 2, 1, 0.85, 0.4, 1, 0.04, 0.18, 6, 0);
+        }
       }
       this.render(p, i++, dt);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.glow.instanceMatrix.needsUpdate = true;
+    this.tail.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     if (this.glow.instanceColor) this.glow.instanceColor.needsUpdate = true;
+    if (this.tail.instanceColor) this.tail.instanceColor.needsUpdate = true;
   }
 
   render(p, i, dt) {
+    const g = this.game;
     p.spin += dt * (p.kind === 'saw' ? 40 : p.frozen ? 2 : 8);
     if (p.kind === 'saw') this.q.setFromAxisAngle(this.tmp.set(0, 1, 0), p.spin);
     else if (p.kind === 'rocket') this.q.setFromUnitVectors(this.tmp.set(0, 0, 1), this.rd.copy(p.vel).normalize());
@@ -314,18 +348,42 @@ export class Projectiles {
     else this.s.set(s, s, s);
     this.m.compose(p.pos, this.q, this.s);
     this.mesh.setMatrixAt(i, this.m);
-    this.mesh.setColorAt(i, (p.kind === 'grenade' || p.kind === 'sticky' || p.kind === 'rocket') && !p.boosted ? this.dark : p.color);
-    const gs = p.stuck || p.frozen ? s * (2 + Math.sin(this.game.time * 20) * 0.6) : s * (p.boosted ? 3 : 2.2);
+    // hostile shots get a white-hot core inside their coloured glow so they read against any wall
+    const shell = (p.kind === 'grenade' || p.kind === 'sticky' || p.kind === 'rocket') && !p.boosted;
+    this.mesh.setColorAt(i, shell ? this.dark : p.friendly ? p.color : this.tc.copy(p.color).lerp(this.white, 0.55));
+    let cue = 0;
+    if (!p.friendly && p.parryable) {
+      const ex = this.eye.x - p.pos.x, ey = this.eye.y - p.pos.y, ez = this.eye.z - p.pos.z;
+      const d = Math.sqrt(ex * ex + ey * ey + ez * ez);
+      if (ex * p.vel.x + ey * p.vel.y + ez * p.vel.z > 0) cue = Math.min(1, Math.max(0, (this.parryR + 2.5 - d) / 2.5));
+      if (d < this.parryR && !p.cued && g.player.alive) { p.cued = true; g.fx.glint(p.pos, 0xffe23a, 0.22 + p.size, 0.08); }
+    }
+    let gs = p.stuck || p.frozen ? s * (2 + Math.sin(g.time * 20) * 0.6) : s * (p.boosted ? 3 : 2.2);
+    if (cue > 0) gs *= 1 + cue * (0.15 + 0.1 * Math.sin(g.time * 40));
     this.s.set(gs, gs, gs);
     this.m.compose(p.pos, this.q, this.s);
     this.glow.setMatrixAt(i, this.m);
-    this.glow.setColorAt(i, p.color);
+    const gcol = cue > 0 ? this.gc.copy(p.color).lerp(this.yellow, cue) : p.color;
+    this.glow.setColorAt(i, gcol);
+    // tail streak along the flight path
+    const sp = p.vel.length();
+    if (sp > 3 && !p.stuck && !p.frozen) {
+      this.rd.copy(p.vel).multiplyScalar(-1 / sp);
+      this.q2.setFromUnitVectors(this.zAxis, this.rd);
+      const len = Math.min(2.6, sp * (p.friendly ? 0.03 : 0.045)) * (p.kind === 'mortar' ? 0.6 : 1) * Math.min(1, p.age * 12 + 0.2);
+      const wd = s * (p.kind === 'saw' ? 0.5 : p.friendly ? 0.75 : 0.95);
+      this.s.set(wd, wd, len);
+      this.m.compose(p.pos, this.q2, this.s);
+    } else this.m.makeScale(0, 0, 0);
+    this.tail.setMatrixAt(i, this.m);
+    this.tail.setColorAt(i, gcol);
   }
 
   hide(i) {
     this.m.makeScale(0, 0, 0);
     this.mesh.setMatrixAt(i, this.m);
     this.glow.setMatrixAt(i, this.m);
+    this.tail.setMatrixAt(i, this.m);
   }
 
   detonate(p, enemy, bossPart) {
