@@ -156,6 +156,24 @@ export class Input {
 // ---------------------------------------------------------------------------------------
 // Touch controls
 // ---------------------------------------------------------------------------------------
+// Line icons (24x24, drawn with currentColor) so buttons read at a glance with a tiny label.
+const ICON = {
+  fire: '<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+  jump: '<path d="M5 13l7-7 7 7M5 19l7-7 7 7"/>',
+  dash: '<path d="M4 6l6 6-6 6M12 6l6 6-6 6"/>',
+  slide: '<path d="M4 5l7 8h9M3 19h18"/>',
+  punch: '<path d="M12 3l2.4 5.6 6 .6-4.6 4 1.4 6-5.2-3.2-5.2 3.2 1.4-6-4.6-4 6-.6z"/>',
+  reload: '<path d="M19 12a7 7 0 1 1-2.1-5M19 4v4h-4"/>',
+  alt: '<path d="M12 4l8 8-8 8-8-8z"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+  hook: '<path d="M14 3v10a5 5 0 1 1-10 0v-1M14 3l4 3"/>',
+  swap: '<path d="M4 8h15l-4-4M20 16H5l4 4"/>',
+  use: '<path d="M4 12h11M11 7l5 5-5 5M20 4v16"/>',
+  pause: '<path d="M9 6v12M15 6v12"/>',
+  rush: '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>',
+  aim: '<circle cx="12" cy="12" r="8"/><path d="M12 7v10M7 12h10"/>',
+};
+const btn = (act, cls, label) => `<button class="tc-btn tc-${cls}" data-act="${act}" aria-label="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[cls]}</svg>${label ? `<span>${label}</span>` : ''}</button>`;
+
 export class TouchControls {
   constructor(input, root, settings) {
     this.input = input;
@@ -164,7 +182,7 @@ export class TouchControls {
     this.pointers = new Map(); // pointerId -> {role, x, y, ...}
     this.build();
     this.applyLayout();
-    settings.onChange((k) => { if (k === 'leftHanded' || k === 'buttonScale' || k === 'touchOpacity' || k === '*') this.applyLayout(); });
+    settings.onChange((k) => { if (k === 'leftHanded' || k === 'buttonScale' || k === 'touchOpacity' || k === 'touchLayout' || k === '*') this.applyLayout(); });
   }
 
   build() {
@@ -173,19 +191,10 @@ export class TouchControls {
       <div class="tc-zone tc-move" data-role="move"></div>
       <div class="tc-zone tc-look" data-role="look"></div>
       <div class="tc-stick"><div class="tc-knob"></div></div>
-      <button class="tc-btn tc-fire" data-act="fire"><span>FIRE</span></button>
-      <button class="tc-btn tc-jump" data-act="jump"><span>JUMP</span></button>
-      <button class="tc-btn tc-dash" data-act="dash"><span>DASH</span></button>
-      <button class="tc-btn tc-slide" data-act="slide"><span>SLIDE</span></button>
-      <button class="tc-btn tc-punch" data-act="punch"><span>PARRY</span></button>
-      <button class="tc-btn tc-reload" data-act="reload"><span>RLD</span></button>
-      <button class="tc-btn tc-alt" data-act="alt"><span>ALT</span></button>
-      <button class="tc-btn tc-hook" data-act="hook"><span>HOOK</span></button>
-      <button class="tc-btn tc-swap" data-act="swap"><span>SWAP</span></button>
-      <button class="tc-btn tc-use" data-act="use"><span>USE</span></button>
-      <button class="tc-btn tc-pause" data-act="pause"><span>II</span></button>
-      <button class="tc-btn tc-rush" data-act="rush"><span>RUSH</span></button>
-      <button class="tc-btn tc-aim" data-act="aim"><span>AIM</span></button>
+      ${btn('fire', 'fire', 'FIRE')}${btn('jump', 'jump', 'JUMP')}${btn('dash', 'dash', 'DASH')}${btn('slide', 'slide', 'SLIDE')}
+      ${btn('punch', 'punch', 'PARRY')}${btn('alt', 'alt', 'ALT')}${btn('aim', 'aim', 'AIM')}
+      ${btn('reload', 'reload', 'RLD')}${btn('swap', 'swap', 'SWAP')}${btn('hook', 'hook', 'HOOK')}${btn('use', 'use', 'USE')}
+      ${btn('pause', 'pause', '')}${btn('rush', 'rush', 'RUSH')}
     `;
     this.aimBtn = r.querySelector('.tc-aim');
     this.stick = r.querySelector('.tc-stick');
@@ -203,6 +212,8 @@ export class TouchControls {
 
   applyLayout() {
     this.root.classList.toggle('lefty', !!this.settings.get('leftHanded'));
+    // minimal: no RLD / SWAP buttons (tap the ammo counter to reload, weapon icons to switch)
+    this.root.classList.toggle('minimal', this.settings.get('touchLayout') === 'minimal');
     this.root.style.setProperty('--btn-scale', this.settings.get('buttonScale'));
     this.root.style.setProperty('--tc-alpha', this.settings.get('touchOpacity'));
   }
@@ -216,8 +227,10 @@ export class TouchControls {
     const p = { role, act, el, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
     this.pointers.set(e.pointerId, p);
     const inp = this.input;
-    if (role === 'look' && this.onLookTap) {
+    // HUD tap targets (weapon chips, ammo counter) sit in whichever zone the layout puts on the right
+    if (role && this.onLookTap) {
       const id = this.onLookTap(e.clientX, e.clientY);
+      if (id === 'reload') { inp.press('reload'); this.pointers.delete(e.pointerId); return; } // tapped the ammo counter
       if (id) { this.input.chipTap = id; this.pointers.delete(e.pointerId); return; }
     }
     if (role === 'move') {

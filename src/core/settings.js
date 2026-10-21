@@ -32,6 +32,7 @@ const DEFAULTS = {
   hudScale: 1.0,
   textFx: false,       // decorative glitch/scramble on HUD headlines
   touchOpacity: 0.55,
+  touchLayout: 'full', // 'minimal' hides RLD + SWAP: tap the ammo counter to reload, weapon icons to switch
   gore: true,          // dismemberment + blood pools
 };
 
