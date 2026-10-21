@@ -93,9 +93,12 @@ class Game {
     this.wireProfile();
 
     this.input.onLockLost = () => {
+      if (this.expectUnlock) { this.expectUnlock = false; return; }
       if (performance.now() < (this.lockGraceT || 0)) return;
       if (this.state === 'playing' && !this.input.usingTouch) this.pause();
     };
+    // a fresh lock means no release of ours is still in flight
+    document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement) this.expectUnlock = false; });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { this.profile.flush(); if (this.state === 'playing') this.pause(); }
     });
@@ -124,9 +127,15 @@ class Game {
     requestAnimationFrame((t) => this.frame(t));
   }
 
-  // We drop pointer lock on purpose for menus; the loss event arrives a moment later and must not
-  // pause. A time window (not a flag) so a skipped event cannot swallow a later, real loss.
-  lockGrace() { this.lockGraceT = performance.now() + 400; }
+  // We drop pointer lock on purpose for menus; the loss event arrives later and must not pause the
+  // game the player has resumed by then (on a busy machine it came 440 ms after the death screen's
+  // release, right after RETRY, and paused the fresh run). Expect exactly one loss when the lock
+  // is really held, so no flag can linger and swallow a later, real loss; the short time window
+  // only covers browsers that report the lock late.
+  lockGrace() {
+    if (document.pointerLockElement) this.expectUnlock = true;
+    this.lockGraceT = performance.now() + 400;
+  }
 
   // ------------------------------------------------------------------ event bus
   on(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); }

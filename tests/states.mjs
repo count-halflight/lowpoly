@@ -150,6 +150,34 @@ try {
     return { ok: pausedAfterReward && pausedAfterTerminal, pausedAfterReward, pausedAfterTerminal, state: g.state };
   });
 
+  // the death screen releases a held pointer lock; on a busy machine the browser reported that
+  // release 440 ms later, after RETRY, and the fresh run paused itself. A real loss later still pauses.
+  await run('lateUnlock', async () => {
+    const { g, step, click, wait } = window.__S;
+    // a scripted lock: the headless browser's own (instant) lock events must not interleave
+    const rq = g.input.requestLock;
+    g.input.requestLock = () => {};
+    if (document.pointerLockElement) { document.exitPointerLock(); await wait(300); }
+    g.startEndless(61);
+    step(5);
+    Object.defineProperty(document, 'pointerLockElement', { get: () => g.input.canvas, configurable: true });
+    g.player.damage(99999, null, 'TEST', '');
+    for (let i = 0; i < 200 && g.state !== 'dead'; i++) step();
+    delete document.pointerLockElement;
+    const dead = g.state === 'dead';
+    const retried = click('restart');
+    step(5);
+    await wait(700);
+    g.input.onLockLost(); // the late event for our own release
+    const stillPlaying = g.state === 'playing';
+    await wait(450);
+    g.input.onLockLost(); // a real one: alt-tab, ESC in the browser
+    const pausedLater = g.state === 'paused';
+    click('resume'); step(2);
+    g.input.requestLock = rq;
+    return { ok: dead && retried && stillPlaying && pausedLater, dead, retried, stillPlaying, pausedLater };
+  });
+
   await run('cutscene', async () => {
     const { g, step, pauseKey } = window.__S;
     g.startEndless(99);
