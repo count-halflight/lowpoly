@@ -1130,6 +1130,11 @@ class Game {
     }
     // the railcannon scope replaces the viewmodel with the HUD scope overlay
     const showVm = !['menu', 'menu-over', 'credits', 'dead', 'dying', 'cutscene'].includes(this.state) && !(this.weapons.scopeK > 0.5);
+    // per-stratum colour grade (no-op unless the room's theme/flags changed) + railcannon scope lens tint
+    const cur = this.level.current;
+    if (this.renderer.setTheme) this.renderer.setTheme(cur ? cur.theme : null, cur);
+    const pu = this.renderer.postMat.uniforms;
+    if (pu.uScope) pu.uScope.value = this.state === 'playing' || this.state === 'paused' ? (this.weapons.scopeK || 0) : 0;
     this.renderer.render(this.scene, this.camera, showVm ? this.weapons.scene : null, this.weapons.camera);
   }
 }
