@@ -36,9 +36,9 @@ const SPLITTER_SIGHT = 0.112;
 const SHOULDER_L = new THREE.Vector3(-0.3, -0.52, 0.14);
 const HIDE_L = new THREE.Vector3(-0.26, -0.62, -0.3);
 const PUNCH_L = new THREE.Vector3(-0.05, -0.11, -0.6);
-const COIN_L = new THREE.Vector3(-0.12, -0.19, -0.42);
-const WALL_L = new THREE.Vector3(-0.4, -0.1, -0.44);
-const VAULT0 = new THREE.Vector3(-0.08, -0.14, -0.5), VAULT1 = new THREE.Vector3(-0.09, -0.44, -0.36);
+const COIN_L = new THREE.Vector3(-0.1, -0.15, -0.42);
+const WALL_L = new THREE.Vector3(-0.3, -0.12, -0.42);
+const VAULT0 = new THREE.Vector3(-0.05, -0.11, -0.46), VAULT1 = new THREE.Vector3(-0.07, -0.44, -0.33);
 const FETCH_L = new THREE.Vector3(-0.2, -0.5, -0.32); // off-screen pocket for magazines and shells
 const HIP_K = new THREE.Vector3(0.04, -1.0, 0.25);
 
@@ -582,7 +582,8 @@ function buildLeg(M) {
     B(gb, -0.05, -0.04, -0.12, 0.05, 0.04, 0.06, M.armor); // boot
     B(gb, -0.054, -0.055, -0.13, 0.054, -0.035, 0.07, M.black); // sole
     B(gb, -0.046, 0.0, -0.135, 0.046, 0.03, -0.1, M.metal); // toe cap
-    B(gb, -0.03, 0.04, -0.09, 0.03, 0.046, 0.0, M.armGlow);
+    B(gb, -0.052, 0.0, -0.06, -0.048, 0.03, 0.04, M.armGlow); B(gb, 0.048, 0.0, -0.06, 0.052, 0.03, 0.04, M.armGlow);
+    B(gb, -0.04, 0.04, -0.1, 0.04, 0.05, -0.02, M.metal, 0.8); // laces plate
     B(gb, -0.045, -0.035, 0.04, 0.045, 0.05, 0.6, M.glove, 0.85); // shin
     B(gb, -0.05, 0.03, 0.08, 0.05, 0.06, 0.45, M.armorL, 1.0);
     B(gb, -0.008, 0.06, 0.1, 0.008, 0.066, 0.4, M.armGlow);
@@ -634,9 +635,12 @@ export class Viewmodel {
     const casG = new THREE.CylinderGeometry(0.008, 0.008, 0.026, 6); casG.rotateZ(Math.PI / 2);
     const shellG = new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6); shellG.rotateZ(Math.PI / 2);
     this.casings = [];
+    // plain geometry has no colour attribute: these need materials without vertexColors
+    this.brassMat = M.brass.clone(); this.brassMat.vertexColors = false;
+    this.shellMat = new THREE.MeshLambertMaterial({ color: 0xc02424 });
     for (let i = 0; i < 10; i++) {
       const big = i >= 7;
-      const mesh = new THREE.Mesh(big ? shellG : casG, big ? M.red : M.brass);
+      const mesh = new THREE.Mesh(big ? shellG : casG, big ? this.shellMat : this.brassMat);
       mesh.visible = false; scene.add(mesh);
       this.casings.push({ mesh, big, t: 0, life: 0, vel: new THREE.Vector3(), spin: new THREE.Vector3() });
     }
@@ -648,7 +652,7 @@ export class Viewmodel {
       mesh.visible = false; scene.add(mesh);
       this.puffs.push({ mesh, t: 0, life: 0, vel: new THREE.Vector3(), s0: 0.05, s1: 0.2, a: 0.5 });
     }
-    this.vcoin = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.005, 10), M.brass);
+    this.vcoin = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.005, 10), this.brassMat);
     this.vcoin.visible = false; scene.add(this.vcoin);
     this.vcoinT = 0; this.vcoinV = new THREE.Vector3();
     this.skinCol = new THREE.Color(0xdfe3ea); this.tint = new THREE.Color(1, 1, 1);
@@ -908,20 +912,21 @@ export class Viewmodel {
     const au = this.game.audio;
     const H = (x, y, z, wgt, local = true) => { RL.hand.set(x, y, z); RL.handLocal = local; RL.handW = wgt; };
     if (id === 'hammer') {
-      // roll left, swing the cylinder out, flick the empties, speedloader in, flick it shut
-      const open = win(k, 0.0, 0.14, 0.78, 0.86);
-      RL.rz = 0.95 * open - 0.18 * bump(k, 0.8, 0.95); RL.rx = 0.32 * open + 0.3 * bump(k, 0.2, 0.36); RL.px = -0.07 * open; RL.py = 0.035 * open;
-      this.cylSwing = 1.25 * open;
+      // bring it up, roll it left, swing the cylinder out, flick the empties, speedloader in, flick it shut
+      const lift = win(k, 0.0, 0.16, 0.8, 0.96);
+      RL.px = -0.11 * lift; RL.py = 0.09 * lift; RL.pz = 0.03 * lift;
+      RL.rx = 0.42 * lift + 0.3 * bump(k, 0.2, 0.34); RL.ry = 0.95 * lift; RL.rz = 0.2 * lift - 0.35 * bump(k, 0.8, 0.93);
+      this.cylSwing = 1.25 * win(k, 0.1, 0.2, 0.78, 0.84);
       if (crossed(0.24)) { this.casing(false, 6, this.toCam(this.models.hammer, this.tB.set(-0.03, 0.06, 0.06), this.tH)); au.play('shell', null, 0.25); }
       an.rounds.visible = !(w.reloading && k > 0.22 && k < 0.6);
       if (crossed(0.82)) au.play('dry', null, 0.35);
       if (crossed(0.86)) this.cylSpin = 22;
       const hw = win(k, 0.34, 0.54, 0.66, 0.82);
       // hand target: just behind the swung-out cylinder
-      H(-0.065, 0.02, 0.075, hw); RL.curl = 0.9; RL.twist = 1.2; RL.prop = k > 0.3 && k < 0.63 ? 'loader' : '';
+      H(-0.07, 0.03, 0.1, hw); RL.curl = 0.9; RL.twist = 1.6; RL.prop = k > 0.3 && k < 0.63 ? 'loader' : '';
     } else if (id === 'ripsaw') {
       const tilt = win(k, 0.0, 0.14, 0.86, 1.0);
-      RL.rz = -0.38 * tilt; RL.rx = 0.12 * tilt + 0.05 * bump(k, 0.56, 0.64); RL.px = -0.04 * tilt; RL.py = 0.025 * tilt - 0.02 * bump(k, 0.56, 0.62);
+      RL.rz = -0.55 * tilt; RL.ry = 0.25 * tilt; RL.rx = 0.16 * tilt + 0.06 * bump(k, 0.56, 0.64); RL.px = -0.08 * tilt; RL.py = 0.075 * tilt - 0.02 * bump(k, 0.56, 0.62);
       // magazine falls out, a fresh one rises in
       const drop = seg(k, 0.12, 0.32), seat = sm(seg(k, 0.48, 0.58));
       an.mag.visible = k < 0.32 || k >= 0.56 || !w.reloading;
@@ -939,7 +944,7 @@ export class Viewmodel {
       if (crossed(0.81)) au.play('reloadEnd', null, 0.35);
     } else if (id === 'breacher') {
       // rolled to the loading port; one shell pushed in per cycle
-      RL.rz = -0.5 * W; RL.rx = 0.16 * W; RL.px = -0.05 * W; RL.py = 0.03 * W;
+      RL.rz = -0.6 * W; RL.ry = 0.2 * W; RL.rx = 0.18 * W; RL.px = -0.08 * W; RL.py = 0.07 * W;
       if (shellMode && w.reloading) {
         const fetch = win(k, 0.02, 0.3, 0.42, 0.7);
         const push = sm(seg(k, 0.62, 0.86)) * (1 - seg(k, 0.9, 1.0));
@@ -949,7 +954,7 @@ export class Viewmodel {
       } else H(0, -0.07, -0.11, 1); RL.curl = 0.7;
     } else if (id === 'lance') {
       const tilt = win(k, 0.0, 0.14, 0.84, 1.0);
-      RL.rx = 0.42 * tilt; RL.rz = -0.2 * tilt; RL.py = 0.04 * tilt; RL.pz = 0.04 * tilt; RL.px = -0.03 * tilt;
+      RL.rx = 0.4 * tilt; RL.rz = -0.3 * tilt; RL.ry = 0.2 * tilt; RL.py = 0.08 * tilt; RL.pz = 0.04 * tilt; RL.px = -0.07 * tilt;
       const out = seg(k, 0.12, 0.3), seat = sm(seg(k, 0.56, 0.66));
       an.cell.visible = k < 0.3 || k >= 0.6 || !w.reloading;
       const off = k < 0.45 ? out * out * 0.35 : (1 - seat) * 0.12;
@@ -962,7 +967,7 @@ export class Viewmodel {
       RL.py += 0.012 * bump(k, 0.62, 0.72);
     } else if (id === 'thumper') {
       const tilt = win(k, 0.0, 0.14, 0.86, 1.0);
-      RL.rz = 0.45 * tilt; RL.rx = 0.1 * tilt; RL.px = -0.05 * tilt; RL.py = 0.03 * tilt;
+      RL.rz = 0.2 * tilt; RL.ry = 0.55 * tilt; RL.rx = 0.15 * tilt; RL.px = -0.08 * tilt; RL.py = 0.08 * tilt;
       this.drumOut = win(k, 0.08, 0.2, 0.78, 0.86);
       if (crossed(0.82)) au.play('dry', null, 0.35);
       RL.py -= 0.015 * bump(k, 0.84, 0.94);
@@ -975,7 +980,7 @@ export class Viewmodel {
       H(-0.13 + (inPush ? 0.03 * Math.sin(pf * Math.PI) : 0), -0.005, -0.04, hw); RL.curl = 0.8; RL.twist = 1.3; RL.prop = inPush && pf < 0.6 ? 'grenade' : '';
     } else if (id === 'arc') {
       const tilt = win(k, 0.0, 0.14, 0.86, 1.0);
-      RL.rz = -0.32 * tilt; RL.rx = 0.18 * tilt; RL.px = 0.02 * tilt; RL.py = 0.03 * tilt;
+      RL.rz = -0.25 * tilt; RL.ry = 0.45 * tilt; RL.rx = 0.18 * tilt; RL.px = -0.05 * tilt; RL.py = 0.07 * tilt;
       const out = seg(k, 0.12, 0.3), seat = sm(seg(k, 0.5, 0.62));
       an.core.visible = k < 0.3 || k >= 0.55 || !w.reloading;
       const off = k < 0.45 ? out : (1 - seat) * 0.6;
@@ -1131,7 +1136,7 @@ export class Viewmodel {
     // vault: palm planted on the ledge, sliding down the screen as we climb over it
     if (this.vaultW > 0.001) {
       this.tH.copy(VAULT0).lerp(VAULT1, sm(this.vaultK));
-      pos.lerp(this.tH, this.vaultW); curl += (0.1 - curl) * this.vaultW; twist *= 1 - this.vaultW; wristX += 0.35 * this.vaultW;
+      pos.lerp(this.tH, this.vaultW); curl += (0.1 - curl) * this.vaultW; twist *= 1 - this.vaultW; wristX -= 0.95 * this.vaultW;
     }
     // coin flick: fist rises, thumb snaps up, a coin spins off the top of the frame
     if (this.coinT >= 0) {
@@ -1188,7 +1193,7 @@ export class Viewmodel {
       const u = 1 - w.punchAnim / 0.28;
       const e = u < 0.3 ? eOut(u / 0.3) : 1 - sm((u - 0.3) / 0.7);
       L.visible = true;
-      L.position.set(-0.03 + e * 0.02, -0.72 + e * 0.38, -0.12 - e * 0.42);
+      L.position.set(-0.04 + e * 0.04, -0.74 + e * 0.5, -0.14 - e * 0.36);
       L.lookAt(HIP_K);
       L.rotateZ(0.2 * e);
     } else L.visible = false;
