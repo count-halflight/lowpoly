@@ -92,7 +92,7 @@ class Game {
     this.wireProfile();
 
     this.input.onLockLost = () => {
-      if (this.ignoreLockLoss) { this.ignoreLockLoss = false; return; }
+      if (performance.now() < (this.lockGraceT || 0)) return;
       if (this.state === 'playing' && !this.input.usingTouch) this.pause();
     };
     document.addEventListener('visibilitychange', () => {
@@ -122,6 +122,10 @@ class Game {
     document.getElementById('boot').classList.add('gone');
     requestAnimationFrame((t) => this.frame(t));
   }
+
+  // We drop pointer lock on purpose for menus; the loss event arrives a moment later and must not
+  // pause. A time window (not a flag) so a skipped event cannot swallow a later, real loss.
+  lockGrace() { this.lockGraceT = performance.now() + 400; }
 
   // ------------------------------------------------------------------ event bus
   on(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); }
@@ -372,7 +376,7 @@ class Game {
     if (!c.practice && c.levelIdx + 1 < c.plan.length) this.profile.writeSave({ ...c.snapshot(), levelIdx: c.levelIdx + 1, restarts: 0 });
     this.setState('results');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.audio.play('levelClear', null, 1);
     const last = c.levelIdx + 1 >= c.plan.length;
@@ -429,7 +433,7 @@ class Game {
     this.tutorial.end();
     if (skipped && this.tutorialThen) { this.newCampaign(0, true); return; }
     this.setState('menu-over');
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.menus.show('tutdone');
   }
@@ -476,9 +480,8 @@ class Game {
       stats = `ROOM <b>${pad2(this.level.current ? this.level.current.index : 0)}</b> · SCORE <b>${Math.floor(this.style.score)}</b> · KILLS <b>${r.kills}</b> · SEED <b>${r.seed}</b><br>UPGRADES: ${ups}`;
     }
     this.menus.showPause(title, sub, stats, this.mode, { checkpoint: this.checkpointRoom() });
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
-    setTimeout(() => { this.ignoreLockLoss = false; }, 100);
   }
 
   resume() {
@@ -490,7 +493,7 @@ class Game {
   }
 
   quitToTitle() {
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.profile.flush();
     this.cutscene.abort();
@@ -839,7 +842,7 @@ class Game {
     this.audio.play('terminal', null, 0.8);
     this.setState('terminal');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     this.menus.showTerminal(t.id);
   }
@@ -871,9 +874,8 @@ class Game {
     this.audio.play('cache', null, 0.8);
     this.setState('reward');
     this.input.releaseAll();
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
-    setTimeout(() => { this.ignoreLockLoss = false; }, 100);
   }
 
   chooseReward(i) {
@@ -905,7 +907,7 @@ class Game {
 
   finishDeath() {
     this.setState('dead');
-    this.ignoreLockLoss = true;
+    this.lockGrace();
     this.input.exitLock();
     const r = this.run;
     const ld = this.player.lastDamage;
