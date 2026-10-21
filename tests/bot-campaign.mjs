@@ -57,7 +57,10 @@ function install() {
     const moved = Math.hypot(pp.x - (B.lastX ?? pp.x), pp.z - (B.lastZ ?? pp.z));
     B.lastX = pp.x; B.lastZ = pp.z;
     B.slowT = moved < 0.02 ? (B.slowT || 0) + DT : 0;
-    if (B.slowT > 0.6 && g.player.body.grounded) { g.input.pressed.jump = true; if (B.slowT > 1.5) hold(B.f % 120 < 60 ? 'left' : 'right'); }
+    if (B.slowT > 0.6 && g.player.body.grounded) g.input.pressed.jump = true;
+    // blocked (a post in a doorway, a crate): sidestep one way for a while, then the other
+    if (B.slowT > 1.2 && !(B.sideT > 0)) { B.side = B.side === 'left' ? 'right' : 'left'; B.sideT = 1.6; }
+    if (B.sideT > 0) { B.sideT -= DT; hold(B.side); }
   };
   // look where we walk (navigation between fights)
   B.walkTo = (x, z) => {
