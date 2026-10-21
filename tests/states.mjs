@@ -14,9 +14,10 @@
 //   practice       practice levels keep a working checkpoint without touching the save
 //   touchAim       the touch AIM latch is released by pause and by death
 //   resize         resizing mid-fight / mid-cutscene keeps the game running
+//   finaleQuit     SAVE & QUIT on the final results screen still counts the cycle as cleared
 //   finale         final level: real breaker pull, results, credits -> NG+ -> cycle II starts
 //                  with the carried loadout
-//   PORT=4430 node tests/states.mjs
+//   PORT=4430 node tests/states.mjs            (CASES=finale,finaleQuit runs only those)
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -81,7 +82,9 @@ function install() {
 }
 
 const results = {};
+const ONLY = process.env.CASES ? process.env.CASES.split(',') : null;
 async function run(name, fn) {
+  if (ONLY && !ONLY.includes(name)) return;
   let r;
   try { r = await page.evaluate(fn); } catch (e) { r = { ok: false, error: e.message.slice(0, 500) }; }
   results[name] = r;
@@ -413,6 +416,32 @@ try {
     return { ok: Object.values(r).every(Boolean), ...r };
   });
 
+  // finaleQuit: SAVE & QUIT on the final results screen keeps the win (cycle cleared, NG+ offered)
+  await run('finaleQuit', () => {
+    const { g, step, drive, click, walkTo, release } = window.__S;
+    g.profile.v.tutorialDone = true;
+    g.profile.v.cyclesCleared = 0;
+    g.newCampaign(0, true);
+    g.weapons.give('lance');
+    g.debug.goLevel(g.campaign.plan.length - 1);
+    drive(() => !!g.breaker && g.state === 'playing', 60 * 420);
+    for (let f = 0; f < 60 * 60 && g.breaker && !g.breaker.pulled; f++) {
+      release();
+      const b = g.breaker;
+      walkTo(b.pos.x, b.pos.z);
+      if (Math.hypot(b.pos.x - g.player.body.pos.x, b.pos.z - g.player.body.pos.z) < 2.2) { g.input.held.fwd = false; g.input.pressed.use = true; }
+      step();
+    }
+    for (let i = 0; i < 60 * 60 && g.state === 'cutscene'; i++) { g.input.held.jump = true; step(); }
+    release();
+    const results = g.state === 'results';
+    const quit = click('quit');
+    step(5);
+    const cleared = g.profile.v.cyclesCleared, save = g.profile.v.save;
+    const ngOffered = !!document.querySelector('[data-a="ngplus"]');
+    return { ok: results && quit && cleared === 1 && !save && ngOffered, results, quit, cleared, save: !!save, ngOffered, state: g.state };
+  });
+
   // finale: final level from a real campaign save, real breaker pull, credits -> NG+
   await run('finale', () => {
     const { g, step, drive, click, walkTo, release } = window.__S;
@@ -456,10 +485,12 @@ try {
     step(10);
     return { ok: true, state: g.state };
   });
-  for (const [w, h] of [[844, 390], [390, 844], [1280, 720]]) { await page.setViewportSize({ width: w, height: h }); await page.evaluate(() => window.__S.step(20)); }
-  const after = await page.evaluate(() => ({ state: window.__vg.state, err: window.__vg.lastError, w: window.__vg.renderer.width }));
-  results.resize = { ok: after.state === 'playing' && !after.err, ...after };
-  console.log((results.resize.ok ? 'ok   ' : 'FAIL ') + 'resize       ' + JSON.stringify(after));
+  if (!ONLY || ONLY.includes('resize')) {
+    for (const [w, h] of [[844, 390], [390, 844], [1280, 720]]) { await page.setViewportSize({ width: w, height: h }); await page.evaluate(() => window.__S.step(20)); }
+    const after = await page.evaluate(() => ({ state: window.__vg.state, err: window.__vg.lastError, w: window.__vg.renderer.width }));
+    results.resize = { ok: after.state === 'playing' && !after.err, ...after };
+    console.log((results.resize.ok ? 'ok   ' : 'FAIL ') + 'resize       ' + JSON.stringify(after));
+  }
 
   const failed = Object.entries(results).filter(([, v]) => !v.ok).map(([k]) => k);
   if (errors.length) { console.log('PAGE ERRORS', errors.slice(0, 8)); process.exitCode = 1; }

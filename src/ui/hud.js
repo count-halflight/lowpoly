@@ -3,6 +3,11 @@ import { RANKS } from '../game/style.js';
 import { DEFS, WEAPON_ORDER } from '../game/weapons.js';
 import { font, scramble, drawIcon } from './pixel.js';
 
+// per-frame list pruning in place (update() runs every frame, menus included)
+const tLive = (t) => t.t < t.dur, dLive = (d) => d.t > 0;
+const ROMAN = ['', 'I', 'II', 'III', 'IV'];
+function prune(a, keep) { let n = 0; for (let i = 0; i < a.length; i++) if (keep(a[i])) a[n++] = a[i]; a.length = n; }
+
 // The HUD is laid out in virtual units (virtual height ~300-400) but rendered at the
 // device's real resolution through a canvas transform, so text stays crisp and readable on
 // phones and high-DPI screens. Readable text never gets glitch effects unless the player
@@ -206,11 +211,11 @@ export class HUD {
     // queued banners wait while the level card is up, then play one after another
     if (!this.banners && this.bannerQ.length && !this.levelCardS) this.banners = this.bannerQ.shift();
     for (const t of this.corner) t.t += dt;
-    this.corner = this.corner.filter((t) => t.t < t.dur);
+    prune(this.corner, tLive);
     if (this.nameCardS) { this.nameCardS.t += dt; if (this.nameCardS.t > this.nameCardS.dur) this.nameCardS = null; }
     if (this.levelCardS) { this.levelCardS.t += dt; if (this.levelCardS.t > this.levelCardS.dur) this.levelCardS = null; }
     for (const t of this.toasts) t.t += dt;
-    this.toasts = this.toasts.filter((t) => t.t < t.dur);
+    prune(this.toasts, tLive);
     if (this.hintT > 0) { this.hintT -= dt; if (this.hintT <= 0) { this.hintText = ''; this.hintGap = g.mode === 'tutorial' ? 0.5 : 4; } }
     else if (this.hintQ.length) {
       this.hintGap -= dt;
@@ -220,7 +225,7 @@ export class HUD {
     }
     this.hitT -= dt;
     for (const d of this.dmgDirs) d.t -= dt;
-    this.dmgDirs = this.dmgDirs.filter((d) => d.t > 0);
+    prune(this.dmgDirs, dLive);
     this.dmgFlash = Math.max(0, this.dmgFlash - dt * 2.2);
     this.healT -= dt;
     this.glitchT -= dt;
@@ -324,11 +329,12 @@ export class HUD {
     const bars = [];
     const boss = g.bosses.active;
     if (boss && boss.alive && boss.state !== 'introHidden') {
-      bars.push({ name: boss.name, sub: boss.phase >= 2 ? (boss.phaseName || 'PHASE ' + ['', 'I', 'II', 'III', 'IV'][boss.phase]) : boss.title, frac: boss.hp / boss.maxHp, color: boss.info?.color || '#ff8a3a', shielded: boss.shielded, big: true, segs: boss.hpSegments });
+      bars.push({ name: boss.name, sub: boss.phase >= 2 ? (boss.phaseName || 'PHASE ' + ROMAN[boss.phase]) : boss.title, frac: boss.hp / boss.maxHp, color: boss.info?.color || '#ff8a3a', shielded: boss.shielded, big: true, segs: boss.hpSegments });
     }
     for (const e of g.enemies.list) if (e.alive && e.mini && e.targetable) bars.push({ name: e.name, sub: 'MINIBOSS' + (e.phase >= 2 ? ' · ENRAGED' : ''), frac: e.hp / e.maxHp, color: e.colorHex || '#ff5a3a', shield: e.shieldMax ? e.shield / e.shieldMax : 0 });
     let y = this.topY + 2;
-    for (const b of bars.slice(0, 3)) {
+    for (let i = 0; i < bars.length && i < 3; i++) {
+      const b = bars[i];
       const w = b.big ? Math.min(330, this.W * 0.5) : Math.min(220, this.W * 0.36);
       const x = this.W / 2 - w / 2;
       this.text(b.name, this.W / 2, y + (b.big ? 11 : 8), b.big ? 14 : 10, WHITE, 'center');

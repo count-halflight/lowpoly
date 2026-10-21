@@ -382,14 +382,16 @@ class Game {
   completeLevel() {
     const c = this.campaign;
     const res = c.results();
+    const last = c.levelIdx + 1 >= c.plan.length;
     this.profile.setRank(c.level.id, res.rank, res.score, res.time);
-    if (!c.practice && c.levelIdx + 1 < c.plan.length) this.profile.writeSave({ ...c.snapshot(), levelIdx: c.levelIdx + 1, restarts: 0 });
+    if (!c.practice && !last) this.profile.writeSave({ ...c.snapshot(), levelIdx: c.levelIdx + 1, restarts: 0 });
+    // the cycle is beaten once the breaker is pulled: quitting on this screen must not undo it
+    if (!c.practice && last) { this.profile.clearCycle(c.cycle); this.profile.clearSave(); }
     this.setState('results');
     this.input.releaseAll();
     this.lockGrace();
     this.input.exitLock();
     this.audio.play('levelClear', null, 1);
-    const last = c.levelIdx + 1 >= c.plan.length;
     const next = c.practice ? 'BACK TO TITLE' : last ? 'CONTINUE' : 'NEXT: ' + c.levelOf(c.plan[c.levelIdx + 1]).name;
     const medals = Object.keys(this.profile.v.medals).length;
     this.menus.showResults(res, { next, practice: c.practice, note: `TOTAL STYLE <b>${Math.floor(this.style.score)}</b> · KILLS <b>${this.run.kills}</b> · MEDALS <b>${medals}</b>` });
