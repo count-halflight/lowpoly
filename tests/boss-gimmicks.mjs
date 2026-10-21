@@ -127,7 +127,8 @@ try {
     : PICK !== 'gimmicks' ? PICK.split(',')
       : [...new Set(['vesper', 'grindhammer', 'crucible', 'scythewright', ...rows.filter((r) => r.gm && (r.gm === 'parry' || !seen.has(r.gm)) && seen.add(r.gm)).map((r) => r.id)])];
   console.log('bosses: ' + list.join(' '));
-  const parryHook = /gimmick === 'parry'/.test(readFileSync(new URL('../src/game/combat.js', import.meta.url), 'utf8'));
+  // damageBoss must let a parried shot through a shielded part (main has it since 2a4d345)
+  const parryHook = /part\.shielded && !\(info\.source === 'parry'/.test(readFileSync(new URL('../src/game/combat.js', import.meta.url), 'utf8'));
   if (!parryHook) console.log('NOTE: combat.js has no parry-shield hook yet: THE TALLYMAN, HYMNAL and PALE COURIER are expected to FAIL (known open soft-lock)');
   for (const id of list) {
     let r;
