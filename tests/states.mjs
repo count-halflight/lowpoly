@@ -368,14 +368,15 @@ try {
     S.set('aimToggle', true);
     g.startEndless(12);
     g.weapons.give('lance');
-    step(5);
+    step(60); // give() also equips it: let that switch finish first
     key('KeyZ', true); step(); key('KeyZ', false); step(30);
     const latched = g.input.aiming && g.weapons.adsOn;
-    g.input.slot = 3; step(); // to the Lance (number key 4)
+    // a real switch (number key 1, the Hammer): pressing the held gun's key only cycles its variant
+    g.input.slot = 0; step();
     const offDuringSwitch = !g.weapons.adsOn;
     step(60);
-    const backAfterSwitch = g.weapons.adsOn && g.weapons.current === 'lance';
-    g.input.pressed.reload = true; g.weapons.ammo.lance.mag = 0; step();
+    const backAfterSwitch = g.weapons.adsOn && g.weapons.current === 'hammer';
+    g.input.pressed.reload = true; g.weapons.ammo.hammer.mag = 0; step();
     const offDuringReload = !g.weapons.adsOn || !g.weapons.reloading;
     for (let i = 0; i < 300 && g.weapons.reloading; i++) step();
     step(20);
