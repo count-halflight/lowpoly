@@ -14,6 +14,8 @@ const DEFAULTS = {
   fov: 90,
   resolution: isTouchDevice ? 300 : 400,
   jitter: true,
+  bloom: true,         // glow on emissive accents, lamps, muzzle flashes
+  crt: false,          // CRT scanlines on the 3D view only (never the HUD/menus)
   shake: 1.0,
   reduceFlashes: false,
   master: 0.8,

@@ -1118,8 +1118,9 @@ export function generateSpec(arch, rng, ctx) {
   if (combat && !s.open && (ctx.secrets !== false) && rng.chance(s.wantSecret !== undefined ? s.wantSecret : 0.22)) placeSecret(s, rng);
   // level conditions add features
   if (cond === 'pads' && combat && !s.pads.length) { s.pads.push({ x: rng.range(-s.W / 4, s.W / 4), z: rng.range(-s.D / 4, s.D / 4), power: 15 }); s.pads.push({ x: rng.range(-s.W / 3, s.W / 3), z: rng.range(-s.D / 4, s.D / 4), power: 13 }); }
-  // floor bands for level conditions must not cross pits, water, presses or rails
+  // floor bands for level conditions must not cross pits, water, presses, rails or raised islands
   const bandFree = (z0, z1) => ![...s.holes, ...s.water].some((h) => h.z0 < z1 && h.z1 > z0) &&
+    !s.props.some((p) => p.island && p.z0 < z1 && p.z1 > z0) &&
     !s.crushers.some((c) => Math.abs(c.z - (z0 + z1) / 2) < c.d / 2 + (z1 - z0) / 2) && !s.movers.some((m) => m.y < 0.5 && Math.min(m.z, m.z + m.az) - m.d / 2 < z1 && Math.max(m.z, m.z + m.az) + m.d / 2 > z0);
   const freeBand = (half) => { for (let k = 0; k < 8; k++) { const z = rng.range(-s.D / 4, s.D / 4); if (bandFree(z - half, z + half)) return z; } return null; };
   if (cond === 'conveyor' && combat) {

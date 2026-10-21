@@ -29,6 +29,8 @@ const SETTINGS_SPEC = [
   { k: 'fov', label: 'Field of view', type: 'range', min: 70, max: 115, step: 1 },
   { k: 'resolution', label: 'Render resolution', type: 'select', options: [[240, '240p (crunchiest)'], [300, '300p'], [400, '400p'], [540, '540p'], [720, '720p (sharp)']] },
   { k: 'jitter', label: 'Retro vertex wobble', type: 'bool' },
+  { k: 'bloom', label: 'Glow (bloom)', type: 'bool' },
+  { k: 'crt', label: 'CRT scanlines', type: 'bool' },
   { k: 'shake', label: 'Screen shake', type: 'range', min: 0, max: 1.5, step: 0.05 },
   { k: 'reduceFlashes', label: 'Reduce flashes', type: 'bool' },
   { k: 'cutscenes', label: 'Play boss cutscenes', type: 'bool' },
