@@ -157,7 +157,11 @@ try {
     // a scripted lock: the headless browser's own (instant) lock events must not interleave
     const rq = g.input.requestLock;
     g.input.requestLock = () => {};
-    if (document.pointerLockElement) { document.exitPointerLock(); await wait(300); }
+    // a lock an earlier case asked for (RESUME) can still land late: let it, then drop it and let
+    // its own change events pass before the scripted part starts
+    await wait(500);
+    for (let i = 0; i < 20 && document.pointerLockElement; i++) { document.exitPointerLock(); await wait(100); }
+    await wait(300);
     g.startEndless(61);
     step(5);
     Object.defineProperty(document, 'pointerLockElement', { get: () => g.input.canvas, configurable: true });
@@ -376,8 +380,8 @@ try {
     const offDuringSwitch = !g.weapons.adsOn;
     step(60);
     const backAfterSwitch = g.weapons.adsOn && g.weapons.current === 'hammer';
-    g.input.pressed.reload = true; g.weapons.ammo.hammer.mag = 0; step();
-    const offDuringReload = !g.weapons.adsOn || !g.weapons.reloading;
+    g.input.pressed.reload = true; g.weapons.ammo.hammer.mag = 0; step(2); // ADS is decided before the reload starts in a tick
+    const offDuringReload = g.weapons.reloading && !g.weapons.adsOn;
     for (let i = 0; i < 300 && g.weapons.reloading; i++) step();
     step(20);
     const backAfterReload = g.weapons.adsOn;
