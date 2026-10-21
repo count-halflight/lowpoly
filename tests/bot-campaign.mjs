@@ -5,6 +5,8 @@
 //   LEVELS [3]   campaign levels from a new game (minibosses, both checkpoints, the boss)
 //   NG [1]       NG+ levels (mirrored rooms, corrupted enemies, the Warden)
 //   ENDLESS [6]  endless rooms (a boss every 5)
+//   ROUTES [1]   one room of every endless route type (combat, hazard, elite, cache, survival,
+//                boss), shallow and deep
 // Fails on: a room whose fight stops making progress or that never clears once empty, a cleared
 // room whose door the bot cannot get through, falling out of the world, being stuck inside
 // geometry, any page error or caught game error.
@@ -18,6 +20,7 @@ const PORT = parseInt(process.env.PORT || '4182', 10);
 const LEVELS = parseInt(process.env.LEVELS || '3', 10);
 const NG = parseInt(process.env.NG || '1', 10);
 const ENDLESS = parseInt(process.env.ENDLESS || '6', 10);
+const ROUTES = parseInt(process.env.ROUTES || '1', 10);
 const server = spawn(process.execPath, [new URL('../node_modules/vite/bin/vite.js', import.meta.url).pathname, 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });
 await new Promise((res) => { server.stdout.on('data', (d) => { if (String(d).includes(String(PORT))) res(); }); setTimeout(res, 4000); });
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -254,7 +257,15 @@ function install() {
     B.done = false; B.levels = 0; B.stopAtResults = 0; B.stopAtRoom = 0;
     g.profile.v.tutorialDone = true;
     if (kind === 'campaign') { g.newCampaign(arg.cycle || 0, true); B.stopAtResults = arg.levels; }
-    else { g.startEndless(arg.seed); B.stopAtRoom = arg.rooms; }
+    else if (kind === 'route') {
+      // one endless room of a given route type at a given depth: every exit leads there
+      g.startEndless(arg.seed);
+      const lobby = g.level.current;
+      lobby.index = arg.index - 1;
+      const reward = { cache: 'supply', hazard: 'rare', elite: 'rare', boss: 'boss' }[arg.type] || 'standard';
+      g.applyRoutes(lobby, lobby.exitDoors.map(() => ({ type: arg.type, label: arg.type.toUpperCase(), sub: 'TEST', color: '#3ef0d0', reward, picks: arg.type === 'survival' ? 2 : 1 })));
+      B.stopAtRoom = arg.index;
+    } else { g.startEndless(arg.seed); B.stopAtRoom = arg.rooms; }
     B.log.push('START ' + kind + ' ' + JSON.stringify(arg));
   };
   window.__BOT = B;
@@ -288,6 +299,12 @@ let bad = 0;
 if (LEVELS > 0) bad += (await scenario('campaign', 'campaign', { cycle: 0, levels: LEVELS }, 22 * LEVELS)).issues.length;
 if (NG > 0) bad += (await scenario('ng+', 'campaign', { cycle: 1, levels: NG }, 25 * NG)).issues.length;
 if (ENDLESS > 0) bad += (await scenario('endless', 'endless', { seed: 9137, rooms: ENDLESS }, 4 * ENDLESS + 6)).issues.length;
+// every endless route type, shallow and deep: it clears and its exits open
+if (ROUTES) {
+  for (const type of ['combat', 'hazard', 'elite', 'cache', 'survival', 'boss']) {
+    for (const index of type === 'boss' ? [5, 15] : [2, 12]) bad += (await scenario('route ' + type + ' @' + index, 'route', { seed: 500 + index * 7 + type.length, type, index }, 5)).issues.length;
+  }
+}
 if (errs.length) console.log('PAGE ERRORS', errs.slice(0, 8));
 console.log(JSON.stringify(summary));
 if (bad || errs.length) { console.log('FAIL: the bot hit problems (see ISSUE lines)'); process.exitCode = 1; } else console.log('BOT CAMPAIGN OK');

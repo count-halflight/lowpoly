@@ -253,6 +253,81 @@ try {
     return { ok: aimed && relPause && relDeath, aimed, relPause, relDeath };
   });
 
+  // the last machine of a fight gets wedged somewhere nobody can reach (under the floor, AI stuck):
+  // after half a minute without damage the director brings it back onto open floor, and the
+  // room clears once it dies
+  await run('stallNet', () => {
+    const { g, step } = window.__S;
+    g.startEndless(4545);
+    g.debug.god(true);
+    g.chooseExit(0);
+    step(10);
+    const nx = g.level.next;
+    g.player.spawnAt(nx.wx(nx.spec.entX), 0.1, nx.wz(nx.D / 2 - 2), 0);
+    for (let i = 0; i < 300 && !(g.level.current === nx && nx.state === 'combat'); i++) step();
+    const d = g.director;
+    for (let i = 0; i < 60 * 60 && d.waveIdx < d.waves.length; i++) { if (i % 20 === 0) { g.debug.killAll(); d.waveT = -99; } step(); }
+    for (let i = 0; i < 120 && g.enemies.aliveCount === 0; i++) step();
+    const victim = g.enemies.list.find((e) => e.alive && !e.flying && e.body);
+    if (!victim) return { ok: false, why: 'no ground enemy in the last wave', alive: g.enemies.aliveCount };
+    for (const e of g.enemies.list) if (e !== victim && e.alive) g.combat.damageEnemy(e, 1e7, { source: 'hazard', fromPlayer: false });
+    victim.update = () => {}; // its AI is stuck for good
+    victim.pos.set(nx.origin.x, -4, nx.origin.z); // below the floor slab, above the void net
+    let back = -1;
+    for (let i = 0; i < 60 * 45 && back < 0; i++) { step(); if (victim.pos.y > -0.5) back = i; }
+    const room = g.level.current, k = room.nav.nearestFree(victim.pos.x, victim.pos.z, 2);
+    room.nav.flow(g.player.body.pos.x, g.player.body.pos.z);
+    const reachable = k >= 0 && room.nav.dist[k] >= 0;
+    g.combat.damageEnemy(victim, 1e7, { source: 'hazard', fromPlayer: false });
+    for (let i = 0; i < 180 && room.state !== 'cleared'; i++) step();
+    g.debug.god(false);
+    return { ok: back > 60 * 25 && reachable && room.state === 'cleared', backAfterS: Math.round(back / 60), reachable, state: room.state };
+  });
+
+  // NG+: linger in a fight and THE WARDEN comes; the room holds until it is down, then clears
+  await run('warden', () => {
+    const { g, step, drive } = window.__S;
+    g.profile.v.tutorialDone = true;
+    g.newCampaign(1, true);
+    const inRoom = drive(() => g.level.current.index === 1 && g.level.current.state === 'combat' && g.state === 'playing', 60 * 120);
+    g.debug.god(true);
+    const room = g.level.current;
+    let f = 0;
+    for (; f < 60 * 90 && !g.director.warden; f++) step();
+    const w = g.director.warden;
+    const at = Math.round(f / 60);
+    // everything else dies: the room must still wait for the Warden
+    for (let i = 0; i < 60 * 30; i++) { if (i % 20 === 0) { for (const e of g.enemies.list) if (e.alive && e !== w) g.combat.damageEnemy(e, 1e7, { source: 'hazard', fromPlayer: false }); g.director.waveT = -99; } step(); }
+    const held = room.state === 'combat' && !!w && w.alive;
+    if (w) g.combat.damageEnemy(w, 1e7, { source: 'hazard', fromPlayer: false });
+    for (let i = 0; i < 240 && room.state !== 'cleared'; i++) step();
+    g.debug.god(false);
+    return { ok: inRoom && !!w && at >= 69 && held && room.state === 'cleared', inRoom, warden: !!w, at, held, state: room.state };
+  });
+
+  // SAVE & QUIT on a results screen after a rough boss fight, then CONTINUE: the next level must
+  // start at full health (the save carried the leftover HP), and so must RESTART LEVEL after it
+  await run('continueHp', () => {
+    const { g, step, click } = window.__S;
+    g.profile.v.tutorialDone = true;
+    g.newCampaign(0, true);
+    step(5);
+    g.player.hp = 17;
+    g.completeLevel();
+    const res = g.state === 'results';
+    const quit = click('quit');
+    step(2);
+    const cont = click('continue');
+    step(5);
+    const max = g.player.stats.maxHp, hp1 = g.player.hp, lvl = g.campaign.levelIdx;
+    g.player.damage(99999, null, 'TEST', '');
+    for (let i = 0; i < 200 && g.state !== 'dead'; i++) step();
+    const rl = click('retryLevel');
+    step(5);
+    const hp2 = g.player.hp;
+    return { ok: res && quit && cont && lvl === 1 && hp1 === max && rl && hp2 === max, res, quit, cont, lvl, hp1, hp2, max };
+  });
+
   // finale: final level from a real campaign save, real breaker pull, credits -> NG+
   await run('finale', () => {
     const { g, step, drive, click, walkTo, release } = window.__S;

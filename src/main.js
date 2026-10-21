@@ -280,10 +280,10 @@ class Game {
     this.level.reset(seed);
     this.director.reset(seed);
     this.projectiles.clear();
-    if (!opts.restored) {
-      this.player.hp = this.player.stats.maxHp;
-      for (const id of this.weapons.owned) this.weapons.addAmmo(id, 2);
-    }
+    // every level and checkpoint starts at full health: CONTINUE after quitting on a results
+    // screen restored the boss fight's leftover HP, and RESTART LEVEL then kept it for good
+    this.player.hp = this.player.stats.maxHp;
+    if (!opts.restored) for (const id of this.weapons.owned) this.weapons.addAmmo(id, 2);
     this.player.shield = this.player.stats.shieldMax;
     this.player.dashCharges = this.player.stats.dashCharges;
     const atRoom = opts.atRoom || 0;
