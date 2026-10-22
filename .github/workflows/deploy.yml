@@ -1,8 +1,9 @@
 name: Deploy to GitHub Pages
 
+# Every push to the game branch rebuilds the site, so the public build always matches the code.
 on:
   push:
-    branches: [main]
+    branches: [claude/ultrakill-fps-roguelite-w0csue, main]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

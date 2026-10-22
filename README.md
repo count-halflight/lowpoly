@@ -4,6 +4,8 @@
 
 Runs on desktop (keyboard + mouse), phones and iPads (multi-touch). No accounts, no network services, no paid assets. All art, textures and audio are generated in code; fonts are bundled.
 
+**▶ Play it in your browser: https://count-halflight.github.io/lowpoly/**  (rebuilt automatically from this branch on every push)
+
 ## Modes
 
 - **The Descent (campaign).** 10 strata × 5 levels = 50 hand-named levels; each playthrough picks 3 per stratum (30 levels) in a seeded order, then the final level. Every level has its own briefing, a mechanical condition (low gravity, ice, blackout, conveyors, launch pads, smog, blood fuel, glass jaw…) and its own mix of room archetypes dressed in the stratum's kit. Each level hides two minibosses, a boss at the end and a lore terminal. Levels are ranked D, C, B, A, S and P on time, style and damage. Progress saves at the start of every level.
@@ -40,7 +42,7 @@ npm run preview      # serve the production build locally
 
 `dist/` is a plain static site. Any free static host works:
 
-- **GitHub Pages:** the included workflow (`.github/workflows/deploy.yml`) builds and publishes on every push to `main`. In the repo, go to *Settings → Pages* and set the *Source* to **GitHub Actions**.
+- **GitHub Pages:** the included workflow (`.github/workflows/deploy.yml`) builds and publishes on every push to the game branch (or `main`) and tries to switch Pages on by itself; if the first run reports that Pages is not enabled, go to *Settings → Pages*, set the *Source* to **GitHub Actions**, and re-run it.
 - **Netlify / Cloudflare Pages / Vercel:** build command `npm run build`, output directory `dist`.
 - **itch.io:** zip the contents of `dist/` (or upload `dist-single/index.html`) as an HTML5 game.
 
